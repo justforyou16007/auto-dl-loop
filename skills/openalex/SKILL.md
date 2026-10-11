@@ -40,8 +40,18 @@ as returned. Missing metadata remains `null`.
 ## Research Wiki
 
 If `research-wiki/` exists, use the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`). Ingest only when
-the result contains the explicit metadata required by `research-wiki`; a
-failed ingest fails the skill.
+the result contains the explicit metadata `ingest_survey` requires; a failed
+ingest fails the skill.
+
+```bash
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ \
+  --title "$TITLE" --authors "$AUTHORS" --year "$YEAR" \
+  --venue "$VENUE" --external-id-doi "$DOI" || exit 1
+```
+
+Each ingest records the work as `survey:<slug>`. Add `--problems problem:<id>,...`
+for the wiki problems the work addresses, and refer to it by that id.
 
 ## Output
 

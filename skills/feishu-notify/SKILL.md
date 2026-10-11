@@ -141,7 +141,7 @@ Check if `~/.claude/feishu.json` exists and mode is not "off":
 | --- | --- | --- |
 | worker | `submission_scored` | `query` returns a verdict for a submission |
 | worker | `task_closed` | `query` reports `completed` or `closed` |
-| worker | `experiment_done` | `collect-outputs.sh` of `run-<project>-experiment` wrote a receipt |
+| worker | `experiment_done` | A fetch script of the `<project>-environment` skill collected a finished run's results |
 | worker | `checkpoint` | A step needs the owner (a captcha, an expired login, a missing credential) |
 | worker | `error` | Work stopped on an error it cannot fix |
 

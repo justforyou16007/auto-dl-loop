@@ -50,17 +50,17 @@ All active vast.ai instances are tracked in `vast-instances.json` at the project
 ]
 ```
 
-This file is the source of truth the generated experiment skill's ops use to connect to vast.ai instances.
+This file is the source of truth the project environment skill's scripts use to connect to vast.ai instances.
 
 ## Workflow
 
-> **Instance lifecycle (rent/setup/destroy) is delegated to the generated experiment skill's atomic scripts.** The offer-search + cost-presentation UX stays in this skill; `prepare.sh`/`collect.sh`/`teardown.sh` drive the instance.
+> **Syncing code, launching runs, collecting results and stopping go through the project environment skill `<project>-environment`.** The offer-search + cost-presentation UX and the instance lifecycle stay in this skill; the script table in `$SKILL_DIR/SKILL.md` names the scripts and their arguments.
 
 ```bash
-# --- resolve the project-level experiment skill ---
+# --- resolve the project environment skill ---
 PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
-SKILL_DIR=".claude/skills/run-${PROJECT}-experiment"
-[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: experiment skill not found at $SKILL_DIR. Run /experiment-env-configuration first." >&2; exit 1; }
+SKILL_DIR=".claude/skills/${PROJECT}-environment"
+[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: environment skill not found at $SKILL_DIR. Run /aris-setup to write it." >&2; exit 1; }
 ```
 
 ### Action: Provision (default)
@@ -163,13 +163,7 @@ Use these to scale the base estimated hours across offers.
 
 ### Action: Rent
 
-Create an instance from a user-selected offer. **After the user picks an offer in Provision Step 4**, provision via the generated experiment skill:
-
-```bash
-sh "$SKILL_DIR/scripts/ops/sync-code.sh" && sh "$SKILL_DIR/scripts/ops/build-env.sh"
-```
-
-The detailed `vastai create instance` / wait / ssh-url / verify steps below are the **reference implementation** the backend reproduces — they are now executed by `prepare.sh`, not inlined here.
+Create an instance from a user-selected offer, **after the user picks an offer in Provision Step 4**. Where the environment skill's script table has a script for a step below, run that script instead of the raw commands.
 
 **Step 1: Create Instance**
 
@@ -252,19 +246,13 @@ Vast.ai instance ready:
 - SSH: ssh -p <PORT> root@<HOST>
 - Docker: <IMAGE>
 
-To deploy: /run-<project>-experiment sync-code, then build-env and launch-job
+To deploy: run the sync and launch scripts of the <project>-environment skill
 To destroy when done: /vast-gpu destroy <ID>
 ```
 
 ### Action: Setup
 
-Set up the rented instance for a specific experiment. **Delegated to the generated experiment skill:**
-
-```bash
-sh "$SKILL_DIR/scripts/ops/sync-code.sh" && sh "$SKILL_DIR/scripts/ops/build-env.sh"
-```
-
-The pip-install / rsync / torch-verify steps below are the reference the backend reproduces.
+Set up the rented instance for a specific experiment. Use the environment skill's sync and environment-preparation scripts when its script table lists them; otherwise follow the steps below.
 
 **Step 1: Install Dependencies**
 
@@ -303,14 +291,7 @@ Expected output: `PyTorch 2.1.0, CUDA: True, GPUs: 1` (or more GPUs if multi-GPU
 
 ### Action: Destroy
 
-Tear down a vast.ai instance to stop billing. **Delegated to the generated experiment skill** (collects results first, then destroys; respects `auto_destroy` — skipped if false):
-
-```bash
-sh "$SKILL_DIR/scripts/ops/collect-outputs.sh"
-sh "$SKILL_DIR/scripts/ops/release-resources.sh"
-```
-
-The result-download / destroy / state-update steps below are the reference the backend reproduces.
+Tear down a vast.ai instance to stop billing. Collect results first, with the environment skill's fetch script when its script table lists one, then destroy; skip destruction when `auto_destroy` is false.
 
 **Step 1: Confirm Results Collected**
 

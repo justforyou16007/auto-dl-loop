@@ -2,57 +2,33 @@ import fs from "node:fs";
 import path from "node:path";
 import { failA1, isRecord } from "./validate.js";
 
+export type ArlRole = "worker" | "validation";
 export type ArlProvider = "claude" | "codex";
 
-export function installedProvider(root: string): ArlProvider {
+/** The role fixes the agent: the worker runs Claude Code at ultracode, validation runs Codex at max. */
+export const ROLE_AGENT = {
+  worker: { provider: "claude", thinking: "ultracode" },
+  validation: { provider: "codex", thinking: "max" },
+} as const satisfies Record<ArlRole, { provider: ArlProvider; thinking: string }>;
+
+/** The role chosen at installation (`install-aris.sh --role`); setup never changes it. */
+export function installedRole(root: string): ArlRole {
   const file = path.join(root, ".aris", "install.json");
-  if (!fs.existsSync(file)) return "claude";
+  if (!fs.existsSync(file))
+    failA1("INVALID_VALUE", "install ARL with --role worker|validation first", file);
   const installed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (!isRecord(installed) || (installed.provider !== "claude" && installed.provider !== "codex")) {
-    failA1("INVALID_VALUE", "invalid ARL installation provider", file);
-  }
-  return installed.provider;
+  if (!isRecord(installed) || (installed.role !== "worker" && installed.role !== "validation"))
+    failA1("INVALID_VALUE", "reinstall ARL with --role worker|validation", file);
+  return installed.role;
 }
 
+export function installedProvider(root: string): ArlProvider {
+  return ROLE_AGENT[installedRole(root)].provider;
+}
+
+/** The source checkout has no installation; its skills are found under `.claude/skills`. */
 export function providerSkillsDir(root: string): string {
-  const provider = installedProvider(root);
+  const installed = fs.existsSync(path.join(root, ".aris", "install.json"));
+  const provider = installed ? installedProvider(root) : "claude";
   return path.join(root, provider === "codex" ? ".agents" : ".claude", "skills");
-}
-
-/** Markers own only this server; unrelated TOML, including comments, stays byte-for-byte. */
-export function writeCodexValidationMcp(root: string, url: string, token: string): string {
-  const file = path.join(root, ".codex", "config.toml");
-  const begin = "# ARL VALIDATION MCP BEGIN";
-  const end = "# ARL VALIDATION MCP END";
-  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  const start = current.indexOf(begin);
-  const finish = current.indexOf(end);
-  const hasMarkers = start >= 0 && finish > start;
-  if ((start >= 0 || finish >= 0) && !hasMarkers) {
-    failA1("INVALID_VALUE", "repair incomplete ARL MCP markers before setup", file);
-  }
-  const outside = hasMarkers
-    ? current.slice(0, start) + current.slice(finish + end.length)
-    : current;
-  if (/^\s*\[\s*mcp_servers\s*\.\s*["']?aris-validation["']?\s*[.\]]/m.test(outside)) {
-    failA1(
-      "INVALID_VALUE",
-      "move the existing aris-validation MCP entry out before applying ARL setup",
-      file,
-    );
-  }
-  const block = [
-    begin,
-    '[mcp_servers."aris-validation"]',
-    `url = ${JSON.stringify(url)}`,
-    `http_headers = { Authorization = ${JSON.stringify(`Bearer ${token}`)} }`,
-    end,
-  ].join("\n");
-  const next = hasMarkers
-    ? current.slice(0, start) + block + current.slice(finish + end.length)
-    : `${current}${current.endsWith("\n") || !current ? "" : "\n"}\n${block}\n`;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, next, { mode: 0o600 });
-  fs.chmodSync(file, 0o600);
-  return file;
 }

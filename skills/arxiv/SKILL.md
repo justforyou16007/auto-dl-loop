@@ -65,10 +65,13 @@ returned arXiv ID with the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-w
 see [`/research-wiki`](../research-wiki/SKILL.md)):
 
 ```bash
-node "$WIKI_SCRIPT" ingest_paper research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
 ```
 
-Do not hand-write paper pages or silently leave an ingest for a later sync.
+Each ingest records the work as `survey:<slug>`. Add `--problems problem:<id>,...`
+for the wiki problems the work addresses, and refer to it by that id.
+
+Do not hand-write survey pages or silently leave an ingest for a later sync.
 
 ## Output
 

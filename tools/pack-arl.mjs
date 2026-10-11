@@ -13,8 +13,8 @@ const output = path.resolve(process.argv[directoryOnly ? 3 : 2] ?? path.join(roo
 const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "arl-package-"));
 const stage = path.join(temp, "arl");
-const skills = ["aris-setup", "validation-review", "research-wiki", "browser-act", "experiment-queue", "experiment-env-configuration", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/experiment-env/env-helper", "tools/experiment-env/parse-env", "skills/experiment-queue/queue-manager", "skills/experiment-queue/build-manifest"];
+const skills = ["aris-setup", "validation-review", "research-wiki", "browser-act", "shared-references"];
+const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act"];
 const visited = new Set();
 
 function copy(relative) {

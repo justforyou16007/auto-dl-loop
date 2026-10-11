@@ -8,8 +8,10 @@ ARL 是可独立安装、配合官方 Paseo 使用的两机研究任务包。保
 
 模型还做不好的一件事，是给自己的成果下结论：同一个 agent 写的评测，评出来的分数不可信。ARIS 现在只解决这一件事，做法是把"做"和"判"放到两台互相看不见的机器上：
 
-- **worker** 只管做。它拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
-- **validation** 只管判。它持有 worker 看不到的冻结 benchmark，对每次提交给出结论、分数和脱敏反馈，并按确定性指标决定任务何时结束。
+- **worker** 只管做。它是 Paseo 中 thinking 为 `ultracode` 的 Claude Code，拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
+- **validation** 只管判。它持有 worker 看不到的冻结 benchmark，为每次提交启动一个 thinking 为 `max` 的 Codex agent，给出结论、分数和脱敏反馈，并按确定性指标决定任务何时结束。
+
+角色在安装时确定（`--role worker|validation`），同时固定 agent、技能目录和指令文件，更新时不能更换。
 
 ## 二、两台机器之间只有一条通道
 
@@ -20,7 +22,7 @@ worker 机器                                   validation 机器
 │  └ worker agent       │  MCP: submit/query  │  ├ aris-validation 服务脚本       │
 │     task.md           │ ──────────────────▶ │  │   .aris/validation/            │
 │     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validation agent  │
-│     provider MCP     │ ──────────────────▶ │      .aris/tester-config.json     │
+│     .mcp.json         │ ──────────────────▶ │      .aris/tester-config.json     │
 └───────────────────────┘                     └──────────────────────────────────┘
 ```
 
@@ -33,7 +35,7 @@ worker 机器                                   validation 机器
 1. worker 调 `submit`，拿到一次性上传地址，用 `curl.exe -T` 把 zip 直接传到验证机器。
 2. 服务端算 sha256，安全解压（拒绝 `../` 路径，限制总大小和文件数），检查根目录有没有 `USAGE.md`。格式不对就拒收，**不计次数**——格式错误不该消耗 worker 的机会。
 3. 服务通过本机 `paseo run` 为这次提交新建一个 validation agent。它出现在验证机器的 Paseo 前端里，提示词只给提交编号和目录。
-4. validation agent 按 `validation-review` 技能走：先读代码找作弊迹象，再照 `USAGE.md` 写调用适配器，跑冻结 benchmark，最后写出结论（`valid` / `cheating` / `unusable`）和反馈。
+4. validation agent 按 `validation-review` 技能逐步执行：先读验证端 wiki 里仍未解决的验证问题，读代码找作弊迹象，再照 `USAGE.md` 写调用适配器，跑冻结 benchmark，写出结论（`valid` / `cheating` / `unusable`）和反馈，最后把这次提交解决了哪些问题、哪些仍存在记入 wiki。
 5. `finalize` 发布结果。之后 worker 的 `query` 才能看到。
 
 ### 分数为什么不由 agent 来报
@@ -58,14 +60,19 @@ agent 的结论只决定"算不算分"，分数本身由 helper 从 benchmark �
 
 | 文件 | 唯一写入方 |
 | --- | --- |
-| `.aris/setup-*.json`、`.aris/tester-config.json`、provider MCP 配置和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
+| `.aris/setup-*.json`、`.aris/tester-config.json`、`.aris/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、`.mcp.json` 和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
 | `.aris/validation/` 下的提交记录、发布结果 | `validation-cli.js`（服务和 `finalize`） |
 | 提交目录里的 `inspection.md`、`review.json`、`feedback.md`、适配器 | validation agent |
-| `research-wiki/` | `research-wiki.js` |
+| `research-wiki/`（两端各自一份） | `research-wiki.js` |
 | 本地 ARL 源码仓库 `arl` 分支的 `Experience.md` | worker agent（仅依据自身过程和已发布结果，精简、去重并保留跨项目经验） |
-| provider 技能目录中的 `run-<project>-experiment/` | setup 调用的 `experiment-env-configuration`，后续环境修复也通过该技能 |
+| 技能目录中的 `<project>-environment/` | 本机角色的 agent，按 `aris-setup` 的环境步骤写入并验证；之后发现新的环境事实或重复流程时同样补充 |
 
-`CLAUDE.md`（Claude）或 `AGENTS.md`（Codex）里 `ARIS ROLE` 标记之间的角色段由 setup 写入，标记外的内容 setup 不碰。
+`CLAUDE.md`（worker）或 `AGENTS.md`（validation）里 `ARIS ROLE` 标记之间的角色段由 setup 写入，标记外的内容 setup 不碰。
+
+角色段把记忆分成两层，并要求带编号的流程逐步执行、每次提交前先 commit：
+
+- **长期记忆必须使用。** `research-wiki/` 用 survey（对论文、仓库、文档、博客等已有工作的调研）、idea、experiment、claim、problem 五类节点和证据边，记录针对一个或多个问题已有工作做了什么、迭代和验证做了什么、哪些有效或无效；query pack 不超过 1000 字符并带节点引用，每轮开始先读。验证端的 wiki 记录各次提交暴露的验证问题、哪些已解决、哪些仍存在，同样不得包含隐藏样本、标签、参考答案或其摘抄。环境技能只放 agent 无从得知的环境事实和验证过的固定脚本，每个实验独立命名，worker 可在一轮迭代中并行运行多个实验。
+- **短期任务进 todo 列表。** 当前迭代的步骤和反馈里的每个问题，完成后才标记。
 
 worker 每次获得 validation 已发布的最终结论后，按[经验保存约定](skills/shared-references/experience.md)整理 `Experience.md`；validation agent 不参与经验写入，也不增加两机之间的通道。本地源码 checkout 的位置记录在 worker 项目指令的角色段外，源码仓库的 `CLAUDE.md` 指向经验文件。
 
@@ -79,8 +86,8 @@ worker 每次获得 validation 已发布的最终结论后，按[经验保存约
 
 判断标准只有一条：Claude Code agent 自己能做的，ARIS 就不再提供流程。
 
-- **独立包包含**：setup、validation-review、wiki、browser-act、experiment-queue、环境配置及其 helper 依赖闭包。setup 的环境输出是验证过的环境使用 skill；安装和升级使用同一安装器。部署和技能重载见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。GPU 平台、文献检索、飞书和 Overleaf 等技能留在源码中，不进入安装包。
-- **删除**：研究循环、各类审计和评审技能、子 agent 派发协议、worker manifest、Pipeline/Review 等前端视图。规划、派发、自查都是 agent 自己的工作。
+- **独立包包含**：setup、validation-review、research-wiki、browser-act 四个技能及其 helper 依赖闭包。setup 的环境输出是项目环境技能；安装和升级使用同一安装器。部署和技能重载见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。GPU 平台、文献检索、飞书和 Overleaf 等技能留在源码中，不进入安装包。
+- **删除**：研究循环、各类审计和评审技能、子 agent 派发协议、worker manifest、Pipeline/Review 等前端视图，以及环境 PRD、环境配置技能和实验队列。规划、派发、自查和实验调度都是 agent 自己的工作。
 
 ## 八、加新功能前先问
 

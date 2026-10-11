@@ -87,18 +87,18 @@ Cost estimate (Modal):
 
 ## Workflow
 
-> **Launcher generation, run, monitor, collect, cleanup are delegated to the generated experiment skill's atomic scripts.** The cost-estimate + GPU-choice UX (Step 1) stays in this skill; `prepare.sh`/`run.sh`/`collect.sh`/`teardown.sh` drive the Modal lifecycle.
+> **Fixed procedures (launch a named run, check it, fetch results, stop) belong in the project environment skill `<project>-environment`.** The cost-estimate + GPU-choice UX (Step 1) and the launcher patterns stay in this skill; where the script table in `$SKILL_DIR/SKILL.md` has a script for a step below, run it instead of the raw command.
 
 ```bash
-# --- resolve the project-level experiment skill ---
+# --- resolve the project environment skill ---
 PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
-SKILL_DIR=".claude/skills/run-${PROJECT}-experiment"
-[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: experiment skill not found at $SKILL_DIR. Run /experiment-env-configuration first." >&2; exit 1; }
+SKILL_DIR=".claude/skills/${PROJECT}-environment"
+[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: environment skill not found at $SKILL_DIR. Run /aris-setup to write it." >&2; exit 1; }
 ```
 
 ### Step 1: Analyze Task → Estimate Cost → Choose GPU
 
-Same analysis as any GPU skill — determine VRAM needs from model size, pick GPU, estimate hours, calculate cost. See pricing table above. The chosen GPU is configured in the generated experiment skill's `env.json` as `modal_gpu`.
+Same analysis as any GPU skill — determine VRAM needs from model size, pick GPU, estimate hours, calculate cost. See pricing table above. Record the chosen GPU as a fact in the environment skill's `SKILL.md`.
 
 **VRAM Rules of Thumb:**
 | Model Size | FP16 VRAM | Recommended GPU |
@@ -109,16 +109,9 @@ Same analysis as any GPU skill — determine VRAM needs from model size, pick GP
 | 30B | ~65GB | A100-80GB, H100 |
 | 70B | ~140GB | H100:2, H200 |
 
-### Step 2: Generate Modal Launcher (now done by `env_helper deploy`)
+### Step 2: Generate Modal Launcher
 
-```bash
-sh "$SKILL_DIR/scripts/ops/sync-code.sh + scripts/ops/build-env.sh"
-sh "$SKILL_DIR/scripts/ops/launch-job.sh" "$EXP_NAME" --args "$ARGS"
-```
-
-`deploy` generates `modal_launcher.py` reproducing Pattern A (`modal.Mount.from_local_dir` + `modal.Volume` + `@app.function(gpu=modal_gpu, timeout=modal_timeout, secrets=modal_secrets)` + `volume.commit()` + `train.remote()`) and runs `modal run`. The Pattern A/B/C/D/E/F reference below documents what the backend generates — kept for choosing the right pattern (Pattern A is the default for training scripts).
-
-Based on the task type, generate the appropriate launcher script.
+Based on the task type, generate the appropriate launcher script; Pattern A is the default for training scripts. Once a launcher is verified, keep its launch command as a script in the environment skill.
 
 #### Pattern A: One-Shot GPU Function (training, evaluation, benchmark)
 
@@ -248,20 +241,12 @@ def train_distributed():
 
 ### Step 3: Run
 
-Now executed by `run.sh` in the generated experiment skill. The raw command below is the reference:
-
 ```bash
-modal run launcher.py     # One-shot execution (most common for experiments) — now inside `env_helper deploy`
+modal run launcher.py     # One-shot execution (most common for experiments)
 modal deploy app.py       # Persistent service deployment
 ```
 
 ### Step 4: Verify & Monitor
-
-```bash
-sh "$SKILL_DIR/scripts/ops/job-status.sh"
-```
-
-(Backend runs `modal app list` + `modal app logs <app>` — reference below.)
 
 ```bash
 modal app list            # List running apps
@@ -270,11 +255,7 @@ modal app logs <app-name> # Stream logs
 
 ### Step 5: Collect Results
 
-```bash
-sh "$SKILL_DIR/scripts/ops/collect-outputs.sh"
-```
-
-Results collection depends on the pattern used (reference):
+Results collection depends on the pattern used:
 
 **Volume-based** (recommended for training):
 
@@ -294,14 +275,9 @@ Results are printed to terminal or returned from the function — already local.
 Modal auto-scales to zero — no manual instance destruction needed. But clean up unused resources:
 
 ```bash
-sh "$SKILL_DIR/scripts/ops/release-resources.sh"
-```
-
-(Reference commands the backend reproduces:)
 modal app stop <app-name> # Stop a deployed service
 modal volume rm <volume-name> # Delete a volume when done
-
-````
+```
 
 ## CLI Reference
 

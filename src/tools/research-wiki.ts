@@ -16,34 +16,35 @@ import {
   type WikiEvent,
   type WikiAppendResult,
 } from "./wiki-event-store.js";
-import { WIKI_EDGE_TYPES, isWikiEdgeType } from "./wiki-operations.js";
 import {
+  CLAIM_STATUSES,
+  EXPERIMENT_RESULTS,
+  IDEA_OUTCOMES,
+  MIN_QUERY_CHARS,
+  PROBLEM_SEVERITIES,
+  PROBLEM_STATUSES,
+  WIKI_EDGE_TYPES,
+  isWikiEdgeType,
+  wikiEdgeEndpointError,
+  wikiNodeKind,
+  type WikiEdgeType,
+  type WikiOperation,
+} from "./wiki-operations.js";
+import {
+  WIKI_PAGE_LAYOUT,
+  findPage,
+  ideaResult,
   projectWiki,
   projectWikiFromEvents,
   readWikiModel,
   replayWikiEvents,
   type WikiModel,
-  type WikiPageKind,
 } from "./wiki-projector.js";
+import { WIKI_SCOPE } from "./wiki-scope.js";
 
 const ARXIV_API = "https://export.arxiv.org/api/query?id_list={ids}";
 
-type JsonObject = Record<string, unknown>;
-type Operation = JsonObject;
-
-function isObject(value: unknown): value is JsonObject {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function splitCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
+/** `<author><year>_<keywords>`; just `<keywords>` when neither author nor year is known. */
 function slugify(title: string, authorLast = "", year = 0): string {
   const stopWords = new Set([
     "a",
@@ -65,8 +66,9 @@ function slugify(title: string, authorLast = "", year = 0): string {
     .split(/\s+/);
   const keywords = words.filter((word) => !stopWords.has(word) && word.length > 2);
   const keyword = keywords.length > 0 ? keywords.slice(0, 3).join("_") : "untitled";
-  const author = authorLast ? authorLast.toLowerCase().replace(/[^a-z]/g, "") : "unknown";
-  return `${author}${year ? String(year) : "0000"}_${keyword}`;
+  const author = authorLast.toLowerCase().replace(/[^a-z]/g, "");
+  if (!author && !year) return keyword;
+  return `${author || "unknown"}${year ? String(year) : "0000"}_${keyword}`;
 }
 
 function xmlFindAll(xml: string, localName: string): string[] {
@@ -171,7 +173,6 @@ interface ArxivMeta {
   abstract: string;
   primary_category: string;
   doi?: string;
-  s2_id?: string;
 }
 
 function parseArxivEntry(entry: string): ArxivMeta {
@@ -223,98 +224,19 @@ async function fetchArxivMetadataBatch(
   return result;
 }
 
-const VALID_EDGE_TYPES = new Set<string>(WIKI_EDGE_TYPES);
+type JsonObject = Record<string, unknown>;
 
-const EDGE_ENDPOINT_KINDS: Record<string, { from: string[]; to: string[] }> = {
-  extends: { from: ["paper", "claim"], to: ["paper"] },
-  contradicts: { from: ["paper"], to: ["paper"] },
-  supersedes: { from: ["paper"], to: ["paper"] },
-  addresses: { from: ["idea", "claim"], to: ["problem"] },
-  child_of: { from: ["problem"], to: ["problem"] },
-  inspired_by: { from: ["idea"], to: ["paper"] },
-  tested_by: { from: ["idea", "claim"], to: ["exp"] },
-  supports: { from: ["exp"], to: ["claim", "idea"] },
-  invalidates: { from: ["exp"], to: ["claim", "idea"] },
-  uses: { from: ["claim"], to: ["paper"] },
-  depends_on: { from: ["claim"], to: ["claim"] },
-  refutes: { from: ["claim"], to: ["claim"] },
-};
-
-function nodeKindOf(nodeId: string): string {
-  const separator = nodeId.indexOf(":");
-  return separator > 0 ? nodeId.slice(0, separator) : "";
+function isObject(value: unknown): value is JsonObject {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
-function edgeTypesForKinds(fromKind: string, toKind: string): string[] {
-  return Object.entries(EDGE_ENDPOINT_KINDS)
-    .filter(([, spec]) => spec.from.includes(fromKind) && spec.to.includes(toKind))
-    .map(([type]) => type);
-}
-
-function assertEdgeEndpointKinds(fromId: string, toId: string, edgeType: string): void {
-  const spec = EDGE_ENDPOINT_KINDS[edgeType];
-  if (!spec) return;
-  const fromKind = nodeKindOf(fromId);
-  const toKind = nodeKindOf(toId);
-  if (spec.from.includes(fromKind) && spec.to.includes(toKind)) return;
-  const alternatives = edgeTypesForKinds(fromKind, toKind);
-  const hint =
-    alternatives.length > 0 ? ` For ${fromKind} → ${toKind} use: ${alternatives.join(", ")}.` : "";
-  throw new Error(
-    `add_edge: '${edgeType}' connects ${spec.from.join("|")} --${edgeType}--> ${spec.to.join("|")}, got ${fromKind || "?"} --${edgeType}--> ${toKind || "?"}.${hint}`,
-  );
-}
-
-function normalizeNodeId(value: string, defaultPrefix: string): string {
-  const trimmed = value.trim();
-  assertNotAbsoluteIdentifier(trimmed, "node id");
-  return trimmed ? (trimmed.includes(":") ? trimmed : `${defaultPrefix}${trimmed}`) : "";
-}
-
-function pageExists(model: WikiModel, nodeId: string): boolean {
-  const separator = nodeId.indexOf(":");
-  if (separator <= 0) return false;
-  const kind = nodeId.slice(0, separator) as WikiPageKind;
-  const slug = nodeId.slice(separator + 1);
-  return (
-    ["paper", "idea", "experiment", "claim", "problem"].includes(kind) &&
-    model.pages[kind]?.has(slug) === true
-  );
-}
-
-function warnIfDangling(model: WikiModel, nodeId: string, operation: string): void {
-  if (nodeId && !pageExists(model, nodeId)) {
-    throw new Error(`${operation}: edge target ${nodeId} not found in this wiki`);
-  }
-}
-
-function dedupeIds(ids: string[]): string[] {
-  return [...new Set(ids)];
-}
-
-function appendEvidenceOnce(existing: string, incoming: string): string {
-  const current = existing.trim();
-  const next = incoming.trim();
-  if (!next || !current) return current || next;
-  if (current === next) return current;
-  if (current.split("\n\n").some((part) => part.trim() === next)) return current;
-  return `${current}\n\n${next}`;
-}
-
-function sanitizeText(value: string, label: string, operations: Operation[]): string {
-  if (!value) return value;
-  const [safe, findings] = quarantine(value, "strict", label);
-  if (findings.length > 0) {
-    operations.push({ op: "quarantine", target: label, findings, raw_text: value });
-    console.error(`Warning: ${label} was quarantined (${findings.join(", ")}).`);
-  }
-  return safe;
-}
-
-/** task.md beside the wiki is the whole task; the query pack carries its sections. */
-function captureProjectDirection(wikiRoot: string): string | null {
-  const taskPath = path.join(path.dirname(path.resolve(wikiRoot)), "task.md");
-  return fs.existsSync(taskPath) ? fs.readFileSync(taskPath, "utf-8") : null;
+function splitCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function assertNotAbsoluteIdentifier(value: string, label: string): void {
@@ -332,21 +254,59 @@ function assertNotAbsoluteIdentifier(value: string, label: string): void {
   }
 }
 
-function withProjectionContext(
-  wikiRoot: string,
-  model: WikiModel,
-  operations: Operation[],
-): Operation[] {
-  const result = [...operations];
-  const direction = captureProjectDirection(wikiRoot) ?? "";
-  if (direction !== (model.project_direction ?? "")) {
-    result.push({ op: "set_project_direction", text: direction });
+function assertOneOf(value: string, allowed: readonly string[], label: string): void {
+  if (!allowed.includes(value)) {
+    throw new Error(`unknown ${label} '${value}' (expected ${allowed.join(" | ")})`);
   }
-  return result;
+}
+
+function normalizeNodeId(value: string, defaultPrefix: string): string {
+  const trimmed = value.trim();
+  assertNotAbsoluteIdentifier(trimmed, "node id");
+  return trimmed ? (trimmed.includes(":") ? trimmed : `${defaultPrefix}:${trimmed}`) : "";
+}
+
+/** Normalize, check the kind and dedupe a list of node ids given to `operation`. */
+function nodeIds(values: string[] | undefined, kind: string, operation: string): string[] {
+  const ids: string[] = [];
+  for (const raw of values ?? []) {
+    const id = normalizeNodeId(raw, kind);
+    if (!id) continue;
+    if (wikiNodeKind(id) !== kind)
+      throw new Error(`${operation}: expected ${kind} ids, got '${id}'`);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+function assertNodeExists(model: WikiModel, nodeId: string, operation: string): void {
+  if (!findPage(model, nodeId)) throw new Error(`${operation}: ${nodeId} not found in this wiki`);
+}
+
+function edgeOperation(from: string, to: string, type: WikiEdgeType): WikiOperation {
+  return { op: "upsert_edge", edge: { from, to, type, evidence: `${from} ${type} ${to}` } };
+}
+
+function sanitizeText(value: string, label: string, operations: WikiOperation[]): string {
+  if (!value) return value;
+  const [safe, findings] = quarantine(value, "strict", label);
+  if (findings.length > 0) {
+    operations.push({ op: "quarantine", target: label, findings, raw_text: value });
+    console.error(`Warning: ${label} was quarantined (${findings.join(", ")}).`);
+  }
+  return safe;
+}
+
+function appendEvidenceOnce(existing: string, incoming: string): string {
+  const current = existing.trim();
+  const next = incoming.trim();
+  if (!next || !current) return current || next;
+  if (current.split("\n\n").some((part) => part.trim() === next)) return current;
+  return `${current}\n\n${next}`;
 }
 
 type EvidenceBundleId = string | ((events: readonly WikiEvent[], model: WikiModel) => string);
-type OperationBuilder = (model: WikiModel, events: readonly WikiEvent[]) => Operation[] | null;
+type OperationBuilder = (model: WikiModel) => WikiOperation[] | null;
 
 function commitOperations(
   wikiRoot: string,
@@ -358,16 +318,16 @@ function commitOperations(
     wikiRoot,
     (events: readonly WikiEvent[]): WikiDelta | null => {
       const model = replayWikiEvents(events);
-      const operations = build(model, events);
+      const operations = build(model);
       if (operations === null) return null;
       const evidence =
         typeof evidenceBundleId === "function" ? evidenceBundleId(events, model) : evidenceBundleId;
       return {
         producer_kind: "standalone-research-wiki",
-        scope: "standalone",
+        scope: WIKI_SCOPE,
         subject_id: subjectId,
         evidence_bundle_id: evidence || subjectId,
-        payload: { operations: withProjectionContext(wikiRoot, model, operations) },
+        payload: { operations },
       };
     },
     (events) => projectWikiFromEvents(wikiRoot, events),
@@ -380,19 +340,7 @@ function commitOperations(
   return result;
 }
 
-function projectionConfigEvidence(events: readonly WikiEvent[], model: WikiModel): string {
-  const previousStateHash = canonicalJsonSha256(
-    {
-      project_direction: model.project_direction ?? "",
-      max_query_chars: model.max_query_chars,
-    },
-    anyJsonSchema,
-  );
-  const head = eventLogHead(events);
-  return `projection-config-v1:${previousStateHash}:${head.event_id ?? "genesis"}`;
-}
-
-function addLog(operations: Operation[], message: string): void {
+function addLog(operations: WikiOperation[], message: string): void {
   operations.push({ op: "append_log", message });
 }
 
@@ -406,12 +354,15 @@ function nodeSlugify(name: string, supplied: string): string {
       .replace(/^-|-$/g, "");
     if (value) return value;
   }
-  return slugify(name).replace(/^_+|^0+|_+$/g, "") || "node";
+  return slugify(name) || "node";
 }
 
-function parseExisting(model: WikiModel, kind: WikiPageKind, id: string): JsonObject | null {
-  const page = model.pages[kind].get(id);
-  return page ? { ...page.data } : null;
+function pagePath(root: string, kind: keyof typeof WIKI_PAGE_LAYOUT, slug: string): string {
+  return path.join(root, WIKI_PAGE_LAYOUT[kind].dir, `${slug}.md`);
+}
+
+function existingString(existing: JsonObject | undefined, key: string, fallback = ""): string {
+  return typeof existing?.[key] === "string" ? existing[key] : fallback;
 }
 
 function initWiki(wikiRoot: string): void {
@@ -422,163 +373,170 @@ function initWiki(wikiRoot: string): void {
 
 function addEdge(
   wikiRoot: string,
-  fromId: string,
-  toId: string,
+  fromInput: string,
+  toInput: string,
   edgeType: string,
   evidence = "",
 ): void {
-  assertNotAbsoluteIdentifier(fromId, "edge source");
-  assertNotAbsoluteIdentifier(toId, "edge target");
+  const from = fromInput.trim();
+  const to = toInput.trim();
+  assertNotAbsoluteIdentifier(from, "edge source");
+  assertNotAbsoluteIdentifier(to, "edge target");
   if (!isWikiEdgeType(edgeType)) {
-    console.error(
-      `Warning: unknown edge type '${edgeType}'. Valid: ${[...VALID_EDGE_TYPES].join(", ")}`,
+    throw new Error(
+      `add_edge: unknown edge type '${edgeType}'. Valid: ${WIKI_EDGE_TYPES.join(", ")}`,
     );
-    throw new Error(`add_edge: unknown edge type '${edgeType}'`);
   }
-  assertEdgeEndpointKinds(fromId, toId, edgeType);
+  const endpointError = wikiEdgeEndpointError(from, to, edgeType);
+  if (endpointError) throw new Error(`add_edge: ${endpointError}`);
   const root = path.resolve(wikiRoot);
+  assertWikiSchemaSupported(root);
   const result = commitOperations(
     root,
-    `edge:${fromId}:${edgeType}:${toId}`,
-    evidence || `${fromId}->${toId}`,
+    `edge:${from}:${edgeType}:${to}`,
+    `${from}->${to}`,
     (model) => {
+      assertNodeExists(model, from, "add_edge");
+      assertNodeExists(model, to, "add_edge");
       if (
-        model.edges.some(
-          (edge) => edge.from === fromId && edge.to === toId && edge.type === edgeType,
-        )
+        model.edges.some((edge) => edge.from === from && edge.to === to && edge.type === edgeType)
       ) {
-        console.log(`Edge already exists: ${fromId} --${edgeType}--> ${toId}`);
+        console.log(`Edge already exists: ${from} --${edgeType}--> ${to}`);
         return null;
       }
-      const operations: Operation[] = [];
-      const safeEvidence = sanitizeText(evidence, `edge ${fromId} -> ${toId}`, operations);
+      const operations: WikiOperation[] = [];
+      const safeEvidence = sanitizeText(evidence, `edge ${from} -> ${to}`, operations);
       operations.push({
         op: "upsert_edge",
-        edge: { from: fromId, to: toId, type: edgeType, evidence: safeEvidence },
+        edge: { from, to, type: edgeType, evidence: safeEvidence },
       });
-      addLog(operations, `add_edge: ${fromId} --${edgeType}--> ${toId}`);
+      addLog(operations, `add_edge: ${from} --${edgeType}--> ${to}`);
       return operations;
     },
   );
   if (result.status === "skipped") return;
-  console.log(`Edge added: ${fromId} --${edgeType}--> ${toId}`);
+  console.log(`Edge added: ${from} --${edgeType}--> ${to}`);
 }
 
-function arxivFromPage(page: JsonObject): string {
-  const external = isObject(page.external_ids) ? page.external_ids : {};
-  return typeof external.arxiv === "string" ? external.arxiv : "";
+function normalizeSourceUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`ingest_survey: --url must be an absolute http(s) URL, got '${trimmed}'`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`ingest_survey: --url must use http or https, got '${parsed.protocol}'`);
+  }
+  return parsed.href;
 }
 
-function findExistingPaper(model: WikiModel, arxivId: string): string | null {
-  for (const page of model.pages.paper.values()) {
-    if (arxivFromPage(page.data) === arxivId) return page.id;
+function findExistingSurvey(model: WikiModel, arxivId: string, url: string): string | null {
+  for (const page of model.pages.survey.values()) {
+    const external = isObject(page.data.external_ids) ? page.data.external_ids : {};
+    if (arxivId && external.arxiv === arxivId) return page.id;
+    if (!arxivId && url && page.data.url === url) return page.id;
   }
   return null;
 }
 
-async function ingestPaper(
-  wikiRoot: string,
-  options: {
-    arxivId?: string;
-    title?: string;
-    authors?: string[];
-    year?: number;
-    venue?: string;
-    doi?: string;
-    thesis?: string;
-    tags?: string[];
-    updateOnExist?: boolean;
-    prefetchedMeta?: ArxivMeta | null;
-  },
-): Promise<string> {
+interface SurveyOptions {
+  arxivId?: string;
+  url?: string;
+  title?: string;
+  authors?: string[];
+  year?: number;
+  venue?: string;
+  doi?: string;
+  thesis?: string;
+  tags?: string[];
+  problems?: string[];
+  updateOnExist?: boolean;
+  prefetchedMeta?: ArxivMeta;
+}
+
+async function ingestSurvey(wikiRoot: string, options: SurveyOptions): Promise<string> {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
-  const metadata: ArxivMeta = options.arxivId
-    ? { ...(options.prefetchedMeta ?? (await fetchArxivMetadata(options.arxivId))) }
+  const arxivId = options.arxivId ? normalizeArxivId(options.arxivId) : "";
+  const authors = options.authors ?? [];
+  const year = options.year ?? 0;
+  if (!arxivId && !(options.title && (options.url || (authors.length > 0 && year)))) {
+    throw new Error(
+      "ingest_survey: without --arxiv-id, pass --title with --url, or --title with --authors and --year.",
+    );
+  }
+  const problems = nodeIds(options.problems, "problem", "ingest_survey");
+  const metadata: ArxivMeta = arxivId
+    ? { ...(options.prefetchedMeta ?? (await fetchArxivMetadata(arxivId))), arxiv_id: arxivId }
     : {
         arxiv_id: "",
-        title: options.title ?? "",
-        authors: options.authors ?? [],
-        year: options.year ?? 0,
-        venue: options.venue || "unknown",
+        title: "",
+        authors: [],
+        year: 0,
+        venue: "",
         abstract: "",
         primary_category: "",
       };
-  if (!options.arxivId && !(options.title && options.authors?.length && options.year)) {
-    throw new Error(
-      "Manual ingest requires --title, --authors, and --year when --arxiv-id is not supplied.",
-    );
-  }
-  const normalizedArxiv = options.arxivId ? normalizeArxivId(options.arxivId) : "";
-  metadata.arxiv_id = normalizedArxiv || metadata.arxiv_id;
   if (options.title) metadata.title = options.title;
-  if (options.authors?.length) metadata.authors = options.authors;
-  if (options.year) metadata.year = options.year;
+  if (authors.length > 0) metadata.authors = authors;
+  if (year) metadata.year = year;
   if (options.venue) metadata.venue = options.venue;
-  if (options.doi) metadata.doi = options.doi;
+  const url = normalizeSourceUrl(
+    options.url || (arxivId ? `https://arxiv.org/abs/${arxivId}` : ""),
+  );
 
   const authorLast = metadata.authors[0]?.trim().split(/\s+/).at(-1) ?? "";
-  let slug = slugify(metadata.title, authorLast, metadata.year);
-  const existingSlug = normalizedArxiv
-    ? findExistingPaper(readWikiModel(root), normalizedArxiv)
-    : null;
-  if (existingSlug) slug = existingSlug;
-  const pagePath = path.join(root, "papers", `${slug}.md`);
-  const subject = `paper:${slug}`;
-  let existedBefore = existingSlug !== null;
+  const titleSlug = slugify(metadata.title, authorLast, metadata.year);
+  let slug = titleSlug;
+  let existedBefore = false;
   const result = commitOperations(
     root,
-    subject,
-    options.doi || normalizedArxiv || subject,
+    `survey:${titleSlug}`,
+    options.doi || arxivId || url || titleSlug,
     (model) => {
-      const existing = parseExisting(model, "paper", slug);
-      existedBefore = existing !== null;
-      if ((existing || model.pages.paper.has(slug)) && !options.updateOnExist) {
-        console.log(`Paper already ingested: ${path.basename(pagePath)} — skipping.`);
+      slug = findExistingSurvey(model, arxivId, url) ?? titleSlug;
+      const subject = `survey:${slug}`;
+      existedBefore = model.pages.survey.has(slug);
+      if (existedBefore && !options.updateOnExist) {
+        console.log(
+          `Survey already ingested: ${subject} — skipping (use --update-on-exist or add_edge).`,
+        );
         return null;
       }
-      const operations: Operation[] = [
-        {
-          op: "upsert_page",
-          kind: "paper",
-          id: slug,
-          data: {
-            title: metadata.title,
-            authors: [...metadata.authors],
-            year: metadata.year,
-            venue: metadata.venue || "arXiv",
-            external_ids: {
-              arxiv: metadata.arxiv_id,
-              doi: metadata.doi ?? "",
-              s2: metadata.s2_id ?? "",
-            },
-            tags: options.tags ?? [],
-            thesis: options.thesis ?? "",
-            abstract: metadata.abstract,
-            primary_category: metadata.primary_category,
-          },
+      for (const problem of problems) assertNodeExists(model, problem, "ingest_survey");
+      const operations: WikiOperation[] = [];
+      operations.push({
+        op: "upsert_page",
+        kind: "survey",
+        id: slug,
+        data: {
+          title: metadata.title,
+          authors: [...metadata.authors],
+          year: metadata.year,
+          venue: metadata.venue,
+          url,
+          external_ids: { arxiv: metadata.arxiv_id, doi: options.doi ?? "" },
+          tags: options.tags ?? [],
+          thesis: sanitizeText(options.thesis ?? "", `survey ${slug}.thesis`, operations),
+          abstract: sanitizeText(metadata.abstract, `survey ${slug}.abstract`, operations),
         },
-      ];
+      });
+      for (const problem of problems) operations.push(edgeOperation(subject, problem, "addresses"));
       addLog(
         operations,
-        `ingest_paper: ${options.updateOnExist ? "updated" : "ingested"} paper:${slug} (arxiv:${metadata.arxiv_id || "-"})`,
+        `ingest_survey: ${options.updateOnExist ? "updated" : "ingested"} ${subject} (${arxivId ? `arxiv:${arxivId}` : url || "manual"})`,
       );
       return operations;
     },
   );
-  if (result.status === "skipped") return pagePath;
-  console.log(`Paper ${existedBefore ? "updated" : "ingested"}: ${pagePath}`);
-  return pagePath;
+  const file = pagePath(root, "survey", slug);
+  if (result.status !== "skipped")
+    console.log(`Survey ${existedBefore ? "updated" : "ingested"}: ${file}`);
+  return file;
 }
-
-const CLAIM_STATUSES = new Set([
-  "drafted",
-  "unproven",
-  "sound-modulo-imports",
-  "verified",
-  "refuted",
-  "retracted",
-]);
 
 function addClaim(
   wikiRoot: string,
@@ -603,17 +561,24 @@ function addClaim(
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
   const status = options.status ?? "drafted";
-  if (!CLAIM_STATUSES.has(status)) throw new Error(`unknown claim status '${status}'`);
+  assertOneOf(status, CLAIM_STATUSES, "claim status");
   const slug = nodeSlugify(name, suppliedSlug);
   const subject = `claim:${slug}`;
+  const references: Array<[string[], WikiEdgeType]> = [
+    [nodeIds(options.addresses, "problem", "add_claim"), "addresses"],
+    [nodeIds(options.extends, "survey", "add_claim"), "extends"],
+    [nodeIds(options.uses, "survey", "add_claim"), "uses"],
+    [nodeIds(options.dependsOn, "claim", "add_claim"), "depends_on"],
+    [nodeIds(options.refutes, "claim", "add_claim"), "refutes"],
+  ];
   let existedBefore = false;
   const result = commitOperations(root, subject, options.provenance || subject, (model) => {
     existedBefore = model.pages.claim.has(slug);
-    if (model.pages.claim.has(slug) && !options.updateOnExist) {
+    if (existedBefore && !options.updateOnExist) {
       console.log(`Claim already exists: ${slug}.md (slug dedup) — skipping.`);
       return null;
     }
-    const operations: Operation[] = [];
+    const operations: WikiOperation[] = [];
     const data = {
       name,
       description: sanitizeText(options.description ?? "", `claim ${slug}.description`, operations),
@@ -626,51 +591,25 @@ function addClaim(
       date: "",
     };
     operations.unshift({ op: "upsert_page", kind: "claim", id: slug, data });
-    const addReferences = (
-      values: string[] | undefined,
-      prefix: string,
-      edgeType: string,
-      targetKind: string,
-    ) => {
-      for (const raw of values ?? []) {
-        const target = normalizeNodeId(raw, prefix);
-        if (!target) continue;
-        warnIfDangling(model, target, "add_claim");
-        if (nodeKindOf(target) !== targetKind)
-          throw new Error(`add_claim: ${edgeType} target must be ${targetKind}`);
-        operations.push({
-          op: "upsert_edge",
-          edge: {
-            from: subject,
-            to: target,
-            type: edgeType,
-            evidence: `${subject} ${edgeType} ${target}`,
-          },
-        });
+    for (const [targets, type] of references) {
+      for (const target of targets) {
+        assertNodeExists(model, target, "add_claim");
+        operations.push(edgeOperation(subject, target, type));
       }
-    };
-    addReferences(options.addresses, "problem:", "addresses", "problem");
-    addReferences(options.extends, "paper:", "extends", "paper");
-    addReferences(options.uses, "paper:", "uses", "paper");
-    addReferences(options.dependsOn, "claim:", "depends_on", "claim");
-    addReferences(options.refutes, "claim:", "refutes", "claim");
+    }
     addLog(
       operations,
       `add_claim: ${options.updateOnExist ? "updated" : "added"} ${subject} [status=${status}]`,
     );
     return operations;
   });
+  const file = pagePath(root, "claim", slug);
   if (result.status === "skipped") {
-    console.log(`Claim skipped: ${path.join(root, "claims", `${slug}.md`)}`);
+    console.log(`Claim skipped: ${file}`);
     return;
   }
-  console.log(
-    `Claim ${existedBefore ? "updated" : "added"}: ${path.join(root, "claims", `${slug}.md`)} [status=${status}]`,
-  );
+  console.log(`Claim ${existedBefore ? "updated" : "added"}: ${file} [status=${status}]`);
 }
-
-const IDEA_OUTCOMES = new Set(["unknown", "pending", "negative", "mixed", "positive"]);
-const IDEA_STAGES = new Set(["proposed", "active", "piloted", "archived"]);
 
 function upsertIdea(
   wikiRoot: string,
@@ -678,7 +617,6 @@ function upsertIdea(
   title: string,
   options: {
     description?: string;
-    stage?: string;
     outcome?: string;
     thesis?: string;
     risks?: string;
@@ -690,35 +628,27 @@ function upsertIdea(
 ): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
-  const stage = options.stage ?? "proposed";
   const outcome = options.outcome ?? "pending";
-  if (!IDEA_STAGES.has(stage)) throw new Error(`unknown idea stage '${stage}'`);
-  if (!IDEA_OUTCOMES.has(outcome)) throw new Error(`unknown idea outcome '${outcome}'`);
+  assertOneOf(outcome, IDEA_OUTCOMES, "idea outcome");
   const slug = nodeSlugify(title, suppliedSlug);
   const subject = `idea:${slug}`;
+  const basedOn = nodeIds(options.basedOn, "survey", "upsert_idea --based-on");
+  const targetProblems = nodeIds(
+    options.targetProblems,
+    "problem",
+    "upsert_idea --target-problems",
+  );
   let existedBefore = false;
   const result = commitOperations(root, subject, subject, (model) => {
     existedBefore = model.pages.idea.has(slug);
-    if (model.pages.idea.has(slug) && !options.updateOnExist) {
+    if (existedBefore && !options.updateOnExist) {
       console.log(`Idea already exists: ${slug}.md (slug dedup) — skipping.`);
       return null;
     }
-    const operations: Operation[] = [];
-    const basedOnIds: string[] = [];
-    const targetProblems = [...(options.targetProblems ?? [])];
-    for (const raw of options.basedOn ?? []) {
-      const target = normalizeNodeId(raw, "paper:");
-      if (!target) continue;
-      if (nodeKindOf(target) === "problem") targetProblems.push(target);
-      else if (nodeKindOf(target) === "paper") basedOnIds.push(target);
-      else throw new Error(`upsert_idea: --based-on takes paper ids, got '${target}'`);
-    }
-    const targetProblemIds = dedupeIds(
-      targetProblems.map((item) => normalizeNodeId(item, "problem:")).filter(Boolean),
-    );
-    for (const target of [...basedOnIds, ...targetProblemIds])
-      warnIfDangling(model, target, "upsert_idea");
-    operations.unshift({
+    for (const target of [...basedOn, ...targetProblems])
+      assertNodeExists(model, target, "upsert_idea");
+    const operations: WikiOperation[] = [];
+    operations.push({
       op: "upsert_page",
       kind: "idea",
       id: slug,
@@ -729,67 +659,41 @@ function upsertIdea(
           `idea ${slug}.description`,
           operations,
         ),
-        stage,
         outcome,
         thesis: sanitizeText(options.thesis ?? "", `idea ${slug}.thesis`, operations),
         risks: sanitizeText(options.risks ?? "", `idea ${slug}.risks`, operations),
-        based_on: basedOnIds,
-        target_problems: targetProblemIds,
         tags: options.tags ?? [],
       },
     });
-    for (const target of basedOnIds)
-      operations.push({
-        op: "upsert_edge",
-        edge: {
-          from: subject,
-          to: target,
-          type: "inspired_by",
-          evidence: `${subject} inspired by paper`,
-        },
-      });
-    for (const target of targetProblemIds)
-      operations.push({
-        op: "upsert_edge",
-        edge: {
-          from: subject,
-          to: target,
-          type: "addresses",
-          evidence: `${subject} addresses problem`,
-        },
-      });
+    for (const target of basedOn) operations.push(edgeOperation(subject, target, "inspired_by"));
+    for (const target of targetProblems)
+      operations.push(edgeOperation(subject, target, "addresses"));
     addLog(
       operations,
-      `upsert_idea: ${options.updateOnExist ? "updated" : "added"} ${subject} [stage=${stage} outcome=${outcome}]`,
+      `upsert_idea: ${options.updateOnExist ? "updated" : "added"} ${subject} [outcome=${outcome}]`,
     );
     return operations;
   });
   if (result.status === "skipped") return;
   console.log(
-    `Idea ${existedBefore ? "updated" : "added"}: ${path.join(root, "ideas", `${slug}.md`)} [stage=${stage} outcome=${outcome}]`,
+    `Idea ${existedBefore ? "updated" : "added"}: ${pagePath(root, "idea", slug)} [outcome=${outcome}]`,
   );
 }
 
-const EXPERIMENT_VERDICTS = new Set(["yes", "partial", "no"]);
-const EXPERIMENT_CONFIDENCE = new Set(["high", "medium", "low"]);
-
-export function addExperiment(
+function addExperiment(
   wikiRoot: string,
   slugInput: string,
   options: {
     title?: string;
     idea?: string;
-    verdict?: string;
-    confidence?: string;
-    date?: string;
-    hardware?: string;
-    duration?: string;
+    result?: string;
     metrics?: string;
     reasoning?: string;
-    provenance?: string;
     tags?: string[];
     /** Validation service submission whose published result these metrics come from. */
     submissionId?: string;
+    solves?: string[];
+    reproduces?: string[];
     updateOnExist?: boolean;
   },
 ): void {
@@ -802,42 +706,49 @@ export function addExperiment(
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-|-$/g, "");
   if (!slug) throw new Error("experiment slug (exp id) is required and must be non-empty");
-  const verdict = options.verdict ?? "no";
-  const confidence = options.confidence ?? "medium";
-  if (!EXPERIMENT_VERDICTS.has(verdict)) throw new Error(`unknown experiment verdict '${verdict}'`);
-  if (!EXPERIMENT_CONFIDENCE.has(confidence)) throw new Error(`unknown confidence '${confidence}'`);
+  const outcome = options.result ?? "";
+  if (outcome) assertOneOf(outcome, EXPERIMENT_RESULTS, "experiment result");
+  const ideaId = options.idea
+    ? (nodeIds([options.idea], "idea", "add_experiment --idea")[0] ?? "")
+    : "";
+  const solves = nodeIds(options.solves, "problem", "add_experiment --solves");
+  const reproduces = nodeIds(options.reproduces, "problem", "add_experiment --reproduces");
+  const conflicting = solves.filter((id) => reproduces.includes(id));
+  if (conflicting.length > 0) {
+    throw new Error(
+      `add_experiment: ${conflicting.join(", ")} cannot be both solved and reproduced`,
+    );
+  }
   const subject = `exp:${slug}`;
   let existedBefore = false;
   let reused = false;
-  const result = commitOperations(root, subject, options.provenance || subject, (model) => {
+  const result = commitOperations(root, subject, options.submissionId || subject, (model) => {
     existedBefore = model.pages.experiment.has(slug);
-    reused = false;
     // An experiment that already supports or invalidates a claim has been
-    // judged. Writing it again under the same id would either replace the
-    // evidence those claims stand on or strip their edges, so the existing
-    // page is reused as it is, even with --update-on-exist.
-    if (
+    // judged. Writing it again would replace the evidence those claims stand
+    // on, so the existing page is kept even with --update-on-exist.
+    reused =
       existedBefore &&
       model.edges.some(
         (edge) =>
           edge.from === subject &&
           (edge.type === "supports" || edge.type === "invalidates") &&
           edge.to.startsWith("claim:"),
-      )
-    ) {
-      reused = true;
-      return null;
-    }
-    if (model.pages.experiment.has(slug) && !options.updateOnExist) {
+      );
+    if (reused) return null;
+    if (existedBefore && !options.updateOnExist) {
       console.log(`Experiment already exists: ${slug}.md (slug dedup) — skipping.`);
       return null;
     }
-    const operations: Operation[] = [];
-    const ideaId = options.idea ? normalizeNodeId(options.idea, "idea:") : "";
-    if (ideaId) warnIfDangling(model, ideaId, "add_experiment");
-    if (options.updateOnExist || model.pages.experiment.has(slug)) {
-      operations.push({ op: "remove_edges", from: subject, type: "supports" });
-      operations.push({ op: "remove_edges", from: subject, type: "invalidates" });
+    for (const target of [ideaId, ...solves, ...reproduces].filter(Boolean))
+      assertNodeExists(model, target, "add_experiment");
+    const operations: WikiOperation[] = [];
+    // Keyed on the flag, not on existence, so a retried update yields the same
+    // payload and is deduplicated by its command id.
+    if (options.updateOnExist) {
+      for (const type of ["supports", "invalidates", "solves", "reproduces"] as const)
+        operations.push({ op: "remove_edges", from: subject, type });
+      operations.push({ op: "remove_edges", to: subject, type: "tested_by" });
     }
     operations.push({
       op: "upsert_page",
@@ -846,12 +757,8 @@ export function addExperiment(
       data: {
         title: options.title ?? "",
         idea_id: ideaId,
-        verdict,
-        confidence,
-        date: options.date ?? "",
-        hardware: options.hardware ?? "",
-        duration: options.duration ?? "",
-        provenance: options.provenance ?? "",
+        result: outcome,
+        submission_id: options.submissionId ?? "",
         metrics: sanitizeText(options.metrics ?? "", `experiment ${slug}.metrics`, operations),
         reasoning: sanitizeText(
           options.reasoning ?? "",
@@ -859,42 +766,35 @@ export function addExperiment(
           operations,
         ),
         tags: options.tags ?? [],
-        ...(options.submissionId ? { submission_id: options.submissionId } : {}),
       },
     });
-    if (ideaId)
-      operations.push({
-        op: "upsert_edge",
-        edge: {
-          from: ideaId,
-          to: subject,
-          type: "tested_by",
-          evidence: `${subject} tests ${ideaId}`,
-        },
-      });
+    if (ideaId) {
+      operations.push(edgeOperation(ideaId, subject, "tested_by"));
+      if (outcome === "effective") operations.push(edgeOperation(subject, ideaId, "supports"));
+      if (outcome === "ineffective") operations.push(edgeOperation(subject, ideaId, "invalidates"));
+    }
+    for (const problem of solves) operations.push(edgeOperation(subject, problem, "solves"));
+    for (const problem of reproduces)
+      operations.push(edgeOperation(subject, problem, "reproduces"));
     addLog(
       operations,
-      `add_experiment: ${options.updateOnExist ? "updated" : "added"} ${subject} [verdict=${verdict} confidence=${confidence}]`,
+      `add_experiment: ${options.updateOnExist ? "updated" : "added"} ${subject} [result=${outcome || "-"}]`,
     );
     return operations;
   });
+  const file = pagePath(root, "experiment", slug);
   if (reused) {
-    console.log(
-      `Experiment reused: ${path.join(root, "experiments", `${slug}.md`)} already formed claims; page and claim edges kept.`,
-    );
+    console.log(`Experiment reused: ${file} already formed claims; page and claim edges kept.`);
     return;
   }
   if (result.status === "skipped") {
-    console.log(`Experiment skipped: ${path.join(root, "experiments", `${slug}.md`)}`);
+    console.log(`Experiment skipped: ${file}`);
     return;
   }
   console.log(
-    `Experiment ${existedBefore ? "updated" : "added"}: ${path.join(root, "experiments", `${slug}.md`)} [verdict=${verdict} confidence=${confidence}]`,
+    `Experiment ${existedBefore ? "updated" : "added"}: ${file} [result=${outcome || "-"}]`,
   );
 }
-
-const PROBLEM_STATUSES = new Set(["open", "solved", "refuted", "deferred"]);
-const PROBLEM_SEVERITIES = new Set(["high", "medium", "low"]);
 
 function addProblem(
   wikiRoot: string,
@@ -908,7 +808,6 @@ function addProblem(
     origin?: string;
     evidence?: string;
     whatWouldSolve?: string;
-    caveats?: string;
     tags?: string[];
     updateOnExist?: boolean;
   },
@@ -917,35 +816,38 @@ function addProblem(
   assertWikiSchemaSupported(root);
   const slug = nodeSlugify(suppliedTitle, suppliedSlug);
   const subject = `problem:${slug}`;
+  const parentInput = options.parent
+    ? nodeIds([options.parent], "problem", "add_problem --parent")[0]
+    : undefined;
+  if (parentInput === subject) throw new Error(`add_problem: ${subject} cannot be its own parent`);
   let existedBefore = false;
   const result = commitOperations(root, subject, options.evidence || subject, (model) => {
-    const existing = parseExisting(model, "problem", slug);
-    existedBefore = existing !== null;
-    const title = suppliedTitle || (typeof existing?.title === "string" ? existing.title : "");
+    const existing = model.pages.problem.get(slug)?.data;
+    existedBefore = existing !== undefined;
+    const title = suppliedTitle || existingString(existing, "title");
     if (!title) throw new Error("add_problem: --title is required when creating a new problem");
     if (existing && !options.updateOnExist) {
       console.log(`Problem already exists: ${slug}.md (slug dedup) — skipping.`);
       return null;
     }
-    const status =
-      options.status ?? (typeof existing?.status === "string" ? existing.status : "open");
-    const severity =
-      options.severity ?? (typeof existing?.severity === "string" ? existing.severity : "medium");
-    if (!PROBLEM_STATUSES.has(status)) throw new Error(`unknown problem status '${status}'`);
-    if (!PROBLEM_SEVERITIES.has(severity)) throw new Error(`unknown severity '${severity}'`);
-    const operations: Operation[] = [];
-    const existingEvidence = typeof existing?.evidence === "string" ? existing.evidence : "";
+    const status = options.status ?? existingString(existing, "status", "open");
+    const severity = options.severity ?? existingString(existing, "severity", "medium");
+    assertOneOf(status, PROBLEM_STATUSES, "problem status");
+    assertOneOf(severity, PROBLEM_SEVERITIES, "problem severity");
+    const existingEvidence = existingString(existing, "evidence");
     const evidence =
       options.evidence === undefined
         ? existingEvidence
         : appendEvidenceOnce(existingEvidence, options.evidence);
-    const parent = options.parent ?? (typeof existing?.parent === "string" ? existing.parent : "");
-    const parentId = parent && !parent.includes(":") ? `problem:${parent}` : parent;
-    if (parentId) {
-      if (parentId === subject)
-        throw new Error(`add_problem: problem ${subject} cannot be its own parent`);
-      warnIfDangling(model, parentId, "add_problem");
-    }
+    const parent = parentInput ?? existingString(existing, "parent");
+    if (parent) assertNodeExists(model, parent, "add_problem");
+    const operations: WikiOperation[] = [];
+    const text = (field: string, value: string | undefined): string =>
+      sanitizeText(
+        value ?? existingString(existing, field),
+        `problem ${slug}.${field}`,
+        operations,
+      );
     operations.push({
       op: "upsert_page",
       kind: "problem",
@@ -954,42 +856,15 @@ function addProblem(
         title,
         status,
         severity,
-        parent: parentId,
-        statement: sanitizeText(
-          options.statement ?? (typeof existing?.statement === "string" ? existing.statement : ""),
-          `problem ${slug}.statement`,
-          operations,
-        ),
-        origin: sanitizeText(
-          options.origin ?? (typeof existing?.origin === "string" ? existing.origin : ""),
-          `problem ${slug}.origin`,
-          operations,
-        ),
-        evidence: sanitizeText(evidence, `problem ${slug}.evidence`, operations),
-        whatWouldSolve: sanitizeText(
-          options.whatWouldSolve ??
-            (typeof existing?.whatWouldSolve === "string" ? existing.whatWouldSolve : ""),
-          `problem ${slug}.whatWouldSolve`,
-          operations,
-        ),
-        caveats: sanitizeText(
-          options.caveats ?? (typeof existing?.caveats === "string" ? existing.caveats : ""),
-          `problem ${slug}.caveats`,
-          operations,
-        ),
+        parent,
+        statement: text("statement", options.statement),
+        origin: text("origin", options.origin),
+        evidence: text("evidence", evidence),
+        whatWouldSolve: text("whatWouldSolve", options.whatWouldSolve),
         tags: options.tags ?? (Array.isArray(existing?.tags) ? existing.tags : []),
       },
     });
-    if (parentId)
-      operations.push({
-        op: "upsert_edge",
-        edge: {
-          from: subject,
-          to: parentId,
-          type: "child_of",
-          evidence: `${subject} is a sub-problem`,
-        },
-      });
+    if (parent) operations.push(edgeOperation(subject, parent, "child_of"));
     addLog(
       operations,
       `add_problem: ${options.updateOnExist ? "updated" : "added"} ${subject} [status=${status} severity=${severity}]`,
@@ -997,88 +872,78 @@ function addProblem(
     return operations;
   });
   if (result.status === "skipped") return;
-  console.log(
-    `Problem ${existedBefore ? "updated" : "added"}: ${path.join(root, "problems", `${slug}.md`)}`,
-  );
+  console.log(`Problem ${existedBefore ? "updated" : "added"}: ${pagePath(root, "problem", slug)}`);
 }
 
 function getStats(wikiRoot: string, asJson: boolean): void {
   const model = readWikiModel(path.resolve(wikiRoot));
-  const counts = {
-    papers: model.pages.paper.size,
-    ideas: model.pages.idea.size,
-    experiments: model.pages.experiment.size,
-    claims: model.pages.claim.size,
-    problems: model.pages.problem.size,
-  };
-  const byStatus = (status: string): string[] =>
+  const problemsWith = (status: string): string[] =>
     [...model.pages.problem.values()]
-      .filter(
-        (page) => (typeof page.data.status === "string" ? page.data.status : "open") === status,
-      )
+      .filter((page) => (page.data.status ?? "open") === status)
       .map((page) => `problem:${page.id}`)
       .sort();
+  const ideas: Record<string, number> = Object.fromEntries(IDEA_OUTCOMES.map((key) => [key, 0]));
+  for (const page of model.pages.idea.values()) {
+    const result = ideaResult(model, page);
+    ideas[result] = (ideas[result] ?? 0) + 1;
+  }
+  const stats = {
+    surveys: model.pages.survey.size,
+    ideas: { ...ideas, total: model.pages.idea.size },
+    experiments: model.pages.experiment.size,
+    claims: model.pages.claim.size,
+    problems: {
+      open: problemsWith("open"),
+      solved: problemsWith("solved"),
+      refuted: problemsWith("refuted"),
+      deferred: problemsWith("deferred"),
+      total: model.pages.problem.size,
+    },
+    edges: model.edges.length,
+    wiki_root: path.resolve(wikiRoot),
+  };
   if (asJson) {
-    console.log(
-      JSON.stringify(
-        {
-          ...counts,
-          problems: {
-            open: byStatus("open"),
-            closed: [...byStatus("solved"), ...byStatus("refuted")].sort(),
-            deferred: byStatus("deferred"),
-            total: counts.problems,
-          },
-          edges: model.edges.length,
-          wiki_root: path.resolve(wikiRoot),
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(stats, null, 2));
     return;
   }
   console.log("Research Wiki Stats");
-  console.log(`Papers:      ${counts.papers}`);
-  console.log(`Ideas:       ${counts.ideas}`);
-  console.log(`Experiments: ${counts.experiments}`);
-  console.log(`Claims:      ${counts.claims}`);
-  console.log(`Problems:    ${counts.problems}`);
-  console.log(`Edges:       ${model.edges.length}`);
-  console.log(`Wiki root:   ${path.resolve(wikiRoot)}`);
+  console.log(`Surveys:     ${stats.surveys}`);
+  console.log(
+    `Ideas:       ${stats.ideas.total} (${IDEA_OUTCOMES.map((key) => `${ideas[key]} ${key}`).join(", ")})`,
+  );
+  console.log(`Experiments: ${stats.experiments}`);
+  console.log(`Claims:      ${stats.claims}`);
+  console.log(
+    `Problems:    ${stats.problems.total} (${stats.problems.open.length} open, ${stats.problems.solved.length} solved)`,
+  );
+  console.log(`Edges:       ${stats.edges}`);
+  console.log(`Wiki root:   ${stats.wiki_root}`);
 }
 
-function rebuildWiki(wikiRoot: string): void {
+function rebuildWiki(wikiRoot: string, message: string): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
   projectWiki(root);
-  console.log("Research Wiki projections rebuilt");
+  console.log(message);
+}
+
+/** Each config change is a new fact, even when it returns to an earlier value. */
+function projectionConfigEvidence(events: readonly WikiEvent[], model: WikiModel): string {
+  const state = canonicalJsonSha256({ max_query_chars: model.max_query_chars }, anyJsonSchema);
+  return `projection-config:${state}:${eventLogHead(events).event_id ?? "genesis"}`;
 }
 
 function rebuildQueryPack(wikiRoot: string, maxChars?: number): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
-  if (maxChars !== undefined && (!Number.isInteger(maxChars) || maxChars < 200))
-    throw new Error("max-chars must be an integer >= 200");
-  commitOperations(root, "projection:query-pack", projectionConfigEvidence, (model) => {
-    const operations: Operation[] = [];
-    const direction = captureProjectDirection(root) ?? "";
-    if (direction !== (model.project_direction ?? "")) {
-      operations.push({ op: "set_project_direction", text: direction });
-    }
-    if (maxChars !== undefined && maxChars !== model.max_query_chars) {
-      operations.push({ op: "set_projection_config", max_query_chars: maxChars });
-    }
-    return operations.length > 0 ? operations : null;
-  });
+  if (maxChars !== undefined && (!Number.isSafeInteger(maxChars) || maxChars < MIN_QUERY_CHARS))
+    throw new Error(`max-chars must be an integer >= ${MIN_QUERY_CHARS}`);
+  commitOperations(root, "projection:query-pack", projectionConfigEvidence, (model) =>
+    maxChars !== undefined && maxChars !== model.max_query_chars
+      ? [{ op: "set_projection_config", max_query_chars: maxChars }]
+      : null,
+  );
   console.log("query_pack.md rebuilt");
-}
-
-function rebuildIndex(wikiRoot: string): void {
-  const root = path.resolve(wikiRoot);
-  assertWikiSchemaSupported(root);
-  projectWiki(root);
-  console.log("index.md rebuilt");
 }
 
 function appendLog(wikiRoot: string, message: string): void {
@@ -1087,13 +952,12 @@ function appendLog(wikiRoot: string, message: string): void {
   commitOperations(root, `log:${message}`, `log:${message}`, () => [{ op: "append_log", message }]);
 }
 
-async function syncPapers(root: string, ids: string[], updateOnExist: boolean): Promise<void> {
+async function syncSurveys(root: string, ids: string[], updateOnExist: boolean): Promise<void> {
   const metadata = await fetchArxivMetadataBatch(ids);
   for (const original of ids) {
-    const normalized = normalizeArxivId(original);
-    await ingestPaper(root, {
+    await ingestSurvey(root, {
       arxivId: original,
-      prefetchedMeta: metadata[normalized],
+      prefetchedMeta: metadata[normalizeArxivId(original)],
       updateOnExist,
     });
   }
@@ -1103,15 +967,15 @@ const program = createCli("research-wiki", "ARIS Research Wiki utilities");
 
 program
   .command("init")
-  .description("Initialize an event-sourced schema v2 wiki directory")
+  .description("Initialize an event-sourced wiki directory")
   .argument("<wiki_root>")
   .action((wikiRoot: string) => initWiki(wikiRoot));
 
 program
   .command("slug")
-  .description("Generate a canonical slug for a paper title")
+  .description("Print the slug ingest_survey derives from a title")
   .argument("<title>")
-  .option("--author <name>", "Author last name", "")
+  .option("--author <name>", "First author last name", "")
   .option("--year <n>", "Publication year", "0")
   .action((title: string, options: { author: string; year: string }) => {
     console.log(slugify(title, options.author, Number.parseInt(options.year, 10)));
@@ -1119,7 +983,7 @@ program
 
 program
   .command("add_edge")
-  .description("Add a typed edge to the relationship graph")
+  .description("Add a typed edge between two existing nodes")
   .argument("<wiki_root>")
   .requiredOption("--from <id>")
   .requiredOption("--to <id>")
@@ -1138,7 +1002,7 @@ program
   .action((wikiRoot: string, options: { maxChars?: string }) =>
     rebuildQueryPack(
       wikiRoot,
-      options.maxChars === undefined ? undefined : Number.parseInt(options.maxChars, 10),
+      options.maxChars === undefined ? undefined : Number(options.maxChars),
     ),
   );
 
@@ -1146,13 +1010,13 @@ program
   .command("rebuild_index")
   .description("Regenerate index.md from events")
   .argument("<wiki_root>")
-  .action((wikiRoot: string) => rebuildIndex(wikiRoot));
+  .action((wikiRoot: string) => rebuildWiki(wikiRoot, "index.md rebuilt"));
 
 program
   .command("rebuild")
   .description("Rebuild every projection from schema.json and events.jsonl")
   .argument("<wiki_root>")
-  .action((wikiRoot: string) => rebuildWiki(wikiRoot));
+  .action((wikiRoot: string) => rebuildWiki(wikiRoot, "Research Wiki projections rebuilt"));
 
 program
   .command("stats")
@@ -1171,23 +1035,26 @@ program
   .action((wikiRoot: string, message: string) => appendLog(wikiRoot, message));
 
 program
-  .command("ingest_paper")
-  .description("Create or update a paper page through an event")
+  .command("ingest_survey")
+  .description("Record what an existing work (paper, repo, doc, blog) does")
   .argument("<wiki_root>")
-  .option("--arxiv-id <id>", "arXiv identifier", "")
-  .option("--title <title>", "Paper title", "")
+  .option("--arxiv-id <id>", "arXiv identifier; metadata is fetched", "")
+  .option("--url <url>", "Source URL for a non-arXiv work", "")
+  .option("--title <title>", "Title", "")
   .option("--authors <list>", "Comma-separated author list", "")
   .option("--year <n>", "Publication year", "0")
   .option("--venue <venue>", "Venue", "")
   .option("--external-id-doi <doi>", "DOI", "")
-  .option("--thesis <text>", "One-line thesis", "")
+  .option("--thesis <text>", "One line: what the work does and finds", "")
   .option("--tags <list>", "Comma-separated tag list", "")
+  .option("--problems <list>", "Problem ids this work addresses", "")
   .option("--update-on-exist", "Overwrite an existing page", false)
   .action(
     async (
       wikiRoot: string,
       options: {
         arxivId: string;
+        url: string;
         title: string;
         authors: string;
         year: string;
@@ -1195,18 +1062,21 @@ program
         externalIdDoi: string;
         thesis: string;
         tags: string;
+        problems: string;
         updateOnExist: boolean;
       },
     ) => {
-      await ingestPaper(wikiRoot, {
+      await ingestSurvey(wikiRoot, {
         arxivId: options.arxivId || undefined,
+        url: options.url,
         title: options.title || undefined,
         authors: splitCsv(options.authors),
-        year: Number.parseInt(options.year, 10),
+        year: Number.parseInt(options.year, 10) || 0,
         venue: options.venue,
         doi: options.externalIdDoi,
         thesis: options.thesis,
         tags: splitCsv(options.tags),
+        problems: splitCsv(options.problems),
         updateOnExist: options.updateOnExist,
       });
     },
@@ -1214,20 +1084,20 @@ program
 
 program
   .command("add_claim")
-  .description("Create or update a claim page through an event")
+  .description("Create or update a claim page")
   .argument("<wiki_root>")
   .option("--slug <slug>", "Stable claim id", "")
   .requiredOption("--name <name>", "Human-readable claim name")
   .option("--description <text>", "One-line description", "")
-  .option("--status <status>", "Claim status", "drafted")
+  .option("--status <status>", CLAIM_STATUSES.join(" | "), "drafted")
   .option("--provenance <path>", "Run directory", "")
   .option("--statement <text>", "Formal statement", "")
   .option("--scope <text>", "Honest scope", "")
   .option("--evidence <text>", "Evidence chain", "")
   .option("--tags <list>", "Comma-separated tag list", "")
   .option("--addresses <list>", "Problem ids", "")
-  .option("--extends <list>", "Paper ids", "")
-  .option("--uses <list>", "Paper ids", "")
+  .option("--extends <list>", "Survey ids", "")
+  .option("--uses <list>", "Survey ids", "")
   .option("--depends-on <list>", "Claim ids", "")
   .option("--refutes <list>", "Claim ids", "")
   .option("--update-on-exist", "Overwrite an existing claim", false)
@@ -1272,18 +1142,17 @@ program
 
 program
   .command("upsert_idea")
-  .description("Create or update an idea page through an event")
+  .description("Create or update an idea page")
   .argument("<wiki_root>")
   .option("--slug <slug>", "Stable idea id", "")
   .requiredOption("--title <title>", "Human-readable idea title")
   .option("--description <text>", "One-line description", "")
-  .option("--stage <stage>", "Idea stage", "proposed")
-  .option("--outcome <outcome>", "Idea outcome", "pending")
+  .option("--outcome <outcome>", IDEA_OUTCOMES.join(" | "), "pending")
   .option("--thesis <text>", "Core hypothesis", "")
   .option("--risks <text>", "Risks", "")
   .option("--tags <list>", "Comma-separated tag list", "")
-  .option("--based-on <list>", "Paper ids", "")
-  .option("--target-problems <list>", "Problem ids", "")
+  .option("--based-on <list>", "Survey ids that inspired the idea", "")
+  .option("--target-problems <list>", "Problem ids the idea addresses", "")
   .option("--update-on-exist", "Overwrite an existing idea", false)
   .action(
     (
@@ -1292,7 +1161,6 @@ program
         slug: string;
         title: string;
         description: string;
-        stage: string;
         outcome: string;
         thesis: string;
         risks: string;
@@ -1304,7 +1172,6 @@ program
     ) => {
       upsertIdea(wikiRoot, options.slug, options.title, {
         description: options.description,
-        stage: options.stage,
         outcome: options.outcome,
         thesis: options.thesis,
         risks: options.risks,
@@ -1318,18 +1185,17 @@ program
 
 program
   .command("add_problem")
-  .description("Create or update a problem page through an event")
+  .description("Create or update a problem page; omitted fields are kept, evidence is appended")
   .argument("<wiki_root>")
   .option("--title <title>", "Human-readable problem title")
   .option("--slug <slug>", "Stable problem id", "")
-  .option("--status <status>", "Problem status")
-  .option("--severity <severity>", "Problem severity")
+  .option("--status <status>", PROBLEM_STATUSES.join(" | "))
+  .option("--severity <severity>", PROBLEM_SEVERITIES.join(" | "))
   .option("--parent <id>", "Parent problem id", "")
   .option("--statement <text>", "What is unsolved", "")
   .option("--origin <text>", "Why it exists", "")
   .option("--evidence <text>", "Evidence", "")
   .option("--what-would-solve <text>", "Closing result", "")
-  .option("--caveats <text>", "Caveats", "")
   .option("--tags <list>", "Comma-separated tag list", "")
   .option("--update-on-exist", "Overwrite an existing problem", false)
   .action(
@@ -1345,7 +1211,6 @@ program
         origin: string;
         evidence: string;
         whatWouldSolve: string;
-        caveats: string;
         tags: string;
         updateOnExist: boolean;
       },
@@ -1358,7 +1223,6 @@ program
         origin: options.origin || undefined,
         evidence: options.evidence || undefined,
         whatWouldSolve: options.whatWouldSolve || undefined,
-        caveats: options.caveats || undefined,
         tags: options.tags ? splitCsv(options.tags) : undefined,
         updateOnExist: options.updateOnExist,
       });
@@ -1367,25 +1231,18 @@ program
 
 program
   .command("add_experiment")
-  .description("Create or update an experiment page through an event")
+  .description("Record a measured result and its evidence edges")
   .argument("<wiki_root>")
   .requiredOption("--slug <slug>", "Stable experiment id")
   .option("--title <title>", "Human-readable label", "")
-  .option("--idea <id>", "Idea id", "")
-  .option("--verdict <verdict>", "yes | partial | no", "no")
-  .option("--confidence <confidence>", "high | medium | low", "medium")
-  .option("--date <date>", "Run date", "")
-  .option("--hardware <hardware>", "Hardware", "")
-  .option("--duration <duration>", "Duration", "")
+  .option("--submission <id>", "Validation submission whose published result this is", "")
+  .option("--idea <id>", "Idea the experiment tests", "")
+  .option("--result <result>", `${EXPERIMENT_RESULTS.join(" | ")} for --idea`)
+  .option("--solves <list>", "Problem ids this result shows fixed", "")
+  .option("--reproduces <list>", "Problem ids still present in this result", "")
   .option("--metrics <text>", "Key metrics", "")
   .option("--reasoning <text>", "Reasoning", "")
-  .option("--provenance <path>", "Run directory", "")
   .option("--tags <list>", "Comma-separated tag list", "")
-  .option(
-    "--submission <id>",
-    "Validation submission whose published result the metrics come from",
-    "",
-  )
   .option("--update-on-exist", "Overwrite an existing experiment", false)
   .action(
     (
@@ -1393,31 +1250,25 @@ program
       options: {
         slug: string;
         title: string;
+        submission: string;
         idea: string;
-        verdict: string;
-        confidence: string;
-        date: string;
-        hardware: string;
-        duration: string;
+        result?: string;
+        solves: string;
+        reproduces: string;
         metrics: string;
         reasoning: string;
-        provenance: string;
         tags: string;
-        submission: string;
         updateOnExist: boolean;
       },
     ) => {
       addExperiment(wikiRoot, options.slug, {
         title: options.title,
         idea: options.idea,
-        verdict: options.verdict,
-        confidence: options.confidence,
-        date: options.date,
-        hardware: options.hardware,
-        duration: options.duration,
+        result: options.result,
+        solves: splitCsv(options.solves),
+        reproduces: splitCsv(options.reproduces),
         metrics: options.metrics,
         reasoning: options.reasoning,
-        provenance: options.provenance,
         tags: splitCsv(options.tags),
         submissionId: options.submission || undefined,
         updateOnExist: options.updateOnExist,
@@ -1427,7 +1278,7 @@ program
 
 program
   .command("sync")
-  .description("Batch ingest papers from arXiv ids")
+  .description("Batch ingest arXiv works as surveys")
   .argument("<wiki_root>")
   .option("--arxiv-ids <list>", "Comma-separated ids", "")
   .option("--from-file <path>", "Newline-delimited ids", "")
@@ -1454,15 +1305,14 @@ program
         process.exit(2);
       }
       const seen = new Set<string>();
-      const unique: string[] = [];
-      for (const id of ids) {
+      const unique = ids.filter((id) => {
         const normalized = normalizeArxivId(id);
-        if (seen.has(normalized)) continue;
+        if (seen.has(normalized)) return false;
         seen.add(normalized);
-        unique.push(id);
-      }
+        return true;
+      });
       console.log(`sync: ${unique.length} unique arxiv id(s)`);
-      await syncPapers(wikiRoot, unique, options.updateOnExist);
+      await syncSurveys(wikiRoot, unique, options.updateOnExist);
     },
   );
 

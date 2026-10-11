@@ -4,7 +4,7 @@ The worker maintains `Experience.md` at the root of the owner's local ARL source
 
 ## Location and reuse
 
-During worker setup, resolve the local ARL source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the `Experience.md` location in the worker's `CLAUDE.md` (Claude) or `AGENTS.md` (Codex), outside the setup-owned `ARIS ROLE` block. An installed `.aris/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
+During worker setup, resolve the local ARL source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the `Experience.md` location in the worker's `CLAUDE.md`, outside the setup-owned `ARIS ROLE` block. An installed `.aris/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
 
 Before starting a task, read the relevant saved experience. Before writing, verify that the destination is the ARL source repository and that `git -C <checkout> branch --show-current` reports `arl`. Use an existing `arl` worktree when available; do not switch a working project's branch or overwrite unrelated edits. If the location is missing, ambiguous or unwritable, report that experience saving is pending and what is needed; never claim it was saved or silently write into another project or branch.
 

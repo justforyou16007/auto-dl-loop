@@ -4,7 +4,7 @@
 
 [中文](README.zh-CN.md) · [Quick start](#quick-start) · [Setup guide](SETUP_GUIDE.md) · [Architecture](ARIS_ARCHITECTURE_GUIDE.md)
 
-Give Claude Code or Codex a task, a measurable target and a submission budget. Auto Research Loop (ARL) lets a worker agent develop a solution, submit it for independent evaluation and improve it using measured scores and reviewed feedback.
+Give an agent a task, a measurable target and a submission budget. Auto Research Loop (ARL) lets a Claude Code worker develop a solution, submit it for independent evaluation by Codex validation agents and improve it using measured scores and reviewed feedback.
 
 ARL is designed for benchmark-driven coding, model evaluation and experimental research. The worker chooses how to plan and implement the task. A separate validation machine owns the hidden benchmark and evaluates each submission against the same frozen criteria.
 
@@ -12,21 +12,46 @@ Use the official **Paseo** app and CLI to run and monitor agents on both machine
 
 ## Features
 
-| Capability | What you get |
-| --- | --- |
-| **Claude Code and Codex** | Provider-specific project installation, role instructions and MCP configuration. |
-| **Independent validation** | Separate worker and validation projects on two machines. The worker interacts with validation through only `submit` and `query`. |
-| **Frozen benchmarks** | Pinned benchmark code, data, evaluation settings and targets. Integrity checks reject changes to the frozen benchmark. |
-| **Measured scores** | Scores derived from complete per-sample benchmark results, with checks for sample counts and aggregate consistency. |
-| **Submission review** | A validation agent reviews each artifact for cheating or usability issues and runs the benchmark. Cheating and unusable submissions receive no eligible score. |
-| **Reviewed feedback** | Checks for hidden sample identifiers and content hold feedback for revision before publication. |
-| **Defined stopping conditions** | The task completes when a valid score reaches the target, or closes when the submission budget is exhausted. Further submissions are refused. |
-| **Research records** | A project-local wiki for papers, ideas, claims, problems and submission history, accessible through the skill or Markdown files. |
-| **Worker tools** | Project skills for research records, browser access and SSH experiment queues. |
-| **Environment usage skills** | Setup turns your environment requirements into a verified project-specific skill for running and managing experiments. |
-| **Local installation** | Copies compiled helpers, skills and runtime dependencies from your prepared local Git checkout. Project-local updates preserve research data and unrelated provider configuration. |
+### Independent, measured validation
 
-Upload and infrastructure failures do not consume the submission budget. Reviewed submissions do, including those judged cheating or unusable.
+- **Two machines, two projects.** The worker builds the deliverable; the validation machine owns the hidden benchmark. They interact only through the `submit` and `query` MCP tools, with no shared directory.
+- **Frozen benchmark.** Benchmark code, data revision, split, sample count, evaluation settings and target are pinned at setup. Once a submission is counted, any change stops the service.
+- **Measured scores.** Scores come from complete per-sample benchmark results, checked for sample counts and aggregate consistency. The worker never reports its own score.
+- **Submission review.** A validation agent inspects each artifact, writes its own adapter from `USAGE.md`, runs the benchmark and judges it `valid`, `cheating` or `unusable`. Only valid submissions keep their score.
+- **Leak-checked feedback.** Feedback describes problem types with invented examples. Text that matches hidden samples, labels or paths is held back for rewriting before publication.
+- **Defined stopping.** The task completes when a valid score reaches the target, or closes when the submission budget is used up. Upload and infrastructure failures do not count against the budget.
+
+### Fixed agents per role
+
+| Role | Agent | Paseo thinking | Instructions |
+| --- | --- | --- | --- |
+| worker | Claude Code | `ultracode` | `CLAUDE.md` |
+| validation | Codex | `max` | `AGENTS.md` |
+
+The installer's `--role` fixes the agent, its skills directory and configuration. The validation service starts every review agent as Codex at `max`.
+
+### Strict iteration with memory
+
+- **Numbered iteration flow.** The worker's role instructions require every step in order: read memory → choose problems and an untried idea → plan in the todo list → run experiments → commit → submit → record the scored result → save lessons. Each submission maps to exactly one Git commit.
+- **Long-term memory is mandatory.** The `research-wiki` records, for one or more problems, what existing work did (surveys from arXiv, Semantic Scholar, OpenAlex, Exa and others), which ideas and experiments were tried, and which were effective or ineffective. Typed evidence edges link them (`supports`, `invalidates`, `solves`, `reproduces`, …).
+- **Compact query pack.** Each iteration starts from a deterministic summary of at most 1000 characters, with one line per open problem marking effective (✔) and ineffective (✘) attempts by node id. Details stay in the node pages.
+- **Validation memory.** The validation machine keeps its own wiki of verification problems, recording which ones each submission solved and which persist. Reviews check them again and report both.
+- **Short-term tasks in the todo list.** Iteration steps and every issue from feedback are tracked as todos and closed only when fixed in the committed deliverable.
+- **Cross-project experience.** After each published verdict, the worker distils concise, evidenced lessons into `Experience.md` on the ARL source checkout's `arl` branch.
+
+### Environment skill
+
+Setup writes a project skill, `<project>-environment`, on the real machine:
+
+- **Facts only.** Environment facts an agent cannot know: hosts, paths, environment names, resources, where metrics land and verified quirks. General tool knowledge is left out.
+- **Verified scripts.** Fixed procedures such as syncing code, launching a named run, checking it, fetching results and stopping it. Each run has its own name, log and result path, so several experiments can run at once.
+- **Secrets apart.** Keys and tokens live only in `.aris/environment.json` (mode 0600, kept out of Git).
+
+New environment facts or repeated procedures found later are added to the same skill.
+
+### Local, ownership-aware installation
+
+The installer copies compiled helpers, four core skills (`aris-setup`, `validation-review`, `research-wiki`, `browser-act`) and runtime dependencies from your prepared local Git checkout, without downloads. Updates replace only files ARL owns and preserve tasks, wikis, benchmarks, submissions, generated environment skills and unrelated configuration.
 
 ## How it works
 
@@ -45,7 +70,7 @@ Keep the two projects on separate machines without a shared or synchronized dire
 On each machine, install:
 
 - **Node.js 22.12+**, **Bash** and **Git**.
-- **Claude Code or Codex**, authenticated for the provider you choose.
+- **Claude Code** on the worker machine and **Codex** on the validation machine, both authenticated.
 - The official **Paseo app and CLI**, with its daemon running.
 
 The validation machine also needs your benchmark's dependencies. On Windows, run the installer in Git Bash with Node.js on `PATH`; see the [setup guide](SETUP_GUIDE.md) for Windows command paths and networking.
@@ -60,47 +85,45 @@ npm ci
 npm run build
 ```
 
-For **Claude Code**:
+On the **worker** machine:
 
 ```bash
-bash distribution/install-aris.sh --provider claude --project /path/to/project
+bash distribution/install-aris.sh --role worker --project /path/to/project
 ```
 
-For **Codex**:
+On the **validation** machine:
 
 ```bash
-bash distribution/install-aris.sh --provider codex --project /path/to/project
+bash distribution/install-aris.sh --role validation --project /path/to/project
 ```
 
-Choose one provider per project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex projects must be trusted to load their project MCP configuration.
+The role fixes the agent and stays with the project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex must trust the validation project.
 
 ### Configure the two roles
 
-Add both projects to official Paseo and open an agent using the installed provider.
+Add both projects to official Paseo. Setup reads the role from the installation.
 
-| Step | Claude Code | Codex |
+| Step | Agent in Paseo | Invoke |
 | --- | --- | --- |
-| Set up the validation project first | `/aris-setup validation` | Invoke `$aris-setup` with the `validation` role |
-| Set up the worker project | `/aris-setup worker` | Invoke `$aris-setup` with the `worker` role |
+| Set up the validation project first | Codex at thinking `max` | `$aris-setup` |
+| Set up the worker project | Claude Code at thinking `ultracode` | `/aris-setup` |
 
-On the validation machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine. Configure the worker connection and, when an environment PRD is provided, setup generates and verifies its environment usage skill. Run `reload-skills` in your client to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
+On the validation machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine and configure the worker connection. On each machine setup then writes the project environment skill and verifies its scripts. Run `reload-skills` in your client to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
 
 Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETUP_GUIDE_CN.md)** for benchmark setup, networking, offline installation, updates and troubleshooting.
 
 ## Included skills
 
-The standalone package ships six core skills:
+The standalone package ships four core skills:
 
 | Skill | Purpose |
 | --- | --- |
-| [`aris-setup`](skills/aris-setup/SKILL.md) | Configure and confirm the role, then generate the requested environment usage skill. |
+| [`aris-setup`](skills/aris-setup/SKILL.md) | Configure and confirm the installed role, then write and verify the project environment skill. |
 | [`validation-review`](skills/validation-review/SKILL.md) | Review a submission and produce benchmark-backed results. |
-| [`research-wiki`](skills/research-wiki/SKILL.md) | Maintain and retrieve research records. |
+| [`research-wiki`](skills/research-wiki/SKILL.md) | Maintain and query the role's long-term memory. |
 | [`browser-act`](skills/browser-act/SKILL.md) | Access rendered pages and browser sessions through the external browser-act CLI. |
-| [`experiment-queue`](skills/experiment-queue/SKILL.md) | Schedule batches on an SSH execution host using the environment usage skill. |
-| [`experiment-env-configuration`](skills/experiment-env-configuration/SKILL.md) | Generate, verify or repair the environment usage skill within setup or during operation. |
 
-Setup also produces `run-<project>-experiment` when you configure an environment. Browser runtimes and experiment host dependencies are installed separately when needed. Update or repair ARL by rerunning the installer for the same provider and project; see the [setup guide](SETUP_GUIDE.md#update-or-repair).
+Setup also writes `<project>-environment`, the project environment skill. Browser runtimes and experiment host dependencies are installed separately when needed. Update or repair ARL by rerunning the installer for the same role and project; see the [setup guide](SETUP_GUIDE.md#update-or-repair).
 
 The `.aris/` project directory remains stable. Optional literature, GPU platform and notification integrations are available in the source repository; they are not included in the standalone archive.
 

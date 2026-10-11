@@ -31,15 +31,12 @@ program
   .command("review")
   .description("Write the configuration sheet with options, recommendations and every gap")
   .requiredOption("--project <dir>", "project directory")
-  .option("--role <role>", "worker or validation")
   .option("--input <path>", "JSON patch to merge into the draft (objects merge, lists replace)")
-  .action((options: { project: string; role?: string; input?: string }) => {
+  .action((options: { project: string; input?: string }) => {
     try {
-      let patch: Record<string, unknown> | undefined = options.input
-        ? (JSON.parse(fs.readFileSync(options.input, "utf8")) as Record<string, unknown>)
+      const patch: unknown = options.input
+        ? JSON.parse(fs.readFileSync(options.input, "utf8"))
         : undefined;
-      if (options.role)
-        patch = { ...patch, project: { ...(patch?.project as object), role: options.role } };
       console.log(JSON.stringify(refreshSetupReview(options.project, patch), null, 2));
     } catch (error) {
       reject("setup_review_failed", error);

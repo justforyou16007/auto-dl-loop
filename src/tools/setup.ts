@@ -26,9 +26,15 @@ import {
   type ValidationConfig,
 } from "./validation/config.js";
 import { countedSubmissions } from "./validation/store.js";
-import { installedProvider, providerSkillsDir, writeCodexValidationMcp } from "./provider.js";
+import {
+  ROLE_AGENT,
+  installedProvider,
+  installedRole,
+  providerSkillsDir,
+  type ArlRole,
+} from "./provider.js";
 
-export type SetupRole = "worker" | "validation";
+export type SetupRole = ArlRole;
 export interface SetupDraft {
   schema_version: 1;
   project_root: string;
@@ -45,7 +51,7 @@ export interface SetupReviewField {
   recommendation: string;
 }
 export interface SetupReview {
-  role: SetupRole | null;
+  role: SetupRole;
   language: "en" | "zh";
   draft_path: string;
   review_path: string;
@@ -75,8 +81,8 @@ const ROLE_MODULES: Record<SetupRole, readonly string[]> = {
   validation: ["project", "environment", "validation"],
 };
 const MODULE_FIELDS: Record<string, readonly string[]> = {
-  project: ["role", "name", "language"],
-  environment: ["prd"],
+  project: ["name", "language"],
+  environment: ["secrets"],
   connection: ["url", "token"],
   validation: [
     "metric",
@@ -89,58 +95,11 @@ const MODULE_FIELDS: Record<string, readonly string[]> = {
   ],
 };
 const CHOICES: Record<string, readonly unknown[]> = {
-  "project.role": ["worker", "validation"],
   "project.language": ["zh", "en"],
-  "environment.prd.preparation.files.location": ["local", "remote", "docker"],
-  "environment.prd.preparation.files.transfer": ["rsync", "git", "shared"],
-  "environment.prd.preparation.environment.type": ["conda", "venv", "docker", "system"],
-  "environment.prd.browser.mode": ["extract", "session"],
-  "environment.prd.browser.browser_type": ["chrome", "chrome-direct", "stealth"],
-  "environment.prd.resources.type": ["gpu", "cpu", "node", "custom"],
-  "environment.prd.resources.bind_mode": ["env", "prefix"],
-  "environment.prd.resources.free_check.compare": ["lt", "gt", "eq"],
-  "environment.prd.resources.free_check.index_by": ["physical", "positional"],
-  "environment.prd.run.arg_style": ["cli", "config", "env"],
-  "environment.prd.run.launch_mode": ["screen", "nohup", "scheduler", "foreground"],
-  "environment.prd.feedback.error.signal": ["exit_code", "log_pattern", "both"],
-  "environment.prd.feedback.result.format": ["json", "csv", "log", "wandb"],
-  "environment.prd.baseline.kind": ["real", "simple"],
   "validation.benchmark.metrics.*.direction": ["higher_better", "lower_better"],
   "validation.benchmark.metrics.*.aggregation": ["mean", "sum", "external"],
   "validation.service.host": ["127.0.0.1", "0.0.0.0"],
 };
-const PRD_REQUIRED = [
-  "version",
-  "mode",
-  "project",
-  "preparation.files.location",
-  "preparation.files.excludes",
-  "preparation.environment.type",
-  "preparation.environment.activation",
-  "preparation.environment.verify_cmd",
-  "browser.required",
-  "resources.type",
-  "resources.ids",
-  "resources.bind_mode",
-  "run.entry_point",
-  "run.arg_style",
-  "run.launch_mode",
-  "run.gpu_selection",
-  "run.template",
-  "feedback.error.signal",
-  "feedback.error.log_path",
-  "feedback.result.path_template",
-  "feedback.result.format",
-  "feedback.result.primary_metric_key",
-  "monitor",
-  "monitor.interval_cron",
-  "monitor.escalate_cron",
-  "monitor.max_hours",
-  "monitor.early_stop.enabled",
-  "monitor.stall.no_log_growth_minutes",
-  "monitor.stall.consecutive_alert_ticks",
-  "baseline.kind",
-];
 const ADAPTER_CONTRACT =
   'The runner calls `python <ARIS_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in ARIS_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes ARIS_TEST_OUTPUT.';
 const ROLE_BEGIN = "<!-- ARIS ROLE BEGIN -->";
@@ -186,10 +145,13 @@ export function projectSlug(projectRoot: string): string {
     .replace(/^-/, "")
     .replace(/-$/, "");
 }
-/** Where setup's environment configuration step publishes the environment usage skill. */
-export function experimentSkillDir(projectRoot: string): string {
-  return path.join(providerSkillsDir(projectRoot), `run-${projectSlug(projectRoot)}-experiment`);
+/** Where setup's environment step publishes the project's environment skill. */
+export function environmentSkillDir(projectRoot: string): string {
+  return path.join(providerSkillsDir(projectRoot), `${projectSlug(projectRoot)}-environment`);
 }
+/** The only environment configuration file: keys and tokens the environment scripts read. */
+export const environmentSecretsPath = (root: string): string =>
+  path.join(path.resolve(root), ".aris", "environment.json");
 export const setupDraftPath = (root: string): string =>
   path.join(path.resolve(root), ".aris", "setup-draft.json");
 const statePath = (root: string): string =>
@@ -204,15 +166,10 @@ function taskSha256(root: string): string | null {
     ? crypto.createHash("sha256").update(text).digest("hex")
     : null;
 }
-function roleOf(configuration: JsonObject): SetupRole | null {
-  const role = get(configuration, "project.role");
-  return role === "worker" || role === "validation" ? role : null;
-}
 
 function moduleDefaults(root: string, module: string): JsonObject {
-  if (module === "project")
-    return { role: null, name: path.basename(path.resolve(root)), language: "zh" };
-  if (module === "environment") return { prd: null };
+  if (module === "project") return { name: path.basename(path.resolve(root)), language: "zh" };
+  if (module === "environment") return { secrets: {} };
   if (module === "connection") return { url: null, token: null };
   const installed = path.join(root, ".aris", "tester-config.json");
   const benchmark = fs.existsSync(installed)
@@ -224,22 +181,14 @@ function moduleDefaults(root: string, module: string): JsonObject {
     adapter_contract: ADAPTER_CONTRACT,
     limits: DEFAULT_LIMITS,
     leak_check: { hidden_paths: [], min_match_chars: 40 },
-    agent: {
-      provider: installedProvider(root),
-      model: null,
-      mode: null,
-      thinking: null,
-      paseo_command: ["paseo"],
-    },
+    agent: { model: null, mode: null, paseo_command: ["paseo"] },
     service: { host: "127.0.0.1", port: null, public_url: null },
   };
 }
-/** A draft carries only the modules of its role; choosing a role fills in that role's modules. */
+/** A draft carries only the modules of the installed role. */
 function completeModules(root: string, configuration: JsonObject): JsonObject {
-  const role = roleOf(configuration);
-  const modules = role ? ROLE_MODULES[role] : ["project"];
   const out: JsonObject = {};
-  for (const module of modules)
+  for (const module of ROLE_MODULES[installedRole(root)])
     out[module] = merge(moduleDefaults(root, module), configuration[module] ?? {});
   return out;
 }
@@ -259,11 +208,9 @@ function draftDigest(root: string, draft: SetupDraft): string {
 
 function recommendation(key: string, value: unknown): string {
   const advice: Record<string, string> = {
-    "project.role":
-      "worker builds the deliverable; validation hosts the frozen benchmark and judges submissions.",
     "project.language": "zh for Chinese collaboration; en for English.",
-    "environment.prd":
-      "null when the agent manages its own environment; a PRD when setup should generate and verify a project-local environment usage skill through experiment-env-configuration.",
+    "environment.secrets":
+      'Only keys and tokens the environment scripts need, as {"NAME": "value"}; {} when there are none. Hosts, paths and commands go into the environment skill, not here.',
     "connection.url": "The `url` printed by `/aris-setup validation` on the validation machine.",
     "connection.token":
       "The `token` printed by `/aris-setup validation`; the provider MCP config will hold it, so keep that file out of git.",
@@ -274,8 +221,6 @@ function recommendation(key: string, value: unknown): string {
       "Exactly how your runner calls ARIS_ADAPTER_DIR; a validation agent writes each submission's adapter to this contract.",
     "validation.leak_check.hidden_paths":
       "Absolute paths of the hidden samples, labels and references; feedback quoting them is held back.",
-    "validation.agent.provider":
-      "Use the provider selected by this project installation: claude or codex.",
     "validation.agent.paseo_command":
       'On Windows use ["node", "<install dir>\\\\bin\\\\paseo"]; the paseo.cmd shim cannot be spawned directly.',
     "validation.service.host":
@@ -290,8 +235,6 @@ function recommendation(key: string, value: unknown): string {
     return "Keep the default unless the benchmark or upload size needs otherwise.";
   if (key.startsWith("validation.benchmark."))
     return "Pin the benchmark to exact revisions and Windows-runnable argv; it freezes once a submission is counted.";
-  if (key.startsWith("environment.prd."))
-    return "Describe the actual files, commands, logs and resources of this machine.";
   if (Array.isArray(value)) return "Edits replace the whole list; [] clears it.";
   return empty(value) ? "Supply the actual value." : "Keep this value unless it is wrong here.";
 }
@@ -311,65 +254,6 @@ function rows(value: unknown, key: string): SetupReviewField[] {
       recommendation: recommendation(key, value),
     },
   ];
-}
-
-function validatePrd(prd: JsonObject, root: string, add: (f: string, m: string) => void): void {
-  for (const key of PRD_REQUIRED)
-    if (
-      empty(get(prd, key)) &&
-      !(key === "preparation.environment.activation" && get(prd, key) === "")
-    )
-      add(`environment.prd.${key}`, "required environment PRD value is missing");
-  if (get(prd, "preparation.files.location") === "remote")
-    for (const key of ["remote_path", "ssh_alias", "transfer"])
-      if (empty(get(prd, `preparation.files.${key}`)))
-        add(`environment.prd.preparation.files.${key}`, "remote execution requires this value");
-  if (prd.version !== 1 || prd.mode !== "fresh")
-    add("environment.prd", "the PRD must be version 1 with mode fresh");
-  if (
-    get(prd, "baseline.kind") === "simple" &&
-    typeof get(prd, "baseline.simple_args") !== "string"
-  )
-    add("environment.prd.baseline.simple_args", "a simple baseline needs its reduced arguments");
-  if (prd.project !== projectSlug(root))
-    add("environment.prd.project", `must be the project slug ${projectSlug(root)}`);
-  const ids = get(prd, "resources.ids");
-  if (!Array.isArray(ids) || !ids.length)
-    add("environment.prd.resources.ids", "list the actual execution resources");
-  for (const key of [
-    "preparation.environment.activation",
-    "preparation.environment.verify_cmd",
-    "run.entry_point",
-    "run.template",
-    "feedback.error.log_path",
-    "feedback.result.path_template",
-    "feedback.result.primary_metric_key",
-  ])
-    if (!empty(get(prd, key)) && typeof get(prd, key) !== "string")
-      add(`environment.prd.${key}`, "must be text");
-  for (const key of [
-    "monitor.max_hours",
-    "monitor.stall.no_log_growth_minutes",
-    "monitor.stall.consecutive_alert_ticks",
-  ])
-    if (!empty(get(prd, key)) && (typeof get(prd, key) !== "number" || Number(get(prd, key)) <= 0))
-      add(`environment.prd.${key}`, "must be a positive number");
-  const freeCheck = get(prd, "resources.free_check");
-  if (freeCheck !== null && freeCheck !== undefined) {
-    if (!isRecord(freeCheck))
-      add("environment.prd.resources.free_check", "must be null or a complete probe");
-    else
-      for (const key of ["cmd", "threshold", "unit", "compare", "index_by"])
-        if (empty(freeCheck[key]))
-          add(`environment.prd.resources.free_check.${key}`, "complete the probe or set null");
-  }
-  if (get(prd, "browser.required") === true) {
-    for (const key of ["mode", "browser_type", "smoke_url"])
-      if (empty(get(prd, `browser.${key}`)))
-        add(`environment.prd.browser.${key}`, "browser use requires this value");
-    if (get(prd, "browser.mode") === "session" && empty(get(prd, "browser.browser_id")))
-      add("environment.prd.browser.browser_id", "session mode requires an existing browser ID");
-  }
 }
 
 /** The validation config this draft would freeze; the benchmark digest is filled in by apply. */
@@ -411,11 +295,10 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
       add(field, (error as Error).message);
     }
   };
-  const role = roleOf(configuration);
-  if (!role) add("project.role", "choose worker or validation");
-  const modules = role ? ROLE_MODULES[role] : ["project"];
+  const role = installedRole(root);
+  const modules = ROLE_MODULES[role];
   for (const key of Object.keys(configuration))
-    if (!modules.includes(key)) add(key, `not a ${role ?? "setup"} module`);
+    if (!modules.includes(key)) add(key, `not a ${role} module`);
   for (const module of modules) {
     const value = configuration[module];
     if (!isRecord(value)) {
@@ -436,10 +319,18 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
   }
   if (empty(get(configuration, "project.name"))) add("project.name", "required");
   if (!taskSha256(root)) add("task.md", "write the task in task.md at the project root");
-  const prd = get(configuration, "environment.prd");
-  if (isRecord(prd)) validatePrd(prd, root, add);
-  else if (prd !== null && prd !== undefined)
-    add("environment.prd", "must be null or an environment PRD object");
+  const secrets = get(configuration, "environment.secrets");
+  if (!isRecord(secrets)) add("environment.secrets", "must be an object of NAME: value");
+  else
+    for (const [name, value] of Object.entries(secrets))
+      if (
+        value !== null &&
+        (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string" || !value)
+      )
+        add(
+          `environment.secrets.${name}`,
+          "must be an environment-variable name with a text value",
+        );
 
   if (role === "worker") {
     const url = get(configuration, "connection.url");
@@ -451,11 +342,6 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
   }
   if (role === "validation" && isRecord(configuration.validation)) {
     const validation = configuration.validation;
-    if (get(validation, "agent.provider") !== installedProvider(root))
-      add(
-        "validation.agent.provider",
-        "must match the provider selected when installing this project",
-      );
     const port = get(validation, "service.port");
     if (
       port !== null &&
@@ -551,7 +437,7 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
     const digest = draftDigest(root, draft),
       previous = readJson(stateFile),
       issues = validateSetupConfiguration(draft.configuration, root),
-      role = roleOf(draft.configuration),
+      role = installedRole(root),
       language = get(draft.configuration, "project.language") === "en" ? "en" : "zh";
     const review: SetupReview = {
       role,
@@ -562,7 +448,7 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
       configuration_sha256: digest,
       ready_to_confirm: issues.length === 0,
       confirmed: previous.confirmed_sha256 === digest && issues.length === 0,
-      modules: (role ? ROLE_MODULES[role] : ["project"]).map((id) => ({
+      modules: ROLE_MODULES[role].map((id) => ({
         id,
         title: TITLES[id]!.split(" / ")[language === "en" ? 1 : 0]!,
         fields: rows(draft.configuration[id], id),
@@ -646,9 +532,11 @@ function mergeJsonEntry(file: string, key: string, name: string, entry: JsonObje
 }
 
 type SetupEnvironmentResult = {
-  environment_prd: boolean;
-  /** Expected output of the skill generation step, not an already generated bundle. */
-  environment_skill_dir: string | null;
+  /** Where setup's environment step writes the environment skill; apply does not create it. */
+  environment_skill_dir: string;
+  environment_secrets: string;
+  /** The agent settings this role runs with in Paseo. */
+  agent: (typeof ROLE_AGENT)[SetupRole];
 };
 
 export type SetupApplyResult = SetupEnvironmentResult &
@@ -666,34 +554,27 @@ export type SetupApplyResult = SetupEnvironmentResult &
 export async function applySetup(projectRoot: string): Promise<SetupApplyResult> {
   const root = path.resolve(projectRoot),
     configuration = confirmedDraft(root).configuration,
-    role = roleOf(configuration)!,
-    environmentPrd = isRecord(get(configuration, "environment.prd"));
+    role = installedRole(root);
   const environment = {
-    environment_prd: environmentPrd,
-    environment_skill_dir: environmentPrd ? experimentSkillDir(root) : null,
+    environment_skill_dir: environmentSkillDir(root),
+    environment_secrets: environmentSecretsPath(root),
+    agent: ROLE_AGENT[role],
   };
-  if (environmentPrd)
-    writeStateJsonAtomic(
-      path.join(root, ".aris", "environment-prd.json"),
-      get(configuration, "environment.prd"),
-    );
+  const secrets = Object.entries(get(configuration, "environment.secrets") as JsonObject);
+  // A null entry is a cleared secret.
+  writeStateJsonAtomic(
+    environment.environment_secrets,
+    Object.fromEntries(secrets.filter(([, value]) => value !== null)),
+  );
+  fs.chmodSync(environment.environment_secrets, 0o600);
   if (role === "worker") {
-    let file: string;
-    if (installedProvider(root) === "codex") {
-      file = writeCodexValidationMcp(
-        root,
-        String(get(configuration, "connection.url")),
-        String(get(configuration, "connection.token")),
-      );
-    } else {
-      file = path.join(root, ".mcp.json");
-      mergeJsonEntry(file, "mcpServers", "aris-validation", {
-        type: "http",
-        url: get(configuration, "connection.url"),
-        headers: { Authorization: `Bearer ${String(get(configuration, "connection.token"))}` },
-      });
-      fs.chmodSync(file, 0o600);
-    }
+    const file = path.join(root, ".mcp.json");
+    mergeJsonEntry(file, "mcpServers", "aris-validation", {
+      type: "http",
+      url: get(configuration, "connection.url"),
+      headers: { Authorization: `Bearer ${String(get(configuration, "connection.token"))}` },
+    });
+    fs.chmodSync(file, 0o600);
     writeRoleBlock(root, role);
     return { role, mcp_config: file, ...environment };
   }

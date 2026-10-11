@@ -61,10 +61,13 @@ an arXiv ID, pass `--arxiv-id`; otherwise pass the paper's explicit title,
 authors, year, venue, and DOI:
 
 ```bash
-node "$WIKI_SCRIPT" ingest_paper research-wiki/ \
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ \
   --title "$TITLE" --authors "$AUTHORS" --year "$YEAR" \
   --venue "$VENUE" --external-id-doi "$DOI" || exit 1
 ```
+
+Each ingest records the work as `survey:<slug>`. Add `--problems problem:<id>,...`
+for the wiki problems the work addresses, and refer to it by that id.
 
 Do not hand-write pages, use manual metadata inferred from another source, or
 defer a failed ingest silently.

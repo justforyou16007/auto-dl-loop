@@ -58,8 +58,11 @@ If `research-wiki/` exists, ingest the papers returned by this invocation with
 the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`). A failed ingest fails the skill.
 
 ```bash
-node "$WIKI_SCRIPT" ingest_paper research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
 ```
+
+Each ingest records the work as `survey:<slug>`. Add `--problems problem:<id>,...`
+for the wiki problems the work addresses, and refer to it by that id.
 
 ## Output
 

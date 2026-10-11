@@ -4,10 +4,10 @@ import path from "node:path";
 import { anyJsonSchema, canonicalJsonBytes, canonicalJsonSha256 } from "./canonical-json.js";
 import { computeWikiCommandId } from "./wiki-command-id.js";
 import { readStateFile, withStateFileLock, writeStateFileAtomic } from "./state-file.js";
-import { parseWikiPayload, validateWikiPayload } from "./wiki-operations.js";
+import { parseWikiPayload } from "./wiki-operations.js";
 import { validateWikiScope } from "./wiki-scope.js";
 
-export const WIKI_SCHEMA_VERSION = 2;
+export const WIKI_SCHEMA_VERSION = 3;
 export const WIKI_SCHEMA_FILE = "schema.json";
 export const WIKI_EVENTS_FILE = "events.jsonl";
 
@@ -18,7 +18,7 @@ export interface WikiProducer {
 }
 
 export interface WikiEvent {
-  schema_version: 2;
+  schema_version: typeof WIKI_SCHEMA_VERSION;
   seq: number;
   event_id: string;
   command_id: string;
@@ -54,7 +54,7 @@ export interface WikiAppendOptions {
 }
 
 export interface WikiSchemaDocument {
-  schema_version: 2;
+  schema_version: typeof WIKI_SCHEMA_VERSION;
   format: "aris-research-wiki";
   event_log: "events.jsonl";
   canonicalization: "RFC8785-equivalent";
@@ -124,7 +124,7 @@ export function readWikiSchema(wikiRoot: string): WikiSchemaDocument {
   const schemaPath = wikiSchemaPath(wikiRoot);
   if (!fs.existsSync(schemaPath)) {
     throw new WikiSchemaUnsupportedError(
-      `${path.resolve(wikiRoot)} has no schema.json; old page-only Wikis are not migrated`,
+      `${path.resolve(wikiRoot)} has no schema.json; older Wikis are not migrated`,
     );
   }
   try {
@@ -139,7 +139,9 @@ export function assertWikiSchemaSupported(wikiRoot: string): WikiSchemaDocument 
   const schema = readWikiSchema(wikiRoot);
   const eventsPath = wikiEventsPath(wikiRoot);
   if (!fs.existsSync(eventsPath) || !fs.statSync(eventsPath).isFile()) {
-    throw new WikiSchemaUnsupportedError(`schema v2 Wiki is missing ${WIKI_EVENTS_FILE}`);
+    throw new WikiSchemaUnsupportedError(
+      `schema v${WIKI_SCHEMA_VERSION} Wiki is missing ${WIKI_EVENTS_FILE}`,
+    );
   }
   return schema;
 }
@@ -214,7 +216,7 @@ function validateDelta(delta: WikiDelta): void {
   assertString(delta.evidence_bundle_id, "evidence_bundle_id");
   if (delta.event_type !== undefined) assertString(delta.event_type, "event_type");
   assertNoAgentCommandId(delta.payload, "payload");
-  validateWikiPayload(delta.payload);
+  parseWikiPayload(delta.payload);
 }
 
 interface PreparedWikiDelta {

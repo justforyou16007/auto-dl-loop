@@ -153,11 +153,22 @@ try {
     fakePaseo,
     "console.log(JSON.stringify({ agentId: process.env.PASEO_AGENT_ID ?? 'standalone', argv: process.argv.slice(2) }));",
   );
-  const agent = { provider: "claude", model: "opus", paseo_command: [process.execPath, fakePaseo] };
+  const agent = {
+    provider: "codex" as const,
+    thinking: "max" as const,
+    model: "gpt-5.6-terra",
+    paseo_command: [process.execPath, fakePaseo],
+  };
   const request = { root, submission_id: "s001", submission_dir: path.join(root, "s001") };
   const argv = paseoRunArgv(agent, request);
   for (const flag of ["run", "-d", "--json", "--model", "aris.submission=s001"])
     assert.ok(argv.includes(flag), flag);
+  assert.deepEqual(argv.slice(argv.indexOf("--provider"), argv.indexOf("--provider") + 4), [
+    "--provider",
+    "codex",
+    "--thinking",
+    "max",
+  ]);
   process.env.PASEO_AGENT_ID = "parent-agent";
   assert.deepEqual(await paseoDispatcher(agent)(request), { agent_id: "standalone" });
   delete process.env.PASEO_AGENT_ID;
@@ -182,7 +193,7 @@ try {
       feedback_attempts: 1,
     },
     leak_check: { hidden_paths: [bench], min_match_chars: 12 },
-    agent: { provider: "claude", paseo_command: ["paseo"] },
+    agent: { provider: "codex", thinking: "max", paseo_command: ["paseo"] },
     service: { host: "127.0.0.1", public_url: "https://validation.example" },
   };
   writeStateJsonAtomic(validationConfigPath(root), config);

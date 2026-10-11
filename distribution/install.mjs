@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
   options: {
-    provider: { type: "string" },
+    role: { type: "string" },
     project: { type: "string" },
     force: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
@@ -14,18 +14,20 @@ const { values } = parseArgs({
   },
 });
 if (values.help) {
-  console.log("bash install.sh --provider claude|codex --project PATH [--dry-run] [--force]");
+  console.log("bash install.sh --role worker|validation --project PATH [--dry-run] [--force]");
   process.exit(0);
 }
-if (!values.project || !["claude", "codex"].includes(values.provider)) {
-  throw new Error("Specify --provider claude|codex and --project PATH. See --help.");
+if (!values.project || !["worker", "validation"].includes(values.role)) {
+  throw new Error("Specify --role worker|validation and --project PATH. See --help.");
 }
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ required");
 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(values.project);
-const provider = values.provider;
+const role = values.role;
+// The role fixes the provider: the worker runs Claude Code, validation runs Codex.
+const provider = role === "worker" ? "claude" : "codex";
 const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
 const manifestFile = path.join(root, ".aris/install.json");
 function digest(bytes) {
@@ -67,8 +69,10 @@ destination(".aris/install.json");
 const previous = fs.existsSync(manifestFile)
   ? JSON.parse(fs.readFileSync(manifestFile, "utf8"))
   : null;
-if (previous && previous.provider !== provider) {
-  throw new Error(`This project uses ${previous.provider}; keep the same provider when updating.`);
+if (previous && previous.role !== role) {
+  throw new Error(
+    `This project is installed for ${previous.role ?? previous.provider}; keep its role when updating.`,
+  );
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))
@@ -136,8 +140,11 @@ if (!values["dry-run"]) {
   const temp = `${manifestFile}.tmp`;
   fs.writeFileSync(
     temp,
-    JSON.stringify({ format: 1, version: manifest.version, provider, files: hashes }, null, 2) +
-      "\n",
+    JSON.stringify(
+      { format: 1, version: manifest.version, role, provider, files: hashes },
+      null,
+      2,
+    ) + "\n",
   );
   fs.renameSync(temp, manifestFile);
 }
@@ -145,6 +152,7 @@ console.log(
   JSON.stringify(
     {
       project: root,
+      role,
       provider,
       version: manifest.version,
       dry_run: values["dry-run"],
@@ -156,5 +164,7 @@ console.log(
   ),
 );
 console.log(
-  "Next: open this project in official Paseo with the selected provider and invoke aris-setup worker or aris-setup validation. Setup generates a verified environment usage skill when an environment PRD is provided. Run reload-skills in your client after skills change, or open a fresh session if it has no reload action. A changed MCP configuration needs a fresh provider session; Codex must trust the project to load .codex/config.toml.",
+  role === "worker"
+    ? "Next: open this project in official Paseo with Claude Code at thinking ultracode and invoke aris-setup. Run reload-skills after skills change, or open a fresh session; a changed MCP configuration needs a fresh session."
+    : "Next: open this project in official Paseo with Codex at thinking max and invoke aris-setup. Codex must trust the project; open a fresh session after skills change.",
 );

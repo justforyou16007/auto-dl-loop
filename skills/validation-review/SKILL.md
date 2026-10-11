@@ -1,6 +1,6 @@
 ---
 name: validation-review
-description: 'Review one ARIS validation submission end to end: read USAGE.md, write the adapter, run the frozen benchmark, check for cheating, write the verdict and desensitized feedback, finalize. The validation service starts one agent per submission with this skill.'
+description: 'Review one ARIS validation submission end to end: read the validation memory, read USAGE.md, write the adapter, run the frozen benchmark, check for cheating, write the verdict and desensitized feedback, record what was solved and what persists, finalize. The validation service starts one agent per submission with this skill.'
 allowed-tools: Read, Write, Edit, Bash(*)
 ---
 
@@ -9,6 +9,8 @@ allowed-tools: Read, Write, Edit, Bash(*)
 You review one submission on the validation machine. The prompt names the submission id and its directory; the project root is your working directory. The helper is `node .aris/dist/tools/validation-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)).
 
 The worker never sees anything you write except what `finalize` publishes: the verdict, the score measured by the frozen benchmark, and `feedback.md` after the leak check.
+
+Put steps 1–8 in your todo list and complete them in order.
 
 ## Rules
 
@@ -23,7 +25,7 @@ The worker never sees anything you write except what `finalize` publishes: the v
 node .aris/dist/tools/validation-cli.js status --project . --submission <id>
 ```
 
-Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract` in `.aris/validation/config.json` and the runner named by `.aris/tester-config.json`.
+Read `research-wiki/query_pack.md` first: the verification problems still open from earlier submissions are what you check again. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract` in `.aris/validation/config.json` and the runner named by `.aris/tester-config.json`.
 
 ## 2. Inspect before running
 
@@ -77,7 +79,7 @@ Write `<dir>/review.json`:
 
 ## 6. Feedback
 
-Write `<dir>/feedback.md` for the worker. Say what kind of problem you saw and how often, with examples you invent to show the pattern. Never include:
+Write `<dir>/feedback.md` for the worker. Say what kind of problem you saw and how often, with examples you invent to show the pattern, and which problems from earlier feedback are now solved or still present. Never include:
 
 - benchmark inputs, labels, reference outputs, sample ids or per-sample scores;
 - hidden file names or paths;
@@ -85,7 +87,17 @@ Write `<dir>/feedback.md` for the worker. Say what kind of problem you saw and h
 
 An invented example shows the shape of the problem ("a question asking for a date got a full sentence instead of `2021-03-04`"), not a real case.
 
-## 7. Finalize
+## 7. Record
+
+Record this review in the wiki with the [research-wiki](../research-wiki/SKILL.md) helper before finalizing:
+
+- each new kind of problem as a `problem` (statement in the same desensitized terms as the feedback);
+- the review as an `experiment` with the submission id, the verdict and score, `--solves` for open problems this submission no longer shows and `--reproduces` for those it still shows;
+- a solved problem with `--status solved --update-on-exist`.
+
+The wiki stays on this machine but follows the feedback rules above: no benchmark inputs, labels, reference outputs, sample ids, hidden paths or copied text.
+
+## 8. Finalize
 
 ```bash
 node .aris/dist/tools/validation-cli.js finalize --project . --submission <id>

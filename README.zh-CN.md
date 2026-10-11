@@ -4,26 +4,69 @@
 
 ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有冻结 benchmark，启动验证 agent，发布实测分数和脱敏反馈。双方通过 `submit` 和 `query` 两个 MCP 工具交互。
 
-本分支只包含 ARL 源码、技能、测试和独立安装包。两台机器分别安装官方 Paseo，以及 Claude Code 或 Codex；Paseo 负责执行和监控 agent。
+本分支只包含 ARL 源码、技能、测试和独立安装包。两台机器分别安装官方 Paseo；worker 使用 Claude Code（Paseo thinking `ultracode`），validation 使用 Codex（`max`），Paseo 负责执行和监控 agent。
+
+## 功能特性
+
+### 独立、可度量的验证
+
+- **两台机器、两个项目**：worker 构建交付物，validation 持有隐藏 benchmark；双方只通过 `submit` 和 `query` 两个 MCP 工具交互，不共享目录。
+- **冻结 benchmark**：setup 时固定 benchmark 代码、数据版本、切分、样本数、评测设置和目标；一旦有提交计入次数，任何改动都会让服务停止。
+- **实测分数**：分数来自完整的逐样本结果，并校验样本数和聚合一致性；worker 不自报分数。
+- **提交审查**：validation agent 检查每个交付物，根据 `USAGE.md` 自写 adapter，运行 benchmark，判定为 `valid`、`cheating` 或 `unusable`，只有 valid 的分数有效。
+- **反馈防泄漏**：反馈只描述问题类型并配以虚构示例；与隐藏样本、标签或路径相符的内容会被拦下，改写后才发布。
+- **明确的停止条件**：有效分数达到目标即 `completed`，提交次数用完即 `closed`；上传和基础设施故障不计入次数。
+
+### 按角色固定 agent
+
+| 角色 | Agent | Paseo thinking | 指令文件 |
+| --- | --- | --- | --- |
+| worker | Claude Code | `ultracode` | `CLAUDE.md` |
+| validation | Codex | `max` | `AGENTS.md` |
+
+安装参数 `--role` 决定 agent、技能目录和配置；validation 服务启动的每个评审 agent 都是 Codex `max`。
+
+### 有记忆的严格迭代
+
+- **编号迭代流程**：worker 的角色指令要求依次完成每一步：读记忆 → 选择问题和未试过的想法 → 在 todo list 中规划 → 运行实验 → commit → submit → 记录实测结果 → 保存经验。每次提交对应一个 Git commit。
+- **必须使用长期记忆**：`research-wiki` 按问题（可以是多个）记录已有工作的调研（survey，来自 arXiv、Semantic Scholar、OpenAlex、Exa 等）、尝试过的想法和实验，以及哪些有效、哪些无效，并用 `supports`、`invalidates`、`solves`、`reproduces` 等证据边关联。
+- **精简 query pack**：每轮迭代从不超过 1000 字符的确定性摘要开始。每个未解决问题一行，按节点 id 标出有效（✔）和无效（✘）的尝试，细节见节点页面。
+- **验证记忆**：validation 机器有自己的 wiki，记录验证问题，以及每次提交解决了哪些、哪些仍然存在；每次评审都会重新检查并在反馈中说明。
+- **短期任务进 todo list**：迭代步骤和每条反馈问题都作为 todo 跟踪，修复进已提交的交付物后才关闭。
+- **跨项目经验**：每次得到 validation 结果后，worker 把有证据支持的简短经验写入 ARL 源码仓库 `arl` 分支的 `Experience.md`。
+
+### 环境技能
+
+setup 在真实机器上写入项目技能 `<项目>-environment`：
+
+- **只记事实**：只记录 agent 无从得知的环境事实，如主机、路径、环境名、资源、指标输出位置和已验证的坑；不写通用工具知识。
+- **验证过的脚本**：固定流程写成脚本，如同步代码、启动命名实验、检查状态、取回结果、停止。每次运行有独立名称、日志和结果路径，可以并行运行多个实验。
+- **密钥单独存放**：key 和 token 只保存在 `.aris/environment.json`（权限 0600，不进 Git）。
+
+之后发现的新环境事实或重复的手工流程，也按同样规则补进这个技能。
+
+### 本地、按归属管理的安装
+
+安装器从准备好的本地 Git 仓库复制编译好的 helper、四个核心技能（`aris-setup`、`validation-review`、`research-wiki`、`browser-act`）和运行依赖，不下载任何东西。更新只替换 ARL 自己管理的文件，保留任务、wiki、benchmark、提交记录、生成的环境技能和无关配置。
 
 ## 安装
 
-需要 Node.js 22.12+、Bash 和 Git。使用本地 `arl` 分支源码仓库，先显式准备依赖和编译产物，再为项目选择 provider：
+需要 Node.js 22.12+、Bash 和 Git。使用本地 `arl` 分支源码仓库，先显式准备依赖和编译产物，再按角色安装项目：
 
 ```bash
 cd /你的本地arl仓库
 npm ci
 npm run build
-bash distribution/install-aris.sh --provider claude --project /你的项目目录
-# Codex 项目使用：
-bash distribution/install-aris.sh --provider codex --project /你的项目目录
+bash distribution/install-aris.sh --role worker --project /你的项目目录
+# validation 机器使用：
+bash distribution/install-aris.sh --role validation --project /你的项目目录
 ```
 
-安装器仅从准备好的本地仓库复制项目技能、编译好的 helper 和运行依赖，不触发下载；缺少依赖或编译产物时直接报错。`install-arl.sh` 保留为同一安装流程的别名。Codex 必须信任项目，才会加载项目 MCP 配置。
+安装器仅从准备好的本地仓库复制项目技能、编译好的 helper 和运行依赖，不触发下载；缺少依赖或编译产物时直接报错。角色决定 agent，更新时不可更换。`install-arl.sh` 保留为同一安装流程的别名。Codex 必须信任 validation 项目。
 
 先配置 validation，再把地址和 token 私下交给 worker。完整步骤见[中文部署指南](SETUP_GUIDE_CN.md)。
 
-worker 的角色文档包含工具入口：`research-wiki` 管理研究记录，`browser-act` 访问浏览器，`experiment-queue` 调度 SSH 批量实验。setup 将确认的环境需求交给 `experiment-env-configuration`，输出验证过的 `run-<项目>-experiment` 环境使用 skill，再提示用户在客户端执行 `reload-skills`。升级或修复继续使用安装脚本。
+`/aris-setup` 从安装记录读取角色，最后在本机写入并验证项目环境技能 `<项目>-environment`：只记录 agent 无从得知的环境事实，以及同步代码、启动命名实验、检查、取回结果、停止等固定脚本，worker 可在一轮迭代中并行运行多个实验。`research-wiki` 是角色的长期记忆，记录问题、已有工作调研（survey）、尝试过的想法和实验及其有效性；`browser-act` 访问浏览器。技能变更后提示用户在客户端执行 `reload-skills`。升级或修复继续使用安装脚本。
 
 ## 开发
 

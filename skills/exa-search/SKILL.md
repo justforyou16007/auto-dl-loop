@@ -46,18 +46,20 @@ another search source.
 
 ## Research Wiki
 
-Only research-paper results are eligible for Wiki ingest. If
-`research-wiki/` exists, the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`) is required. Each paper result must
-contain an arXiv ID, title, and authors; missing metadata fails the ingest
-phase rather than being reconstructed from a snippet.
+If `research-wiki/` exists, the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`)
+is required. Ingest each result the run relies on (paper, repository,
+documentation or blog) as a survey. Use the arXiv ID when Exa returns one;
+otherwise pass the URL and title exactly as returned, plus authors and year when
+present. Missing metadata fails the ingest phase rather than being
+reconstructed from a snippet.
 
 ```bash
-node "$WIKI_SCRIPT" ingest_paper research-wiki/ \
-  --arxiv-id "$ARXIV_ID" || exit 1
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1
+node "$WIKI_SCRIPT" ingest_survey research-wiki/ --url "$URL" --title "$TITLE" || exit 1
 ```
 
-For a non-arXiv paper, pass the explicit metadata returned by Exa. Do not
-replace it with manually guessed metadata.
+Each ingest records the work as `survey:<slug>`. Add `--problems problem:<id>,...`
+for the wiki problems the work addresses, and refer to it by that id.
 
 ## Output
 

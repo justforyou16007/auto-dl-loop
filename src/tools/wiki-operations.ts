@@ -1,21 +1,51 @@
-export type WikiPageKind = "paper" | "idea" | "experiment" | "claim" | "problem";
+export type WikiPageKind = "survey" | "idea" | "experiment" | "claim" | "problem";
 
-export const WIKI_EDGE_TYPES = [
-  "extends",
-  "contradicts",
-  "addresses",
-  "child_of",
-  "inspired_by",
-  "tested_by",
-  "supports",
-  "invalidates",
-  "supersedes",
-  "depends_on",
-  "refutes",
-  "uses",
+/** Node-id prefix → page kind. Experiments use the short `exp:` prefix. */
+export const WIKI_NODE_KINDS: Readonly<Record<string, WikiPageKind>> = {
+  survey: "survey",
+  idea: "idea",
+  exp: "experiment",
+  claim: "claim",
+  problem: "problem",
+};
+
+/** The From → To node-id prefixes each edge type may connect. */
+export const WIKI_EDGE_ENDPOINTS = {
+  extends: { from: ["survey", "claim"], to: ["survey"] },
+  contradicts: { from: ["survey"], to: ["survey"] },
+  supersedes: { from: ["survey"], to: ["survey"] },
+  addresses: { from: ["survey", "idea", "claim"], to: ["problem"] },
+  child_of: { from: ["problem"], to: ["problem"] },
+  inspired_by: { from: ["idea"], to: ["survey"] },
+  tested_by: { from: ["idea", "claim"], to: ["exp"] },
+  supports: { from: ["exp"], to: ["claim", "idea"] },
+  invalidates: { from: ["exp"], to: ["claim", "idea"] },
+  solves: { from: ["exp"], to: ["problem"] },
+  reproduces: { from: ["exp"], to: ["problem"] },
+  uses: { from: ["claim"], to: ["survey"] },
+  depends_on: { from: ["claim"], to: ["claim"] },
+  refutes: { from: ["claim"], to: ["claim"] },
+} as const satisfies Record<string, { from: readonly string[]; to: readonly string[] }>;
+
+export type WikiEdgeType = keyof typeof WIKI_EDGE_ENDPOINTS;
+
+export const WIKI_EDGE_TYPES = Object.keys(WIKI_EDGE_ENDPOINTS) as WikiEdgeType[];
+
+export const IDEA_OUTCOMES = ["pending", "effective", "ineffective", "mixed"] as const;
+export const EXPERIMENT_RESULTS = ["effective", "ineffective", "mixed"] as const;
+export const CLAIM_STATUSES = [
+  "drafted",
+  "unproven",
+  "sound-modulo-imports",
+  "verified",
+  "refuted",
+  "retracted",
 ] as const;
+export const PROBLEM_STATUSES = ["open", "solved", "refuted", "deferred"] as const;
+export const PROBLEM_SEVERITIES = ["high", "medium", "low"] as const;
 
-export type WikiEdgeType = (typeof WIKI_EDGE_TYPES)[number];
+export const DEFAULT_QUERY_CHARS = 1000;
+export const MIN_QUERY_CHARS = 300;
 
 export type WikiOperation =
   | { op: "upsert_page"; kind: WikiPageKind; id: string; data: Record<string, unknown> }
@@ -27,71 +57,27 @@ export type WikiOperation =
   | { op: "remove_edges"; from?: string; to?: string; type?: WikiEdgeType }
   | { op: "append_log"; message: string }
   | { op: "quarantine"; target: string; findings: string[]; raw_text: string }
-  | { op: "set_project_direction"; text: string }
   | { op: "set_projection_config"; max_query_chars: number };
 
-const PAGE_KINDS = new Set<WikiPageKind>(["paper", "idea", "experiment", "claim", "problem"]);
+const PAGE_KINDS = new Set<string>(Object.values(WIKI_NODE_KINDS));
 const EDGE_TYPE_SET = new Set<string>(WIKI_EDGE_TYPES);
 const PAGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const NODE_ID_PATTERN = /^(paper|idea|exp|claim|problem):[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const NODE_ID_PATTERN = /^(survey|idea|exp|claim|problem):[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const PAGE_DATA_KEYS: Record<WikiPageKind, readonly string[]> = {
-  paper: [
+  survey: [
     "title",
     "authors",
     "year",
     "venue",
+    "url",
     "external_ids",
     "tags",
     "thesis",
     "abstract",
-    "primary_category",
   ],
-  idea: [
-    "title",
-    "description",
-    "stage",
-    "outcome",
-    "thesis",
-    "risks",
-    "based_on",
-    "target_problems",
-    "tags",
-  ],
-  experiment: [
-    "title",
-    "idea_id",
-    "verdict",
-    "confidence",
-    "date",
-    "hardware",
-    "duration",
-    "provenance",
-    "metrics",
-    "reasoning",
-    "submission_id",
-    // The fields below were written by the removed research loop. They stay
-    // accepted so Wikis it wrote still replay; nothing writes them now.
-    "iteration",
-    "gate_metric",
-    "gate_metric_name",
-    "tester_metrics",
-    "test_result_path",
-    "test_audit_path",
-    "test_result_sha256",
-    "test_audit_sha256",
-    "tester_run_id",
-    "benchmark",
-    "dataset_split",
-    "test_sample_count",
-    "tester_audit_status",
-    "tester_definition_sha256",
-    "tester_conclusion",
-    "tester_confidence",
-    "tester_directions",
-    "tester_advice",
-    "tags",
-  ],
+  idea: ["title", "description", "outcome", "thesis", "risks", "tags"],
+  experiment: ["title", "idea_id", "result", "submission_id", "metrics", "reasoning", "tags"],
   claim: [
     "name",
     "description",
@@ -112,13 +98,32 @@ const PAGE_DATA_KEYS: Record<WikiPageKind, readonly string[]> = {
     "origin",
     "evidence",
     "whatWouldSolve",
-    "caveats",
     "tags",
   ],
 };
 
 export function isWikiEdgeType(value: unknown): value is WikiEdgeType {
   return typeof value === "string" && EDGE_TYPE_SET.has(value);
+}
+
+export function wikiNodeKind(nodeId: string): string {
+  const separator = nodeId.indexOf(":");
+  return separator > 0 ? nodeId.slice(0, separator) : "";
+}
+
+/** Null when the edge fits its endpoint kinds, otherwise a message naming the types that do. */
+export function wikiEdgeEndpointError(from: string, to: string, type: WikiEdgeType): string | null {
+  const fits = (candidate: WikiEdgeType): boolean =>
+    (WIKI_EDGE_ENDPOINTS[candidate].from as readonly string[]).includes(wikiNodeKind(from)) &&
+    (WIKI_EDGE_ENDPOINTS[candidate].to as readonly string[]).includes(wikiNodeKind(to));
+  if (fits(type)) return null;
+  const spec = WIKI_EDGE_ENDPOINTS[type];
+  const fromKind = wikiNodeKind(from) || "?";
+  const toKind = wikiNodeKind(to) || "?";
+  const alternatives = WIKI_EDGE_TYPES.filter(fits);
+  const hint =
+    alternatives.length > 0 ? ` For ${fromKind} → ${toKind} use: ${alternatives.join(", ")}.` : "";
+  return `'${type}' connects ${spec.from.join("|")} → ${spec.to.join("|")}, got ${fromKind} → ${toKind}.${hint}`;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -155,37 +160,18 @@ function assertPageId(value: string, location: string): void {
   }
 }
 
-function assertNodeId(value: string, location: string): void {
+function assertNodeId(value: string, location: string, kind?: string): void {
   if (!NODE_ID_PATTERN.test(value)) {
     throw new Error(`invalid Wiki node id '${value}' at ${location}`);
+  }
+  if (kind !== undefined && wikiNodeKind(value) !== kind) {
+    throw new Error(`${location} must be a ${kind} id, got '${value}'`);
   }
 }
 
 function assertStringArray(value: unknown, location: string): void {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
     throw new Error(`${location} must be a string array`);
-  }
-}
-
-/**
- * A machine-readable metric block: plain names, finite numbers, nothing nested.
- * The export ranks candidates by these, so they have to be comparable without
- * anyone re-reading the free-text `metrics` prose next to them.
- */
-function assertNumberRecord(value: unknown, location: string): void {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.keys(value).length === 0
-  ) {
-    throw new Error(`${location} must be a non-empty object of metric values`);
-  }
-  for (const [name, score] of Object.entries(value)) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))
-      throw new Error(`${location} has an invalid metric name '${name}'`);
-    if (typeof score !== "number" || !Number.isFinite(score))
-      throw new Error(`${location}.${name} must be a finite number`);
   }
 }
 
@@ -201,125 +187,54 @@ function assertOptionalStrings(
   }
 }
 
+function assertOneOf(
+  data: Record<string, unknown>,
+  field: string,
+  allowed: readonly string[],
+  location: string,
+  allowEmpty = false,
+): void {
+  const value = data[field];
+  if (value === undefined || (allowEmpty && value === "")) return;
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new Error(`${location}.${field} must be one of ${allowed.join(", ")}`);
+  }
+}
+
 function validatePageData(
   kind: WikiPageKind,
   data: Record<string, unknown>,
   location: string,
 ): void {
   assertKeys(data, PAGE_DATA_KEYS[kind], location);
+  if (data.tags !== undefined) assertStringArray(data.tags, `${location}.tags`);
   switch (kind) {
-    case "paper": {
-      assertOptionalStrings(
-        data,
-        ["title", "venue", "thesis", "abstract", "primary_category"],
-        location,
-      );
+    case "survey":
+      assertOptionalStrings(data, ["title", "venue", "url", "thesis", "abstract"], location);
       if (data.authors !== undefined) assertStringArray(data.authors, `${location}.authors`);
-      if (data.tags !== undefined) assertStringArray(data.tags, `${location}.tags`);
-      if (
-        data.year !== undefined &&
-        (!Number.isInteger(data.year) || !Number.isFinite(data.year))
-      ) {
+      if (data.year !== undefined && !Number.isSafeInteger(data.year)) {
         throw new Error(`${location}.year must be a finite integer`);
       }
       if (data.external_ids !== undefined) {
         if (!isObject(data.external_ids))
           throw new Error(`${location}.external_ids must be an object`);
-        assertKeys(data.external_ids, ["arxiv", "doi", "s2"], `${location}.external_ids`);
-        assertOptionalStrings(
-          data.external_ids,
-          ["arxiv", "doi", "s2"],
-          `${location}.external_ids`,
-        );
+        assertKeys(data.external_ids, ["arxiv", "doi"], `${location}.external_ids`);
+        assertOptionalStrings(data.external_ids, ["arxiv", "doi"], `${location}.external_ids`);
       }
       return;
-    }
     case "idea":
-      assertOptionalStrings(
-        data,
-        ["title", "description", "stage", "outcome", "thesis", "risks"],
-        location,
-      );
-      for (const field of ["based_on", "target_problems", "tags"]) {
-        if (data[field] !== undefined) assertStringArray(data[field], `${location}.${field}`);
-      }
+      assertOptionalStrings(data, ["title", "description", "outcome", "thesis", "risks"], location);
+      assertOneOf(data, "outcome", IDEA_OUTCOMES, location);
       return;
     case "experiment":
       assertOptionalStrings(
         data,
-        [
-          "title",
-          "idea_id",
-          "verdict",
-          "confidence",
-          "date",
-          "hardware",
-          "duration",
-          "provenance",
-          "metrics",
-          "reasoning",
-        ],
+        ["title", "idea_id", "result", "submission_id", "metrics", "reasoning"],
         location,
       );
-      assertOptionalStrings(
-        data,
-        [
-          "submission_id",
-          "tester_definition_sha256",
-          "test_result_path",
-          "test_audit_path",
-          "test_result_sha256",
-          "test_audit_sha256",
-          "tester_run_id",
-          "benchmark",
-          "dataset_split",
-          "tester_audit_status",
-        ],
-        location,
-      );
-      for (const field of ["test_result_sha256", "test_audit_sha256"])
-        if (data[field] !== undefined && !/^[0-9a-f]{64}$/.test(String(data[field])))
-          throw new Error(`${location}.${field} must be a sha256 digest`);
-      if (
-        data.tester_audit_status !== undefined &&
-        !["pass", "warn", "fail"].includes(String(data.tester_audit_status))
-      )
-        throw new Error(`${location}.tester_audit_status is invalid`);
-      if (
-        data.sample_count !== undefined &&
-        (!Number.isInteger(data.sample_count) || (data.sample_count as number) < 1)
-      )
-        throw new Error(`${location}.sample_count must be positive`);
-      if (data.tags !== undefined) assertStringArray(data.tags, `${location}.tags`);
+      assertOneOf(data, "result", EXPERIMENT_RESULTS, location, true);
       if (data.idea_id !== undefined && data.idea_id !== "")
-        assertNodeId(data.idea_id as string, `${location}.idea_id`);
-      if (
-        data.iteration !== undefined &&
-        (!Number.isInteger(data.iteration) || (data.iteration as number) < 1)
-      )
-        throw new Error(`${location}.iteration must be an integer >= 1`);
-      if (
-        data.gate_metric !== undefined &&
-        (typeof data.gate_metric !== "number" || !Number.isFinite(data.gate_metric))
-      )
-        throw new Error(`${location}.gate_metric must be a finite number`);
-      if (data.tester_metrics !== undefined)
-        assertNumberRecord(data.tester_metrics, `${location}.tester_metrics`);
-      if (
-        data.tester_definition_sha256 !== undefined &&
-        data.tester_definition_sha256 !== "" &&
-        !/^[0-9a-f]{64}$/.test(data.tester_definition_sha256 as string)
-      )
-        throw new Error(`${location}.tester_definition_sha256 must be a sha256 hex digest`);
-      // Descriptive feedback stays readable; publication checks live in the event store.
-      assertOptionalStrings(data, ["tester_conclusion", "tester_confidence"], location);
-      for (const field of ["tester_directions", "tester_advice"] as const) {
-        if (data[field] === undefined) continue;
-        assertStringArray(data[field], `${location}.${field}`);
-        const items = data[field] as string[];
-        if (new Set(items).size !== items.length)
-          throw new Error(`${location}.${field} must not repeat a value`);
-      }
+        assertNodeId(data.idea_id as string, `${location}.idea_id`, "idea");
       return;
     case "claim":
       assertOptionalStrings(
@@ -327,7 +242,7 @@ function validatePageData(
         ["name", "description", "status", "provenance", "statement", "scope", "evidence", "date"],
         location,
       );
-      if (data.tags !== undefined) assertStringArray(data.tags, `${location}.tags`);
+      assertOneOf(data, "status", CLAIM_STATUSES, location);
       return;
     case "problem":
       assertOptionalStrings(
@@ -341,15 +256,27 @@ function validatePageData(
           "origin",
           "evidence",
           "whatWouldSolve",
-          "caveats",
         ],
         location,
       );
-      if (data.tags !== undefined) assertStringArray(data.tags, `${location}.tags`);
+      assertOneOf(data, "status", PROBLEM_STATUSES, location);
+      assertOneOf(data, "severity", PROBLEM_SEVERITIES, location);
       if (data.parent !== undefined && data.parent !== "")
-        assertNodeId(data.parent as string, `${location}.parent`);
+        assertNodeId(data.parent as string, `${location}.parent`, "problem");
       return;
   }
+}
+
+function pageKindField(value: unknown, location: string): WikiPageKind {
+  const kind = stringField(value, location);
+  if (!PAGE_KINDS.has(kind)) throw new Error(`invalid Wiki page kind '${kind}'`);
+  return kind as WikiPageKind;
+}
+
+function edgeTypeField(value: unknown, location: string): WikiEdgeType {
+  const type = stringField(value, location);
+  if (!isWikiEdgeType(type)) throw new Error(`invalid Wiki edge type '${type}'`);
+  return type;
 }
 
 export function parseWikiOperation(value: unknown, location: string): WikiOperation {
@@ -358,8 +285,7 @@ export function parseWikiOperation(value: unknown, location: string): WikiOperat
   switch (op) {
     case "upsert_page": {
       assertKeys(value, ["op", "kind", "id", "data"], location);
-      const kind = stringField(value.kind, `${location}.kind`) as WikiPageKind;
-      if (!PAGE_KINDS.has(kind)) throw new Error(`invalid Wiki page kind '${kind}'`);
+      const kind = pageKindField(value.kind, `${location}.kind`);
       const id = stringField(value.id, `${location}.id`);
       if (!isObject(value.data)) throw new Error(`${location}.data must be an object`);
       assertPageId(id, `${location}.id`);
@@ -368,8 +294,7 @@ export function parseWikiOperation(value: unknown, location: string): WikiOperat
     }
     case "remove_page": {
       assertKeys(value, ["op", "kind", "id"], location);
-      const kind = stringField(value.kind, `${location}.kind`) as WikiPageKind;
-      if (!PAGE_KINDS.has(kind)) throw new Error(`invalid Wiki page kind '${kind}'`);
+      const kind = pageKindField(value.kind, `${location}.kind`);
       const id = stringField(value.id, `${location}.id`);
       assertPageId(id, `${location}.id`);
       return { op, kind, id };
@@ -380,16 +305,17 @@ export function parseWikiOperation(value: unknown, location: string): WikiOperat
       assertKeys(value.edge, ["from", "to", "type", "evidence"], `${location}.edge`);
       const from = stringField(value.edge.from, `${location}.edge.from`);
       const to = stringField(value.edge.to, `${location}.edge.to`);
-      const type = stringField(value.edge.type, `${location}.edge.type`);
-      if (!EDGE_TYPE_SET.has(type)) throw new Error(`invalid Wiki edge type '${type}'`);
+      const type = edgeTypeField(value.edge.type, `${location}.edge.type`);
       assertNodeId(from, `${location}.edge.from`);
       assertNodeId(to, `${location}.edge.to`);
+      const endpointError = wikiEdgeEndpointError(from, to, type);
+      if (endpointError) throw new Error(`invalid Wiki edge at ${location}: ${endpointError}`);
       return {
         op,
         edge: {
           from,
           to,
-          type: type as WikiEdgeType,
+          type,
           evidence:
             value.edge.evidence === undefined
               ? ""
@@ -399,66 +325,43 @@ export function parseWikiOperation(value: unknown, location: string): WikiOperat
     }
     case "remove_edges": {
       assertKeys(value, ["op", "from", "to", "type"], location);
-      for (const key of ["from", "to", "type"] as const) {
-        if (value[key] !== undefined) stringField(value[key], `${location}.${key}`);
-      }
-      if (value.from !== undefined) assertNodeId(value.from as string, `${location}.from`);
-      if (value.to !== undefined) assertNodeId(value.to as string, `${location}.to`);
-      if (value.type !== undefined && !EDGE_TYPE_SET.has(value.type as string)) {
-        throw new Error(`invalid Wiki edge type '${value.type}'`);
-      }
-      return {
-        op,
-        from: value.from as string | undefined,
-        to: value.to as string | undefined,
-        type: value.type as WikiEdgeType | undefined,
-      };
+      const from =
+        value.from === undefined ? undefined : stringField(value.from, `${location}.from`);
+      const to = value.to === undefined ? undefined : stringField(value.to, `${location}.to`);
+      if (from !== undefined) assertNodeId(from, `${location}.from`);
+      if (to !== undefined) assertNodeId(to, `${location}.to`);
+      const type =
+        value.type === undefined ? undefined : edgeTypeField(value.type, `${location}.type`);
+      return { op, from, to, type };
     }
     case "append_log":
       assertKeys(value, ["op", "message"], location);
       return { op, message: stringField(value.message, `${location}.message`) };
     case "quarantine":
       assertKeys(value, ["op", "target", "findings", "raw_text"], location);
-      if (
-        !Array.isArray(value.findings) ||
-        !value.findings.every((item) => typeof item === "string")
-      ) {
-        throw new Error(`${location}.findings must be a string array`);
-      }
+      assertStringArray(value.findings, `${location}.findings`);
       return {
         op,
         target: stringField(value.target, `${location}.target`),
-        findings: [...value.findings],
+        findings: [...(value.findings as string[])],
         raw_text: stringField(value.raw_text, `${location}.raw_text`),
       };
-    case "set_project_direction":
-      assertKeys(value, ["op", "text"], location);
-      return { op, text: stringField(value.text, `${location}.text`) };
     case "set_projection_config": {
       assertKeys(value, ["op", "max_query_chars"], location);
+      const maxChars = value.max_query_chars;
       if (
-        typeof value.max_query_chars !== "number" ||
-        !Number.isInteger(value.max_query_chars) ||
-        value.max_query_chars < 200
+        typeof maxChars !== "number" ||
+        !Number.isSafeInteger(maxChars) ||
+        maxChars < MIN_QUERY_CHARS
       ) {
-        throw new Error(`${location}.max_query_chars must be an integer >= 200`);
+        throw new Error(`${location}.max_query_chars must be an integer >= ${MIN_QUERY_CHARS}`);
       }
-      return { op, max_query_chars: value.max_query_chars };
+      return { op, max_query_chars: maxChars };
     }
     default:
       throw new Error(`invalid Wiki operation '${op}' at ${location}`);
   }
 }
-
-// Event logs written by the removed research loop carry signal operations and a
-// payload `context`. Reading drops both so those logs still replay; new writes
-// may not contain them.
-const LEGACY_OPS = new Set([
-  "publish_signal",
-  "upsert_signal",
-  "retract_signal",
-  "supersede_signal",
-]);
 
 export interface WikiPayload {
   operations: WikiOperation[];
@@ -466,29 +369,13 @@ export interface WikiPayload {
 
 export function parseWikiPayload(payload: unknown): WikiPayload {
   if (!isObject(payload)) throw new Error("Wiki payload must be an object");
-  assertKeys(payload, ["operations", "context"], "payload");
+  assertKeys(payload, ["operations"], "payload");
   if (!Array.isArray(payload.operations)) {
     throw new Error("Wiki payload.operations must be an array");
   }
   return {
-    operations: payload.operations
-      .filter((item) => !(isObject(item) && LEGACY_OPS.has(item.op as string)))
-      .map((item, index) => parseWikiOperation(item, `payload.operations[${index}]`)),
+    operations: payload.operations.map((item, index) =>
+      parseWikiOperation(item, `payload.operations[${index}]`),
+    ),
   };
-}
-
-/** A payload about to be appended: the legacy shapes are rejected. */
-export function validateWikiPayload(payload: unknown): void {
-  if (isObject(payload)) {
-    if (payload.context !== undefined)
-      throw new Error("Wiki payload.context is no longer accepted");
-    if (Array.isArray(payload.operations)) {
-      for (const item of payload.operations) {
-        if (isObject(item) && LEGACY_OPS.has(item.op as string)) {
-          throw new Error(`invalid Wiki operation '${String(item.op)}'`);
-        }
-      }
-    }
-  }
-  parseWikiPayload(payload);
 }

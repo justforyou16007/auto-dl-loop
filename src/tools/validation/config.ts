@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { ROLE_AGENT } from "../provider.js";
 import { readStateFile, writeStateFileAtomic } from "../state-file.js";
 import {
   assertTesterSetupReady,
@@ -34,10 +35,11 @@ export interface ValidationLimits {
 }
 
 export interface ValidationAgentConfig {
-  provider: string;
+  /** Fixed by the validation role: Codex at max thinking. */
+  provider: typeof ROLE_AGENT.validation.provider;
+  thinking: typeof ROLE_AGENT.validation.thinking;
   model?: string;
   mode?: string;
-  thinking?: string;
   /**
    * argv prefix that runs the Paseo CLI. On Windows `paseo` is a .cmd shim that
    * cannot be spawned without a shell, so name node and the CLI script instead.
@@ -126,6 +128,9 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
   assertNoUnknownFields(agent, ["provider", "model", "mode", "thinking", "paseo_command"], "agent");
   const command = strings(agent.paseo_command ?? ["paseo"], "agent.paseo_command");
   if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.paseo_command");
+  for (const [key, expected] of Object.entries(ROLE_AGENT.validation))
+    if (agent[key] !== undefined && agent[key] !== null && agent[key] !== expected)
+      failA1("INVALID_VALUE", `validation agents use ${expected}`, `agent.${key}`);
   const optional = (key: string) =>
     agent[key] === undefined || agent[key] === null
       ? {}
@@ -152,10 +157,9 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
       min_match_chars: requireInteger(leak.min_match_chars ?? 40, "leak_check.min_match_chars", 8),
     },
     agent: {
-      provider: requireString(agent.provider, "agent.provider"),
+      ...ROLE_AGENT.validation,
       ...optional("model"),
       ...optional("mode"),
-      ...optional("thinking"),
       paseo_command: command,
     },
     service: {
