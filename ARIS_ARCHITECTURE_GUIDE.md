@@ -9,34 +9,34 @@ ARL 是可独立安装、配合官方 Paseo 使用的两机研究任务包。保
 模型还做不好的一件事，是给自己的成果下结论：同一个 agent 写的评测，评出来的分数不可信。ARIS 现在只解决这一件事，做法是把"做"和"判"放到两台互相看不见的机器上：
 
 - **worker** 只管做。它是 Paseo 中 thinking 为 `ultracode` 的 Claude Code，拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
-- **validation** 只管判。它持有 worker 看不到的冻结 benchmark，为每次提交启动一个 thinking 为 `max` 的 Codex agent，给出结论、分数和脱敏反馈，并按确定性指标决定任务何时结束。
+- **validator** 只管判。它持有 worker 看不到的冻结 benchmark，为每次提交启动一个 thinking 为 `max` 的 Codex agent，给出结论、分数和脱敏反馈，并按确定性指标决定任务何时结束。
 
-角色在安装时确定（`--role worker|validation`），同时固定 agent、技能目录和指令文件，更新时不能更换。
+角色在安装时确定（`--role worker|validator`），同时固定 agent、技能目录和指令文件，更新时不能更换。
 
 ## 二、两台机器之间只有一条通道
 
 ```
-worker 机器                                   validation 机器
+worker 机器                                   validator 机器
 ┌───────────────────────┐                     ┌──────────────────────────────────┐
 │ Paseo                 │                     │ Paseo                            │
 │  └ worker agent       │  MCP: submit/query  │  ├ aris-validation 服务脚本       │
 │     task.md           │ ──────────────────▶ │  │   .aris/validation/            │
-│     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validation agent  │
+│     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validator agent  │
 │     .mcp.json         │ ──────────────────▶ │      .aris/tester-config.json     │
 └───────────────────────┘                     └──────────────────────────────────┘
 ```
 
 两边不共享磁盘、不共享仓库、不互发消息。worker 能拿到的只有 `query` 返回的内容：服务状态、剩余次数、最好成绩，以及某次提交的状态、结论、分数和反馈。这样防作弊就不靠规则约束 agent，而是靠物理隔离：worker 根本读不到 benchmark。
 
-验证机器不断网，因为有些任务的验证本身要联网（下载依赖、调用外部服务）。防作弊靠的是 validation agent 检查交付内容，而不是切断网络。
+验证机器不断网，因为有些任务的验证本身要联网（下载依赖、调用外部服务）。防作弊靠的是 validator agent 检查交付内容，而不是切断网络。
 
 ## 三、一次提交怎么走
 
-1. worker 调 `submit`，拿到一次性上传地址，用 `curl.exe -T` 把 zip 直接传到验证机器。
+1. worker 调 `submit`，拿到一次性上传地址，用 `curl.exe --fail-with-body -T` 把 zip 直接传到验证机器。
 2. 服务端算 sha256，安全解压（拒绝 `../` 路径，限制总大小和文件数），检查根目录有没有 `USAGE.md`。格式不对就拒收，**不计次数**——格式错误不该消耗 worker 的机会。
-3. 服务通过本机 `paseo run` 为这次提交新建一个 validation agent。它出现在验证机器的 Paseo 前端里，提示词只给提交编号和目录。
-4. validation agent 按 `validation-review` 技能逐步执行：先读验证端 wiki 里仍未解决的验证问题，读代码找作弊迹象，再照 `USAGE.md` 写调用适配器，跑冻结 benchmark，写出结论（`valid` / `cheating` / `unusable`）和反馈，最后把这次提交解决了哪些问题、哪些仍存在记入 wiki。
-5. `finalize` 发布结果。之后 worker 的 `query` 才能看到。
+3. 服务通过本机 `paseo run` 为这次提交新建一个 validator agent。它出现在验证机器的 Paseo 前端里，提示词只给提交编号和目录。
+4. validator agent 按 `validation-review` 技能逐步执行：先读验证端 wiki 里仍未解决的验证问题，读代码找作弊迹象，再照 `USAGE.md` 写调用适配器，跑冻结 benchmark，写出结论（`valid` / `cheating` / `unusable`）和反馈。
+5. `finalize` 发布结果，之后 worker 的 `query` 才能看到。validator agent 再用已发布的结论、分数和通过泄漏检查的反馈，把这次提交解决了哪些问题、哪些仍存在记入 wiki。
 
 ### 分数为什么不由 agent 来报
 
@@ -50,7 +50,7 @@ agent 的结论只决定"算不算分"，分数本身由 helper 从 benchmark �
 
 ## 四、冻结与停止
 
-- **benchmark 冻结。** setup 时由用户确认 benchmark 的来源、数据版本、切分、完整样本数和目标指标，然后算出摘要写进 `.aris/validation/config.json`。benchmark 依赖的文件在 setup 时记下哈希，之后有任何改动服务就停止，因为分数之间必须可比。要改 benchmark 只能开一个新的 validation 项目。
+- **benchmark 冻结。** setup 时由用户确认 benchmark 的来源、数据版本、切分、完整样本数和目标指标，然后算出摘要写进 `.aris/validation/config.json`。benchmark 依赖的文件在 setup 时记下哈希，之后有任何改动服务就停止，因为分数之间必须可比。要改 benchmark 只能开一个新的 validator 项目。
 - **次数有上限。** 计次的只有真正走完审查的提交（得分、作弊、无法运行）；上传超时、格式错误、本方故障都不计。
 - **确定性停止。** 某次 `valid` 提交的分数达到冻结目标，服务进入 `completed`；计次提交用完，进入 `closed`。两种状态下都不再接收新提交，worker 看到后就停。
 
@@ -62,9 +62,9 @@ agent 的结论只决定"算不算分"，分数本身由 helper 从 benchmark �
 | --- | --- |
 | `.aris/setup-*.json`、`.aris/tester-config.json`、`.aris/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、`.mcp.json` 和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
 | `.aris/validation/` 下的提交记录、发布结果 | `validation-cli.js`（服务和 `finalize`） |
-| 提交目录里的 `inspection.md`、`review.json`、`feedback.md`、适配器 | validation agent |
+| 提交目录里的 `inspection.md`、`review.json`、`feedback.md`、适配器 | validator agent |
 | `research-wiki/`（两端各自一份） | `research-wiki.js` |
-| 本地 ARL 源码仓库 `arl` 分支的 `Experience.md` | worker agent（仅依据自身过程和已发布结果，精简、去重并保留跨项目经验） |
+| 本地 ARL 源码仓库的 `Experience.md`（`main` 为已审核经验，新经验提交到 `experience` 分支） | worker agent 提交到 `experience`，用户经 PR 审核合并到 `main`（仅依据自身过程和已发布结果，精简、去重并保留跨项目经验） |
 | 技能目录中的 `<project>-environment/` | 本机角色的 agent，按 `aris-setup` 的环境步骤写入并验证；之后发现新的环境事实或重复流程时同样补充 |
 
 `CLAUDE.md`（worker）或 `AGENTS.md`（validation）里 `ARIS ROLE` 标记之间的角色段由 setup 写入，标记外的内容 setup 不碰。
@@ -74,11 +74,11 @@ agent 的结论只决定"算不算分"，分数本身由 helper 从 benchmark �
 - **长期记忆必须使用。** `research-wiki/` 用 survey（对论文、仓库、文档、博客等已有工作的调研）、idea、experiment、claim、problem 五类节点和证据边，记录针对一个或多个问题已有工作做了什么、迭代和验证做了什么、哪些有效或无效；query pack 不超过 1000 字符并带节点引用，每轮开始先读。验证端的 wiki 记录各次提交暴露的验证问题、哪些已解决、哪些仍存在，同样不得包含隐藏样本、标签、参考答案或其摘抄。环境技能只放 agent 无从得知的环境事实和验证过的固定脚本，每个实验独立命名，worker 可在一轮迭代中并行运行多个实验。
 - **短期任务进 todo 列表。** 当前迭代的步骤和反馈里的每个问题，完成后才标记。
 
-worker 每次获得 validation 已发布的最终结论后，按[经验保存约定](skills/shared-references/experience.md)整理 `Experience.md`；validation agent 不参与经验写入，也不增加两机之间的通道。本地源码 checkout 的位置记录在 worker 项目指令的角色段外，源码仓库的 `CLAUDE.md` 指向经验文件。
+worker 每次获得 validation 已发布的最终结论后，按[经验保存约定](skills/shared-references/experience.md)整理 `Experience.md`；validator agent 不参与经验写入，也不增加两机之间的通道。本地源码 checkout 的位置记录在 worker 项目指令的角色段外，源码仓库的 `CLAUDE.md` 指向经验文件。
 
 ## 六、Paseo 里能看到什么
 
-- 两台机器各自的 agent：worker agent，以及每次提交对应的一个 validation agent。
+- 两台机器各自的 agent：worker agent，以及每次提交对应的一个 validator agent。
 - 验证机器工作区的 `aris-validation` 服务脚本，包括端口、运行状态和代理地址。
 官方 App 没有定制版 ARIS 知识图谱标签页。通过 `research-wiki` 技能、CLI 或本机 Markdown 查看记录。本仓库只提供研究技能和服务，不包含 Paseo 前端代码。
 

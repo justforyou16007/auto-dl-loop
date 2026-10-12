@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Validation machine helper. `serve` runs the service (Paseo starts it as the
- * `aris-validation` script); the other commands are what a validation agent and
+ * Validator machine helper. `serve` runs the service (Paseo starts it as the
+ * `aris-validation` script); the other commands are what a validator agent and
  * the owner run against one project.
  */
 import path from "node:path";
@@ -41,7 +41,7 @@ function fail(error: unknown): void {
 program
   .command("serve")
   .description("Run the validation service (Paseo sets PASEO_PORT)")
-  .requiredOption("--project <dir>", "validation project directory")
+  .requiredOption("--project <dir>", "validator project directory")
   .option("--port <port>", "port to listen on; defaults to PASEO_PORT")
   .action(async (options: { project: string; port?: string }) => {
     try {

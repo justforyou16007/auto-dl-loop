@@ -1,5 +1,5 @@
 /**
- * Start one validation agent per submission through the local Paseo CLI, so it
+ * Start one validator agent per submission through the local Paseo CLI, so it
  * appears in the Paseo app next to the service. No shell is involved: the
  * command is an argv list from the frozen config.
  */
@@ -40,7 +40,7 @@ export function paseoRunArgv(agent: ValidationAgentConfig, request: DispatchRequ
     "--cwd",
     request.root,
     "--label",
-    "aris.role=validation",
+    "aris.role=validator",
     "--label",
     `aris.submission=${request.submission_id}`,
     validationPrompt(request),
@@ -52,7 +52,7 @@ export function paseoDispatcher(agent: ValidationAgentConfig): Dispatcher {
     new Promise((resolve, reject) => {
       const [command, ...args] = paseoRunArgv(agent, request);
       const env = { ...process.env };
-      // Inside a Paseo agent this would make the validation agent our child; it must stand alone.
+      // Inside a Paseo agent this would make the validator agent our child; it must stand alone.
       delete env.PASEO_AGENT_ID;
       execFile(
         command!,

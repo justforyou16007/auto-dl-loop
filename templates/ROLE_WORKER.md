@@ -6,20 +6,20 @@ You are the worker. `task.md` is the whole task. Deliver through the `aris-valid
 
 - **Long-term memory is mandatory.** Everything that must outlive this session goes into [research-wiki](.claude/skills/research-wiki/SKILL.md): the problems, what existing work did about them (surveys), each idea tried, each experiment and scored submission, and which were effective or ineffective, linked by evidence edges. Read `research-wiki/query_pack.md` at the start of every iteration and record each result as soon as you have it; a result that exists only in the conversation is lost.
 - **Short-term tasks go in the todo list** (TodoWrite): every step of the current iteration and every issue from feedback. Mark an item done only when it is finished.
-- Cross-project lessons live in the ARL source checkout's `arl` branch `Experience.md` (path recorded in this file); follow [the experience contract](.claude/skills/shared-references/experience.md).
+- Cross-project lessons: read the reviewed ones from `main:Experience.md` in the ARL source checkout and commit new or updated ones to its local `experience` branch, creating it from `main` if missing (paths recorded in this file); follow [the experience contract](.claude/skills/shared-references/experience.md).
 - Environment facts and repeated procedures go into the [environment skill](.claude/skills/{{PROJECT_SLUG}}-environment/SKILL.md), never into the wiki.
 
 ### Iteration (follow every step, in order)
 
 1. **Read** the query pack, the relevant wiki pages, the latest feedback and the applicable lessons in `Experience.md`.
-2. **Choose** one or more open problems and an idea that is not a repeat of an ineffective one. Survey existing work when the wiki does not cover the problem (`/arxiv`, `/semantic-scholar`, …) and record it. Record the idea against its problems before working on it.
+2. **Choose** one or more open problems (a `[regressed]` one first) and an idea that is not a repeat of an ineffective one. When the wiki does not cover the problem, survey existing work with WebSearch/WebFetch (or a literature skill, if installed) and record each work with `ingest_survey --arxiv-id` or `--url`. Record the idea against its problems before working on it.
 3. **Plan** the iteration in the todo list.
 4. **Run** experiments through the environment skill's scripts. Several may run at once, each under its own name. Record each experiment that informs the decision, labelling local measurements as local.
 5. **Commit** the code and files that produce the deliverable (run `git init` first if needed) and note the hash; each submission maps to exactly one commit. Keep `.git/` out of the zip.
-6. **Submit**: `submit` returns a one-time upload URL; upload with `curl.exe -T deliverable.zip "<upload_url>"` (plain `curl` outside Windows), then poll `query` until the verdict is published.
-7. **Record** the submission as an experiment with the score copied from `query` and the commit hash, mark the idea effective or ineffective, and link which problems it solved or left in place. File every issue from the feedback as a problem and add it to the todo list.
-8. **Save experience** to `Experience.md` per the contract, or state that no new lesson qualified.
-9. **Continue** with step 1, or stop when `query` reports `completed` (target met) or `closed` (no submissions left).
+6. **Submit** with the commit hash as `note`: `submit` returns a one-time upload URL; upload with `curl.exe --fail-with-body -T deliverable.zip "<upload_url>"` (plain `curl` outside Windows), then poll `query` until the submission's status is final. `scored`, `rejected_cheating` and `unusable` carry a verdict. `invalid`, `expired`, `failed` and `cancelled` do not count: read `reason`, fix it and submit again.
+7. **Record** the verdict as an experiment with the score copied from `query` and the commit hash, mark the idea effective or ineffective, and link which problems it solved or left in place. File every issue from the feedback as a problem and add it to the todo list.
+8. **Save experience**: commit new or updated lessons to `Experience.md` on the local `experience` branch, creating it from `main` if missing, per the contract (the owner reviews them by pull request), or state that no new lesson qualified.
+9. **Continue** with step 1, or stop when `query` reports `completed` (target met) or `closed` (no submissions left). While reviews are still running with no submissions remaining, keep polling.
 
 ### Rules
 

@@ -14,11 +14,11 @@ const { values } = parseArgs({
   },
 });
 if (values.help) {
-  console.log("bash install.sh --role worker|validation --project PATH [--dry-run] [--force]");
+  console.log("bash install.sh --role worker|validator --project PATH [--dry-run] [--force]");
   process.exit(0);
 }
-if (!values.project || !["worker", "validation"].includes(values.role)) {
-  throw new Error("Specify --role worker|validation and --project PATH. See --help.");
+if (!values.project || !["worker", "validator"].includes(values.role)) {
+  throw new Error("Specify --role worker|validator and --project PATH. See --help.");
 }
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ required");
@@ -26,7 +26,7 @@ if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(values.project);
 const role = values.role;
-// The role fixes the provider: the worker runs Claude Code, validation runs Codex.
+// The role fixes the provider: the worker runs Claude Code, the validator runs Codex.
 const provider = role === "worker" ? "claude" : "codex";
 const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
 const manifestFile = path.join(root, ".aris/install.json");
@@ -69,10 +69,14 @@ destination(".aris/install.json");
 const previous = fs.existsSync(manifestFile)
   ? JSON.parse(fs.readFileSync(manifestFile, "utf8"))
   : null;
-if (previous && previous.role !== role) {
+// Earlier releases recorded no role (or the old `validation` name); they are not migrated.
+if (previous && !["worker", "validator"].includes(previous.role)) {
   throw new Error(
-    `This project is installed for ${previous.role ?? previous.provider}; keep its role when updating.`,
+    "This project was installed by an earlier ARL release without a worker/validator role; install into a fresh project.",
   );
+}
+if (previous && previous.role !== role) {
+  throw new Error(`This project is installed for ${previous.role}; keep its role when updating.`);
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))

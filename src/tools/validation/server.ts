@@ -1,8 +1,8 @@
 /**
- * The validation machine's public face. Worker agents reach it as a remote MCP
+ * The validator machine's public face. Worker agents reach it as a remote MCP
  * server with two tools, `submit` and `query`; deliverables arrive as a plain
  * HTTP PUT to the one-time URL `submit` returns, so Windows' built-in curl.exe
- * is enough. A tick expires stale uploads and starts one validation agent per
+ * is enough. A tick expires stale uploads and starts one validator agent per
  * queued submission. Everything else (scoring, publishing) happens in the CLI.
  */
 import crypto from "node:crypto";
@@ -78,6 +78,8 @@ const TOOLS = [
 ];
 
 function submitTool(root: string, config: ValidationConfig, args: Record<string, unknown>) {
+  // A changed benchmark stops reviews; taking uploads would only drain the budget.
+  assertFrozenBenchmark(root, config);
   const note = typeof args.note === "string" ? args.note : undefined;
   const { record, upload_token } = createSubmission(root, config, note);
   const url = `${config.service.public_url}/upload/${record.submission_id}/${upload_token}`;
@@ -85,7 +87,7 @@ function submitTool(root: string, config: ValidationConfig, args: Record<string,
     submission_id: record.submission_id,
     upload_url: url,
     expires_at: record.upload!.expires_at,
-    upload_command: `curl.exe -T deliverable.zip "${url}"`,
+    upload_command: `curl.exe --fail-with-body -T deliverable.zip "${url}"`,
     remaining: serviceSummary(root, config).remaining,
   };
 }
@@ -183,7 +185,7 @@ export async function startValidationService(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "aris-validation", version: "1.0.0" },
         instructions:
-          "Submit deliverables with `submit`, upload the zip with the returned curl.exe command, then poll `query`. Stop when the state is completed or closed.",
+          "Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. scored, rejected_cheating and unusable carry a verdict; invalid, expired, failed and cancelled do not count: read `reason`, fix it and submit again. Stop when the state is completed or closed; while reviews are in flight with no submissions remaining, keep polling.",
       });
     }
     if (method === "ping") return ok({});
@@ -372,13 +374,13 @@ export async function startValidationService(
         submission_dir: submissionDir(root, id),
       });
       withSubmissionsLock(root, () => updateSubmission(root, id, { agent_id }));
-      log(`submission ${id}: validation agent ${agent_id}`);
+      log(`submission ${id}: validator agent ${agent_id}`);
     } catch (error) {
       log(`submission ${id}: dispatch failed: ${String(error)}`);
       withSubmissionsLock(root, () =>
         updateSubmission(root, id, {
           status: "failed",
-          reason: "the validation agent could not start; this submission does not count",
+          reason: "the validator agent could not start; this submission does not count",
         }),
       );
     }

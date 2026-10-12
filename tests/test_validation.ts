@@ -247,14 +247,14 @@ try {
     // A malformed deliverable is refused and does not count.
     const s1 = await submit();
     assert.equal(s1.submission_id, "s001");
-    assert.match(s1.upload_command, /^curl\.exe -T deliverable\.zip "https:\/\/validation\.example\/upload\/s001\//);
+    assert.match(s1.upload_command, /^curl\.exe --fail-with-body -T deliverable\.zip "https:\/\/validation\.example\/upload\/s001\//);
     const bad = await upload(s1.upload_url, zip([USAGE, { name: "../evil", data: "x" }]));
     assert.equal(bad.status, 422);
     assert.equal(status("s001"), "invalid");
     assert.equal(serviceSummary(root, config).counted, 0);
     assert.equal((await upload(s1.upload_url, deliverable(PERFECT))).status, 404);
 
-    // A valid deliverable is queued, then one validation agent is started for it.
+    // A valid deliverable is queued, then one validator agent is started for it.
     const s2 = await submit();
     assert.equal((await upload(s2.upload_url, deliverable({ "sample-alpha": "the quick brown fox" }))).status, 200);
     await service.tick();
@@ -263,7 +263,7 @@ try {
     assert.equal(readSubmission(root, "s002").agent_id, "agent-s002");
     assert.equal((await upload(s2.upload_url, deliverable(PERFECT))).status, 404);
 
-    // The validation agent's side: smoke, full evaluation, verdict, feedback.
+    // The validator agent's side: smoke, full evaluation, verdict, feedback.
     assert.equal((await runBenchmark(root, "s002", "smoke")).sample_count, 1);
     assert.equal((await runBenchmark(root, "s002", "full")).metrics.score, 0.5);
     write("s002", "review.json", JSON.stringify({ verdict: "valid", reasons: ["ran as documented"] }));
@@ -328,6 +328,11 @@ try {
     const done = JSON.parse((await call("query")).text);
     assert.equal(done.service.state, "completed");
     assert.match((await call("submit")).text, /VALIDATION_COMPLETED/);
+    // A benchmark changed while the service runs refuses new submissions.
+    const labels = fs.readFileSync(path.join(bench, "labels.json"));
+    fs.appendFileSync(path.join(bench, "labels.json"), " ");
+    assert.match((await call("submit")).text, /BENCHMARK_CHANGED|TESTER_EVIDENCE_CHANGED/);
+    fs.writeFileSync(path.join(bench, "labels.json"), labels);
   } finally {
     await service.close();
   }

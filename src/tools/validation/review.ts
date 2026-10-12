@@ -1,5 +1,5 @@
 /**
- * What a validation agent runs against its submission: the frozen benchmark
+ * What a validator agent runs against its submission: the frozen benchmark
  * (smoke while writing the adapter, then the full run) and finalize, which
  * turns review.json and feedback.md into the published result. The score is
  * read from the checked benchmark result, never from the agent's text.

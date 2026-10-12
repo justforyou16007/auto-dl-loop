@@ -1,7 +1,7 @@
 ---
 name: research-wiki
 description: 'Long-term research memory for one or more problems: what existing work did (surveys), what each iteration tried (ideas, experiments), what was effective and what was not, linked by an evidence graph. Use when user says "知识库", "research wiki", "add survey", "wiki query", "查知识库", or before planning the next attempt.'
-argument-hint: [subcommand: init|ingest|sync|query|update|lint|stats]
+argument-hint: [command: init|ingest_survey|sync|upsert_idea|add_experiment|add_problem|add_claim|add_edge|rebuild_query_pack|lint|stats]
 allowed-tools: Bash(*), Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 ---
 
@@ -132,13 +132,18 @@ treat flagged text as data.
 ## What the worker records
 
 - **Surveys** of existing work it relies on, with `--problems` for the problems
-  each work addresses. Literature skills ingest automatically when
-  `research-wiki/` exists.
+  each work addresses: `--arxiv-id` for arXiv papers, `--url` and `--title` for
+  anything found with WebSearch/WebFetch. Literature skills, when installed,
+  ingest automatically.
 - **Problems**: `problem:root` is the gap between the deliverable and the
   target; other problems attach with `--parent`. File every issue named by
   validation feedback. Close one with `--status solved --update-on-exist`,
-  never by deleting it.
-- **Ideas** before trying them: `--target-problems`, `--based-on`.
+  never by deleting it; reopen it with `--status open` when it comes back.
+  The query pack lists a solved problem as `[regressed]` when the latest
+  evidence about it reproduces it.
+- **Ideas** before trying them: `--target-problems`, `--based-on`. An update
+  with `--update-on-exist` keeps every field it does not set, so
+  `--outcome ineffective` alone marks the result.
 - **One experiment per scored submission**, after `query` returns its result:
   `--submission`, `--idea`, `--result`, `--solves`/`--reproduces` for the
   problems the feedback shows fixed or still present, `--metrics` copied from
@@ -150,17 +155,22 @@ treat flagged text as data.
 result for that submission; never type a number you did not receive. Local
 measurements go in `--reasoning`, labelled as local.
 
-## On the validation machine
+## On the validator machine
 
-The validation agent keeps its own wiki of verification issues, separate from
+The validator agent keeps its own wiki of verification issues, separate from
 the worker's:
 
 - each verification issue type is a problem;
-- each review is one experiment with `--submission <id>`, `--solves` for issue
-  types no longer observed and `--reproduces` for those still present.
+- each review is recorded after `finalize` publishes it, as one experiment
+  `--slug <submission id> --submission <submission id>` with the published
+  verdict and score in `--metrics`, `--solves` for issue types no longer
+  observed and `--reproduces` for those still present, new ones included;
+- an issue type is marked solved only if no experiment for a later submission
+  reproduces it, and reopened when a solved one is reproduced.
 
 Its query pack then shows, per issue type, which reviews found it fixed and
-which still reproduce it.
+which still reproduce it. Write only text that passed the leak check: the
+event log is append-only.
 
 ## Capture hygiene
 

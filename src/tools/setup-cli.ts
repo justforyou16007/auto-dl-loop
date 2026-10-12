@@ -11,7 +11,7 @@ import {
   SetupReviewIncompleteError,
 } from "./setup.js";
 
-const program = createCli("setup", "Review, confirm and apply the ARIS worker or validation setup");
+const program = createCli("setup", "Review, confirm and apply the ARIS worker or validator setup");
 
 function reject(fallback: string, error: unknown): void {
   const body: Record<string, unknown> = {

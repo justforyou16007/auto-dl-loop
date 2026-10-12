@@ -4,9 +4,9 @@
 
 [中文](README.zh-CN.md) · [Quick start](#quick-start) · [Setup guide](SETUP_GUIDE.md) · [Architecture](ARIS_ARCHITECTURE_GUIDE.md)
 
-Give an agent a task, a measurable target and a submission budget. Auto Research Loop (ARL) lets a Claude Code worker develop a solution, submit it for independent evaluation by Codex validation agents and improve it using measured scores and reviewed feedback.
+Give an agent a task, a measurable target and a submission budget. Auto Research Loop (ARL) lets a Claude Code worker develop a solution, submit it for independent evaluation by Codex validator agents and improve it using measured scores and reviewed feedback.
 
-ARL is designed for benchmark-driven coding, model evaluation and experimental research. The worker chooses how to plan and implement the task. A separate validation machine owns the hidden benchmark and evaluates each submission against the same frozen criteria.
+ARL is designed for benchmark-driven coding, model evaluation and experimental research. The worker chooses how to plan and implement the task. A separate validator machine owns the hidden benchmark and evaluates each submission against the same frozen criteria.
 
 Use the official **Paseo** app and CLI to run and monitor agents on both machines. ARL installs its own skills and helpers into your projects as a standalone package.
 
@@ -14,10 +14,10 @@ Use the official **Paseo** app and CLI to run and monitor agents on both machine
 
 ### Independent, measured validation
 
-- **Two machines, two projects.** The worker builds the deliverable; the validation machine owns the hidden benchmark. They interact only through the `submit` and `query` MCP tools, with no shared directory.
+- **Two machines, two projects.** The worker builds the deliverable; the validator machine owns the hidden benchmark. They interact only through the `submit` and `query` MCP tools, with no shared directory.
 - **Frozen benchmark.** Benchmark code, data revision, split, sample count, evaluation settings and target are pinned at setup. Once a submission is counted, any change stops the service.
 - **Measured scores.** Scores come from complete per-sample benchmark results, checked for sample counts and aggregate consistency. The worker never reports its own score.
-- **Submission review.** A validation agent inspects each artifact, writes its own adapter from `USAGE.md`, runs the benchmark and judges it `valid`, `cheating` or `unusable`. Only valid submissions keep their score.
+- **Submission review.** A validator agent inspects each artifact, writes its own adapter from `USAGE.md`, runs the benchmark and judges it `valid`, `cheating` or `unusable`. Only valid submissions keep their score.
 - **Leak-checked feedback.** Feedback describes problem types with invented examples. Text that matches hidden samples, labels or paths is held back for rewriting before publication.
 - **Defined stopping.** The task completes when a valid score reaches the target, or closes when the submission budget is used up. Upload and infrastructure failures do not count against the budget.
 
@@ -26,7 +26,7 @@ Use the official **Paseo** app and CLI to run and monitor agents on both machine
 | Role | Agent | Paseo thinking | Instructions |
 | --- | --- | --- | --- |
 | worker | Claude Code | `ultracode` | `CLAUDE.md` |
-| validation | Codex | `max` | `AGENTS.md` |
+| validator  | Codex | `max` | `AGENTS.md` |
 
 The installer's `--role` fixes the agent, its skills directory and configuration. The validation service starts every review agent as Codex at `max`.
 
@@ -35,9 +35,9 @@ The installer's `--role` fixes the agent, its skills directory and configuration
 - **Numbered iteration flow.** The worker's role instructions require every step in order: read memory → choose problems and an untried idea → plan in the todo list → run experiments → commit → submit → record the scored result → save lessons. Each submission maps to exactly one Git commit.
 - **Long-term memory is mandatory.** The `research-wiki` records, for one or more problems, what existing work did (surveys from arXiv, Semantic Scholar, OpenAlex, Exa and others), which ideas and experiments were tried, and which were effective or ineffective. Typed evidence edges link them (`supports`, `invalidates`, `solves`, `reproduces`, …).
 - **Compact query pack.** Each iteration starts from a deterministic summary of at most 1000 characters, with one line per open problem marking effective (✔) and ineffective (✘) attempts by node id. Details stay in the node pages.
-- **Validation memory.** The validation machine keeps its own wiki of verification problems, recording which ones each submission solved and which persist. Reviews check them again and report both.
+- **Validation memory.** The validator machine keeps its own wiki of verification problems, recording which ones each submission solved and which persist. Reviews check them again and report both.
 - **Short-term tasks in the todo list.** Iteration steps and every issue from feedback are tracked as todos and closed only when fixed in the committed deliverable.
-- **Cross-project experience.** After each published verdict, the worker distils concise, evidenced lessons into `Experience.md` on the ARL source checkout's `arl` branch.
+- **Cross-project experience.** After each published verdict, the worker commits concise, evidenced lessons to `Experience.md` on the ARL source checkout's `experience` branch; you review them in a pull request into `main` before other projects use them.
 
 ### Environment skill
 
@@ -56,9 +56,9 @@ The installer copies compiled helpers, four core skills (`aris-setup`, `validati
 ## How it works
 
 1. **Define the task.** Put the same `task.md` on both machines. Configure the validation benchmark, target and submission budget, then review and freeze the configuration.
-2. **Build a solution.** The worker plans, codes and experiments in its own environment, without access to the validation machine's hidden data.
+2. **Build a solution.** The worker plans, codes and experiments in its own environment, without access to the validator machine's hidden data.
 3. **Submit an artifact.** The worker commits the solution to Git, calls `submit`, receives a temporary single-use upload URL and uploads a zip containing the solution and `USAGE.md`.
-4. **Evaluate independently.** The service starts a validation agent through official Paseo. The agent reviews the artifact, runs the frozen benchmark and prepares feedback for publication.
+4. **Evaluate independently.** The service starts a validator agent through official Paseo. The agent reviews the artifact, runs the frozen benchmark and prepares feedback for publication.
 5. **Improve or finish.** The worker calls `query` for status, score and published feedback. It turns the feedback into todo items, fixes them and continues until the task reaches `completed` or `closed`.
 
 Keep the two projects on separate machines without a shared or synchronized directory. That separation keeps the hidden benchmark outside the worker's environment. See the [architecture guide](ARIS_ARCHITECTURE_GUIDE.md) for evaluation and feedback boundaries.
@@ -70,14 +70,14 @@ Keep the two projects on separate machines without a shared or synchronized dire
 On each machine, install:
 
 - **Node.js 22.12+**, **Bash** and **Git**.
-- **Claude Code** on the worker machine and **Codex** on the validation machine, both authenticated.
+- **Claude Code** on the worker machine and **Codex** on the validator machine, both authenticated.
 - The official **Paseo app and CLI**, with its daemon running.
 
-The validation machine also needs your benchmark's dependencies. On Windows, run the installer in Git Bash with Node.js on `PATH`; see the [setup guide](SETUP_GUIDE.md) for Windows command paths and networking.
+The validator machine also needs your benchmark's dependencies. On Windows, run the installer in Git Bash with Node.js on `PATH`; see the [setup guide](SETUP_GUIDE.md) for Windows command paths and networking.
 
 ### Install into each project
 
-Use a local checkout of the `arl` branch on each machine. Prepare its dependencies and compiled helpers explicitly:
+Use a local checkout of `main` on each machine. Prepare its dependencies and compiled helpers explicitly:
 
 ```bash
 cd /path/to/local/arl-checkout
@@ -91,13 +91,13 @@ On the **worker** machine:
 bash distribution/install-aris.sh --role worker --project /path/to/project
 ```
 
-On the **validation** machine:
+On the **validator** machine:
 
 ```bash
-bash distribution/install-aris.sh --role validation --project /path/to/project
+bash distribution/install-aris.sh --role validator --project /path/to/project
 ```
 
-The role fixes the agent and stays with the project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex must trust the validation project.
+The role fixes the agent and stays with the project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex must trust the validator project.
 
 ### Configure the two roles
 
@@ -105,10 +105,10 @@ Add both projects to official Paseo. Setup reads the role from the installation.
 
 | Step | Agent in Paseo | Invoke |
 | --- | --- | --- |
-| Set up the validation project first | Codex at thinking `max` | `$aris-setup` |
+| Set up the validator project first | Codex at thinking `max` | `$aris-setup` |
 | Set up the worker project | Claude Code at thinking `ultracode` | `/aris-setup` |
 
-On the validation machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine and configure the worker connection. On each machine setup then writes the project environment skill and verifies its scripts. Run `reload-skills` in your client to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
+On the validator machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine and configure the worker connection. On each machine setup then writes the project environment skill and verifies its scripts. Run `reload-skills` in your client to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
 
 Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETUP_GUIDE_CN.md)** for benchmark setup, networking, offline installation, updates and troubleshooting.
 

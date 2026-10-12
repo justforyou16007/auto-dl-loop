@@ -1,5 +1,5 @@
 /**
- * The one editable configuration sheet behind `/aris-setup worker|validation`.
+ * The one editable configuration sheet behind `/aris-setup` for the installed worker or validator role.
  * refresh writes the draft and its review, confirm records the owner's approval
  * of one digest, and apply is the only step that changes the project.
  */
@@ -18,6 +18,7 @@ import {
 import { failA1, isRecord, type JsonObject } from "./validate.js";
 import {
   DEFAULT_LIMITS,
+  VALIDATOR_MODES,
   assertFrozenBenchmark,
   readValidationConfig,
   ensureValidationToken,
@@ -78,7 +79,7 @@ const TITLES: Record<string, string> = {
 };
 const ROLE_MODULES: Record<SetupRole, readonly string[]> = {
   worker: ["project", "environment", "connection"],
-  validation: ["project", "environment", "validation"],
+  validator: ["project", "environment", "validation"],
 };
 const MODULE_FIELDS: Record<string, readonly string[]> = {
   project: ["name", "language"],
@@ -96,6 +97,7 @@ const MODULE_FIELDS: Record<string, readonly string[]> = {
 };
 const CHOICES: Record<string, readonly unknown[]> = {
   "project.language": ["zh", "en"],
+  "validation.agent.mode": VALIDATOR_MODES,
   "validation.benchmark.metrics.*.direction": ["higher_better", "lower_better"],
   "validation.benchmark.metrics.*.aggregation": ["mean", "sum", "external"],
   "validation.service.host": ["127.0.0.1", "0.0.0.0"],
@@ -137,13 +139,15 @@ function readJson(file: string): JsonObject {
   return value;
 }
 
+/** A folder name with no ASCII letters or digits (`项目`) still needs a usable skill name. */
 export function projectSlug(projectRoot: string): string {
-  return path
-    .basename(path.resolve(projectRoot))
+  const name = path.basename(path.resolve(projectRoot));
+  const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-/, "")
     .replace(/-$/, "");
+  return slug || `project-${crypto.createHash("sha256").update(name).digest("hex").slice(0, 8)}`;
 }
 /** Where setup's environment step publishes the project's environment skill. */
 export function environmentSkillDir(projectRoot: string): string {
@@ -181,7 +185,7 @@ function moduleDefaults(root: string, module: string): JsonObject {
     adapter_contract: ADAPTER_CONTRACT,
     limits: DEFAULT_LIMITS,
     leak_check: { hidden_paths: [], min_match_chars: 40 },
-    agent: { model: null, mode: null, paseo_command: ["paseo"] },
+    agent: { model: null, mode: "full-access", paseo_command: ["paseo"] },
     service: { host: "127.0.0.1", port: null, public_url: null },
   };
 }
@@ -211,16 +215,18 @@ function recommendation(key: string, value: unknown): string {
     "project.language": "zh for Chinese collaboration; en for English.",
     "environment.secrets":
       'Only keys and tokens the environment scripts need, as {"NAME": "value"}; {} when there are none. Hosts, paths and commands go into the environment skill, not here.',
-    "connection.url": "The `url` printed by `/aris-setup validation` on the validation machine.",
+    "connection.url": "The `url` printed by `/aris-setup` on the validator machine.",
     "connection.token":
-      "The `token` printed by `/aris-setup validation`; the provider MCP config will hold it, so keep that file out of git.",
+      "The `token` printed by `/aris-setup`; the provider MCP config will hold it, so keep that file out of git.",
     "validation.metric.name": "One of the benchmark's metric names.",
     "validation.metric.target":
       "The value that ends the task, in the metric's unit; the benchmark metric decides the direction.",
     "validation.adapter_contract":
-      "Exactly how your runner calls ARIS_ADAPTER_DIR; a validation agent writes each submission's adapter to this contract.",
+      "Exactly how your runner calls ARIS_ADAPTER_DIR; a validator agent writes each submission's adapter to this contract.",
     "validation.leak_check.hidden_paths":
       "Absolute paths of the hidden samples, labels and references; feedback quoting them is held back.",
+    "validation.agent.mode":
+      "full-access lets the benchmark and the deliverable's install use the network and paths outside the project; sandboxed modes make those steps fail or wait for approval.",
     "validation.agent.paseo_command":
       'On Windows use ["node", "<install dir>\\\\bin\\\\paseo"]; the paseo.cmd shim cannot be spawned directly.',
     "validation.service.host":
@@ -238,11 +244,18 @@ function recommendation(key: string, value: unknown): string {
   if (Array.isArray(value)) return "Edits replace the whole list; [] clears it.";
   return empty(value) ? "Supply the actual value." : "Keep this value unless it is wrong here.";
 }
-function rows(value: unknown, key: string): SetupReviewField[] {
+const isSecret = (key: string): boolean =>
+  key === "connection.token" || key.startsWith("environment.secrets.");
+/** The review sheet is shown in chat; `mask` keeps keys and tokens out of it. */
+function rows(value: unknown, key: string, mask = false): SetupReviewField[] {
   if (isRecord(value) && Object.keys(value).length)
-    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`));
+    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`, mask));
   if (Array.isArray(value) && value.some(isRecord))
-    return value.flatMap((v, i) => rows(v, `${key}.${i}`));
+    return value.flatMap((v, i) => rows(v, `${key}.${i}`, mask));
+  if (mask && isSecret(key) && typeof value === "string" && value)
+    return [
+      { path: key, value: `…${value.slice(-4)}`, recommendation: recommendation(key, value) },
+    ];
   const options =
     CHOICES[key.replace(/\.\d+(?=\.|$)/g, ".*")] ??
     (typeof value === "boolean" ? [true, false] : undefined);
@@ -334,14 +347,28 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
 
   if (role === "worker") {
     const url = get(configuration, "connection.url");
-    if (typeof url !== "string" || !/^https?:\/\/[^/]+\/mcp$/.test(url))
+    // Validation setup prints `<public_url>/mcp`; a proxy may serve it under a sub-path.
+    const parsed = typeof url === "string" && URL.canParse(url) ? new URL(url) : null;
+    if (!parsed || !/^https?:$/.test(parsed.protocol) || !parsed.pathname.endsWith("/mcp"))
       add("connection.url", "must be the validation service's http(s)://…/mcp URL");
     const token = get(configuration, "connection.token");
     if (typeof token !== "string" || token.length < 32)
       add("connection.token", "paste the token printed by the validation setup");
   }
-  if (role === "validation" && isRecord(configuration.validation)) {
+  if (role === "validator" && isRecord(configuration.validation)) {
     const validation = configuration.validation;
+    const command = get(validation, "agent.paseo_command");
+    // execFile cannot start the paseo.cmd shim; Windows needs node and the CLI script.
+    if (
+      process.platform === "win32" &&
+      Array.isArray(command) &&
+      typeof command[0] === "string" &&
+      /(^|[\\/])paseo(\.cmd|\.bat)?$/i.test(command[0])
+    )
+      add(
+        "validation.agent.paseo_command",
+        'on Windows use ["node", "<Paseo install>\\\\bin\\\\paseo"]; the paseo shim cannot be started without a shell',
+      );
     const port = get(validation, "service.port");
     if (
       port !== null &&
@@ -368,7 +395,7 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
           )
             add(
               "validation",
-              "submissions were already scored against the frozen benchmark and metric; start a new validation project to change them",
+              "submissions were already scored against the frozen benchmark and metric; start a new validator project to change them",
             );
         }
       });
@@ -451,7 +478,7 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
       modules: ROLE_MODULES[role].map((id) => ({
         id,
         title: TITLES[id]!.split(" / ")[language === "en" ? 1 : 0]!,
-        fields: rows(draft.configuration[id], id),
+        fields: rows(draft.configuration[id], id, true),
       })),
       issues,
     };
@@ -524,6 +551,16 @@ function writeRoleBlock(root: string, role: SetupRole): void {
       : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${block}\n`;
   fs.writeFileSync(file, next);
 }
+/** Credentials live in these paths; keep them out of commits and deliverable zips. */
+function ensureGitignored(root: string, entries: readonly string[]): void {
+  const file = path.join(root, ".gitignore");
+  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const present = new Set(current.split(/\r?\n/).map((line) => line.trim()));
+  const missing = entries.filter((entry) => !present.has(entry));
+  if (missing.length === 0) return;
+  const separator = current && !current.endsWith("\n") ? "\n" : "";
+  fs.writeFileSync(file, `${current}${separator}${missing.map((entry) => `${entry}\n`).join("")}`);
+}
 /** Add or replace one entry of a JSON object file without touching its other entries. */
 function mergeJsonEntry(file: string, key: string, name: string, entry: JsonObject): void {
   const current = readJson(file);
@@ -543,7 +580,7 @@ export type SetupApplyResult = SetupEnvironmentResult &
   (
     | { role: "worker"; mcp_config: string }
     | {
-        role: "validation";
+        role: "validator";
         validation_config: string;
         service_script: string;
         worker_connection: { url: string; token: string };
@@ -567,6 +604,7 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
     Object.fromEntries(secrets.filter(([, value]) => value !== null)),
   );
   fs.chmodSync(environment.environment_secrets, 0o600);
+  ensureGitignored(root, role === "worker" ? [".aris/", ".mcp.json"] : [".aris/"]);
   if (role === "worker") {
     const file = path.join(root, ".mcp.json");
     mergeJsonEntry(file, "mcpServers", "aris-validation", {

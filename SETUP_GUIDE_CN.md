@@ -8,7 +8,7 @@ ARL 使用两台机器：worker 交付 zip，validation 持有冻结 benchmark�
 
 准备 Bash、Git、Node.js 22.12+ 和运行中的官方 Paseo（`paseo daemon status`）；worker 机器准备已认证的 Claude Code，验证端准备已认证的 Codex 和 benchmark 所需依赖。Windows 可使用 Git Bash；Node 需在 PATH 中，WSL 则是独立 Linux 环境。
 
-在各机器的本地 `arl` 分支 Git 仓库中，先显式准备依赖和编译产物，再按本机角色安装到项目：
+在各机器的本地 `main` 分支 Git 仓库中，先显式准备依赖和编译产物，再按本机角色安装到项目：
 
 ```bash
 cd /path/to/local/arl-checkout
@@ -16,7 +16,7 @@ npm ci
 npm run build
 bash distribution/install-aris.sh --role worker --project /path/to/project
 # 验证端：
-bash distribution/install-aris.sh --role validation --project /path/to/project
+bash distribution/install-aris.sh --role validator --project /path/to/project
 ```
 
 安装脚本只读取已准备好的本地仓库，不执行 Git clone/pull、npm 安装或下载，不需要 tar。缺少依赖或编译产物时直接报错并提示准备步骤。`distribution/install-arl.sh` 是同一流程的别名，旧的 `ARL_ARCHIVE` 和 `ARL_DOWNLOAD_BASE` 环境变量不再使用。可从任意目录通过绝对路径调用脚本，`--dry-run` 不写入目标项目。
@@ -27,7 +27,7 @@ bash distribution/install-aris.sh --role validation --project /path/to/project
 tar -xzf arl-0.1.0.tar.gz
 bash arl/install.sh --role worker --project /path/to/project
 # 验证端：
-bash arl/install.sh --role validation --project /path/to/project
+bash arl/install.sh --role validator --project /path/to/project
 ```
 
 角色决定 agent：
@@ -35,7 +35,7 @@ bash arl/install.sh --role validation --project /path/to/project
 | 角色 | Agent | Paseo thinking | 技能目录 | 角色指令 |
 | --- | --- | --- | --- | --- |
 | worker | Claude Code | `ultracode` | `.claude/skills/` | `CLAUDE.md` |
-| validation | Codex | `max` | `.agents/skills/` | `AGENTS.md` |
+| validator  | Codex | `max` | `.agents/skills/` | `AGENTS.md` |
 
 setup 写入角色指令，以及 worker 在 `.mcp.json` 中的 `aris-validation` 条目，已有无关条目保留。**Codex 必须信任验证端项目**，然后重新打开会话。
 
@@ -46,14 +46,14 @@ setup 写入角色指令，以及 worker 在 `.mcp.json` 中的 `aris-validation
 两台机器建立独立项目并加入官方 Paseo，不共享磁盘、仓库或同步目录。项目 `.gitignore` 排除 `.aris/` 和 worker 的 `.mcp.json`，因为它们包含凭据。
 
 1. 验证端先写 `task.md`，以 thinking `max` 打开 Codex 并调用 `$aris-setup`；角色来自安装记录，无需指定。
-2. 一次审阅完整配置表：benchmark 固定源码/数据版本、切分、样本数、runner argv、指标目标、隐藏文件、次数和服务地址。validation agent 固定为 Codex `max`，配置表只设置其 model 和 mode；服务以 `--provider codex --thinking max` 为每次提交启动一个 agent。
+2. 一次审阅完整配置表：benchmark 固定源码/数据版本、切分、样本数、runner argv、指标目标、隐藏文件、次数和服务地址。validator agent 固定为 Codex `max`，配置表只设置其 model 和 mode；服务以 `--provider codex --thinking max` 为每次提交启动一个 agent。
 3. 确认配置摘要后，setup 执行 benchmark 安装、healthcheck 和 smoke，冻结配置，生成 token，将 `aris-validation` 服务写入 `paseo.json`，并初始化 `research-wiki/` 作为验证端的长期记忆：记录各次提交暴露的验证问题、哪些已解决、哪些仍存在。从官方 Paseo 启动该服务。
 4. 私下把输出的 URL/token 和相同 `task.md` 交给 worker。worker 以 thinking `ultracode` 打开 Claude Code 并运行 `/aris-setup`，在同一配置表中填写连接，以及环境脚本所需的密钥（`environment.secrets`），审阅后确认。setup 把角色段写入 `CLAUDE.md`，把 MCP 条目写入 `.mcp.json`，并初始化 `research-wiki/`。
 5. 两端的 setup 最后都写入[环境技能](#环境技能)。用户随后在客户端执行 `reload-skills` 加载技能；客户端没有重载动作时重新打开会话，worker 的 MCP 配置变更也需要新会话。验证 `query` 返回 open，再让 worker 执行任务。合法提交达标时 completed，次数耗尽时 closed。
 
 worker 的 `CLAUDE.md` 角色段规定带编号的迭代流程，必须逐步执行：research-wiki 是必须使用的长期记忆，当前迭代的短期任务写入 todo 列表，每次提交前先 commit。角色段同时列出 `submit` / `query`、`research-wiki`、`browser-act` 和环境技能的入口。浏览器 CLI 按需检查或安装。使用前读取对应 skill。
 
-每次提交取得 validation 已发布的最终结论后，worker 将有实际依据、可跨项目复用的经验精简到本地 ARL 源码仓库 `arl` 分支根目录的 `Experience.md`，合并重复经验，无新经验则不添加；项目细节留在 wiki。setup 在 worker 的 `CLAUDE.md` 中记录该位置，源码 checkout 需可写，其中的 `CLAUDE.md` 指向 `Experience.md`；安装目录 `.aris/` 不是经验仓库。保存规则见[经验保存约定](skills/shared-references/experience.md)；即使达标或次数耗尽，也应完成经验整理后再结束。
+每次提交取得 validation 已发布的最终结论后，worker 将有实际依据、可跨项目复用的经验精简后提交到本地 ARL 源码仓库 `experience` 分支根目录的 `Experience.md`：该分支不存在时从 `main` 新建，存在则直接提交（在独立 worktree 中进行，不切换源码仓库当前分支），合并重复经验，无新经验则不添加；项目细节留在 wiki。worker 不推送也不合并：由你推送 `experience` 并发起合并到 `main` 的 PR，审核通过后其他项目才会读取。setup 在 worker 的 `CLAUDE.md` 中记录源码仓库和 worktree 位置，源码 checkout 需可写，其中的 `CLAUDE.md` 指向 `Experience.md`；安装目录 `.aris/` 不是经验仓库。保存规则见[经验保存约定](skills/shared-references/experience.md)；即使达标或次数耗尽，也应完成经验整理后再结束。
 
 私网/VPN 直连：`host=0.0.0.0`、固定 port（如 8790）、`public_url=http://<验证端地址>:8790`，开放防火墙端口。已有 Paseo service proxy 时可用 `host=127.0.0.1`、port=null 和脚本代理 URL。安装包不配置 DNS/proxy。
 

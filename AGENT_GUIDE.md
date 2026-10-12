@@ -7,7 +7,7 @@ For agents reading this package cold. This file routes you to the right skill; t
 ARIS runs one task as a contest between two machines:
 
 - The **worker** machine has one Claude Code agent (Paseo thinking `ultracode`) with `task.md`, its own environment and its own research wiki. It builds a deliverable and submits it.
-- The **validation** machine runs the `aris-validation` service. It owns a frozen benchmark the worker never sees, starts one Codex validation agent (thinking `max`) per submission, and publishes a verdict, a score and desensitized feedback.
+- The **validator** machine runs the `aris-validation` service. It owns a frozen benchmark the worker never sees, starts one Codex validator agent (thinking `max`) per submission, and publishes a verdict, a score and desensitized feedback.
 
 The two sides share nothing but the service's two MCP tools, `submit` and `query`. Each machine runs official Paseo, so the owner watches both sides' agents in the Paseo app. Everything else (planning, coding, training, debugging, delegating to subagents) is the agent's own work; ARIS adds no workflow for it.
 
@@ -44,6 +44,6 @@ Skills call compiled helpers with `node .aris/dist/tools/<helper>.js` from the p
 | `<skills>/<project>-environment/` | the role's agent, via `aris-setup` | Environment facts and verified scripts |
 | `paseo.json` | `setup-cli.js` | `aris-validation` service script (validation) |
 | `research-wiki/` | `research-wiki.js` | Wiki pages, edges, the generated index and query pack |
-| Local ARL source checkout, branch `arl`: `Experience.md` | worker agent | Concise, evidenced lessons reusable across projects; location recorded in worker project instructions, rules in [the experience contract](skills/shared-references/experience.md) |
+| Local ARL source checkout: `Experience.md` (reviewed on `main`, new lessons committed to `experience`) | worker agent; the owner merges by pull request | Concise, evidenced lessons reusable across projects; location recorded in worker project instructions, rules in [the experience contract](skills/shared-references/experience.md) |
 
 Architecture and design rationale: [ARIS_ARCHITECTURE_GUIDE.md](ARIS_ARCHITECTURE_GUIDE.md). Installing both machines: [SETUP_GUIDE.md](SETUP_GUIDE.md).

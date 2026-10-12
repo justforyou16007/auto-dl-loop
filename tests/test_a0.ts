@@ -1023,16 +1023,16 @@ test("CLI rejects absolute ids, skips duplicates and keeps experiments that form
     assert.match(claim, /Claim added:/);
     assert.match(fs.readFileSync(path.join(root, "claims", "visible-claim.md"), "utf-8"), /^date: \d{4}-\d{2}-\d{2}$/m);
     const skippedClaim = wikiOk("add_claim", root, "--slug", "visible-claim", "--name", "Visible claim");
-    assert.match(skippedClaim, /Claim skipped:/);
+    assert.match(skippedClaim, /Claim unchanged:/);
     assert.equal(/Claim (?:added|updated):/.test(skippedClaim), false);
 
     assert.match(wikiOk("add_experiment", root, "--slug", "exp-visible", "--title", "Visible"), /Experiment added:/);
     const skippedExperiment = wikiOk("add_experiment", root, "--slug", "exp-visible", "--title", "Visible");
-    assert.match(skippedExperiment, /Experiment skipped:/);
+    assert.match(skippedExperiment, /Experiment unchanged:/);
     const upsertArgs = ["add_experiment", root, "--slug", "exp-upsert", "--title", "Upsert experiment", "--update-on-exist"];
     const beforeUpsert = readWikiEvents(root).length;
     wikiOk(...upsertArgs);
-    assert.match(wikiOk(...upsertArgs), /Experiment skipped:/);
+    assert.match(wikiOk(...upsertArgs), /Experiment unchanged:/);
     assert.equal(readWikiEvents(root).length, beforeUpsert + 1);
     // Once the experiment supports a claim, a later update keeps page and edge.
     wikiOk("add_edge", root, "--from", "exp:exp-upsert", "--to", "claim:visible-claim", "--type", "supports");
@@ -1232,6 +1232,36 @@ test("query pack is an id-based digest within 1000 characters", () => {
     const flagged = fs.readFileSync(path.join(root, "query_pack.md"), "utf-8");
     assert.match(flagged, /^<!-- Warning: ARIS injection-scan flagged: prompt_injection\./);
     assert.ok(flagged.length <= 1000, `${flagged.length}`);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("wiki updates may return to earlier states; no-ops, prefixes and regressions are handled", () => {
+  const root = tmpDir();
+  try {
+    wikiOk("init", root);
+    wikiOk("add_problem", root, "--slug", "p1", "--title", "Problem one", "--status", "open");
+    for (const status of ["solved", "open", "solved"])
+      assert.match(wikiOk("add_problem", root, "--slug", "p1", "--status", status, "--update-on-exist"), /Problem updated/);
+    assert.equal(readWikiModel(root).pages.problem.get("p1")?.data.status, "solved");
+    assert.match(wikiOk("add_problem", root, "--slug", "p1", "--status", "solved", "--update-on-exist"), /Problem unchanged/);
+
+    // An idea update keeps the fields it does not set; a kind prefix names the same node.
+    wikiOk("upsert_idea", root, "--slug", "i1", "--title", "Idea one", "--thesis", "kept thesis", "--target-problems", "problem:p1");
+    wikiOk("upsert_idea", root, "--slug", "idea:i1", "--title", "Idea one", "--outcome", "ineffective", "--update-on-exist");
+    const idea = readWikiModel(root).pages.idea.get("i1")?.data;
+    assert.equal(idea?.thesis, "kept thesis");
+    assert.equal(idea?.outcome, "ineffective");
+
+    // The latest evidence reproducing a solved problem lists it again as regressed.
+    wikiOk("add_experiment", root, "--slug", "exp:s1", "--solves", "problem:p1");
+    wikiOk("add_experiment", root, "--slug", "s2", "--reproduces", "problem:p1");
+    assert.deepEqual([...readWikiModel(root).pages.experiment.keys()].sort(), ["s1", "s2"]);
+    const pack = fs.readFileSync(path.join(root, "query_pack.md"), "utf-8");
+    assert.match(pack, /problems: 1 open, 0 solved/);
+    assert.match(pack, /- problem:p1 \[medium\] \[regressed\] Problem one ✔ exp:s1 ✘ idea:i1 ✘ exp:s2/);
+    wikiFails(/one result cannot do both/, "add_edge", root, "--from", "exp:s1", "--to", "problem:p1", "--type", "reproduces");
   } finally {
     cleanup(root);
   }

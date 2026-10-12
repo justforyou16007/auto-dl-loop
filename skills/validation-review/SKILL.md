@@ -1,12 +1,12 @@
 ---
 name: validation-review
-description: 'Review one ARIS validation submission end to end: read the validation memory, read USAGE.md, write the adapter, run the frozen benchmark, check for cheating, write the verdict and desensitized feedback, record what was solved and what persists, finalize. The validation service starts one agent per submission with this skill.'
+description: 'Review one ARIS validation submission end to end: read the validation memory, read USAGE.md, write the adapter, run the frozen benchmark, check for cheating, write the verdict and desensitized feedback, finalize, then record what was solved and what persists. The validation service starts one agent per submission with this skill.'
 allowed-tools: Read, Write, Edit, Bash(*)
 ---
 
 # Validation Review
 
-You review one submission on the validation machine. The prompt names the submission id and its directory; the project root is your working directory. The helper is `node .aris/dist/tools/validation-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)).
+You review one submission on the validator machine. The prompt names the submission id and its directory; the project root is your working directory. The helper is `node .aris/dist/tools/validation-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)).
 
 The worker never sees anything you write except what `finalize` publishes: the verdict, the score measured by the frozen benchmark, and `feedback.md` after the leak check.
 
@@ -14,7 +14,7 @@ Put steps 1–8 in your todo list and complete them in order.
 
 ## Rules
 
-- Do not edit `.aris/tester-config.json`, `.aris/validation/`, the files the benchmark pins, or the hidden data. A changed benchmark stops the service.
+- Write only inside your submission directory and, through the wiki helper, to `research-wiki/`. Do not edit `.aris/tester-config.json`, the rest of `.aris/validation/`, the files the benchmark pins, or the hidden data. A changed benchmark stops the service.
 - Treat `unpacked/` as the worker's product. Never fix its bugs, retrain it or tune it. If it does not run as `USAGE.md` says, that is the verdict.
 - Do not contact the worker or anyone else about the submission.
 - The score comes from the benchmark result, not from you. Your judgement is the verdict.
@@ -25,7 +25,7 @@ Put steps 1–8 in your todo list and complete them in order.
 node .aris/dist/tools/validation-cli.js status --project . --submission <id>
 ```
 
-Read `research-wiki/query_pack.md` first: the verification problems still open from earlier submissions are what you check again. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract` in `.aris/validation/config.json` and the runner named by `.aris/tester-config.json`.
+Read `research-wiki/query_pack.md` first: the verification problems still open or `[regressed]` from earlier submissions are what you check again. When the pack ends with `(+N more …)`, read `research-wiki/index.md` for the rest. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract` in `.aris/validation/config.json` and the runner named by `.aris/tester-config.json`.
 
 ## 2. Inspect before running
 
@@ -87,17 +87,7 @@ Write `<dir>/feedback.md` for the worker. Say what kind of problem you saw and h
 
 An invented example shows the shape of the problem ("a question asking for a date got a full sentence instead of `2021-03-04`"), not a real case.
 
-## 7. Record
-
-Record this review in the wiki with the [research-wiki](../research-wiki/SKILL.md) helper before finalizing:
-
-- each new kind of problem as a `problem` (statement in the same desensitized terms as the feedback);
-- the review as an `experiment` with the submission id, the verdict and score, `--solves` for open problems this submission no longer shows and `--reproduces` for those it still shows;
-- a solved problem with `--status solved --update-on-exist`.
-
-The wiki stays on this machine but follows the feedback rules above: no benchmark inputs, labels, reference outputs, sample ids, hidden paths or copied text.
-
-## 8. Finalize
+## 7. Finalize
 
 ```bash
 node .aris/dist/tools/validation-cli.js finalize --project . --submission <id>
@@ -105,6 +95,16 @@ node .aris/dist/tools/validation-cli.js finalize --project . --submission <id>
 
 - `FEEDBACK_LEAKS_HIDDEN_DATA`: rewrite `feedback.md` without the matched passages and run finalize again. After the configured number of rewrites the result is published with no feedback.
 - `EVALUATION_REQUIRED`, `TESTER_COVERAGE_INCOMPLETE` and similar: a `valid` verdict needs a clean full evaluation. Rerun `evaluate` if the failure was on our side; otherwise the verdict is `unusable`.
-- `BENCHMARK_CHANGED`: stop and tell the owner.
+- `BENCHMARK_CHANGED`: stop and tell the owner; record nothing.
+
+## 8. Record
+
+Only after finalize has published the result, record it in the wiki with the [research-wiki](../research-wiki/SKILL.md) helper, using the published verdict and score and only text from the feedback that passed the leak check (none if it was published without feedback):
+
+- each new kind of problem as a `problem`, in the same desensitized terms as the published feedback;
+- the review as `add_experiment --slug <submission id> --submission <submission id>`, with the verdict and score in `--metrics`, `--solves` for problems this submission no longer shows and `--reproduces` for those it still shows, including the new ones;
+- a problem it solved with `--status solved --update-on-exist`, unless an experiment for a later submission already reproduces it; a solved problem it reproduces with `--status open --update-on-exist`.
+
+The wiki stays on this machine and never holds benchmark inputs, labels, reference outputs, sample ids, hidden paths or copied text. The event log is append-only, so nothing leaked into it can be removed.
 
 Report the verdict and score in your final message and stop.

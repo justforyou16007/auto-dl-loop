@@ -5,9 +5,9 @@
 | Template | Used by |
 | --- | --- |
 | [TASK_TEMPLATE.md](TASK_TEMPLATE.md) | Both roles. Becomes `task.md`, the only statement of the task. |
-| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATION.md](ROLE_VALIDATION.md) | Setup writes the matching one between the `ARIS ROLE` markers in `CLAUDE.md`. |
-| [TESTER_FACILITY_CONFIG_TEMPLATE.json](TESTER_FACILITY_CONFIG_TEMPLATE.json) | Validation role. Starting point for the frozen benchmark. |
-| [tester-benchmark/](tester-benchmark/) | Validation role. A worked lm-evaluation-harness deployment. |
+| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATOR.md](ROLE_VALIDATOR.md) | Setup writes the matching one between the `ARIS ROLE` markers in `CLAUDE.md` (worker) or `AGENTS.md` (validator). |
+| [TESTER_FACILITY_CONFIG_TEMPLATE.json](TESTER_FACILITY_CONFIG_TEMPLATE.json) | Validator role. Starting point for the frozen benchmark. |
+| [tester-benchmark/](tester-benchmark/) | Validator role. A worked lm-evaluation-harness deployment. |
 
 ## Benchmark runner protocol
 
@@ -18,7 +18,7 @@ The frozen benchmark's `setup`, `healthcheck`, `smoke` and `test` entries are ar
 | `ARIS_TEST_MODE` | `smoke` or `full` |
 | `ARIS_TEST_ID`, `ARIS_PROJECT_ID` | Identity of this run |
 | `ARIS_ARTIFACT_REF`, `ARIS_ARTIFACT_SHA256` | The unpacked deliverable and its digest |
-| `ARIS_ADAPTER_DIR` | The validation agent's adapter for this deliverable |
+| `ARIS_ADAPTER_DIR` | The validator agent's adapter for this deliverable |
 | `ARIS_TEST_DIR` | Where to write predictions and native benchmark output |
 | `ARIS_TEST_OUTPUT` | Where to write the result JSON, only after evaluation finishes |
 

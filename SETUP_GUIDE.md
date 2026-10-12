@@ -1,22 +1,22 @@
 # Auto Research Loop (ARL)
 
-ARL runs one task on two machines. The worker builds a deliverable; the validation machine owns a frozen benchmark, scores submissions and publishes feedback. Their only application interface is the validation service's `submit` and `query` MCP tools. Planning and implementation belong to the agent; ARL adds no fixed research pipeline.
+ARL runs one task on two machines. The worker builds a deliverable; the validator machine owns a frozen benchmark, scores submissions and publishes feedback. Their only application interface is the validation service's `submit` and `query` MCP tools. Planning and implementation belong to the agent; ARL adds no fixed research pipeline.
 
 Use the official Paseo app and CLI on both machines. ARL supplies project skills and the Node runtime helpers; it does not contain or require a custom Paseo build. Official Paseo shows agents and service scripts. It has no custom ARIS knowledge graph tab: read the wiki files or use the `research-wiki` skill.
 
 ## Install
 
-You need Bash, Git and Node.js 22.12+. Install and authenticate Claude Code on the worker machine and Codex on the validation machine, and install the official Paseo CLI with its daemon running (`paseo daemon status`). The validation machine also needs the dependencies required by your benchmark. Windows users can run the Bash installer in Git Bash, with Node on PATH; WSL is a separate Linux environment.
+You need Bash, Git and Node.js 22.12+. Install and authenticate Claude Code on the worker machine and Codex on the validator machine, and install the official Paseo CLI with its daemon running (`paseo daemon status`). The validator machine also needs the dependencies required by your benchmark. Windows users can run the Bash installer in Git Bash, with Node on PATH; WSL is a separate Linux environment.
 
-Use a local Git checkout of the `arl` branch on each machine. Prepare dependencies and compile the helpers separately, then install from that checkout with the machine's role:
+Use a local Git checkout of `main` on each machine. Prepare dependencies and compile the helpers separately, then install from that checkout with the machine's role:
 
 ```bash
 cd /path/to/local/arl-checkout
 npm ci
 npm run build
 bash distribution/install-aris.sh --role worker --project /path/to/project
-# On the validation machine:
-bash distribution/install-aris.sh --role validation --project /path/to/project
+# On the validator machine:
+bash distribution/install-aris.sh --role validator --project /path/to/project
 ```
 
 The installer does not clone or update Git, install npm dependencies, download archives, or require tar. Missing local dependencies or compiled helpers stop installation with preparation instructions. `distribution/install-arl.sh` is an alias for this local workflow; the old `ARL_ARCHIVE` and `ARL_DOWNLOAD_BASE` variables are unused. You can invoke the script by absolute path from another directory, and `--dry-run` leaves the target unchanged.
@@ -26,8 +26,8 @@ For manual offline distribution without a Git checkout on the target machine, an
 ```bash
 tar -xzf arl-0.1.0.tar.gz
 bash arl/install.sh --role worker --project /path/to/project
-# On the validation machine:
-bash arl/install.sh --role validation --project /path/to/project
+# On the validator machine:
+bash arl/install.sh --role validator --project /path/to/project
 ```
 
 The optional archive includes compiled helpers, their runtime dependencies and templates. Neither installation route creates global skill links or restarts Paseo.
@@ -37,41 +37,41 @@ The role fixes the agent:
 | Role | Agent | Paseo thinking | Skills | Role instructions |
 | --- | --- | --- | --- | --- |
 | worker | Claude Code | `ultracode` | `.claude/skills/` | `CLAUDE.md` |
-| validation | Codex | `max` | `.agents/skills/` | `AGENTS.md` |
+| validator  | Codex | `max` | `.agents/skills/` | `AGENTS.md` |
 
-Setup writes the role instructions, and the worker's `aris-validation` entry in `.mcp.json`, after you confirm the configuration sheet. Existing unrelated instructions and MCP entries are preserved. Trust the validation project in Codex, then open a fresh session; its [skill discovery](https://developers.openai.com/codex/skills/) follows the official OpenAI documentation.
+Setup writes the role instructions, and the worker's `aris-validation` entry in `.mcp.json`, after you confirm the configuration sheet. Existing unrelated instructions and MCP entries are preserved. Trust the validator project in Codex, then open a fresh session; its [skill discovery](https://developers.openai.com/codex/skills/) follows the official OpenAI documentation.
 
 The archive contains four skills: `aris-setup`, `validation-review`, `research-wiki` and `browser-act`, with their shared references, helpers and runtime dependencies. The `.aris/` data directory remains stable. It installs no subagent definitions. Optional literature, GPU platform and notification skills in the source repository are not included in the archive.
 
 Create a separate project on each machine and add each to official Paseo. Never share their disk, repository or synchronized directory. Use the same `task.md` on both machines. In the project `.gitignore`, exclude `.aris/` and the worker's `.mcp.json` because setup stores credentials there.
 
-## Validation machine first
+## Validator machine first
 
-1. Open Codex at thinking `max` in the validation project and invoke `$aris-setup`; the role comes from the installation. If `task.md` is absent, write it with the owner from `.aris/templates/TASK_TEMPLATE.md`.
-2. Review the complete configuration sheet. Configure the pinned benchmark source and data revision, split, full sample count, runner argv, metric and target, hidden paths, submission limits and service address. Validation agents always run Codex at `max`; the sheet sets only their model and mode. The example in `.aris/templates/tester-benchmark/` uses lm-evaluation-harness.
-3. Approve the final configuration digest. Setup runs the benchmark setup, healthcheck and smoke test, freezes the configuration and creates the service token. It writes the `aris-validation` service script into `paseo.json` and initializes `research-wiki/`, the validation machine's long-term memory of verification problems: which ones each submission solved and which persist.
-4. Start that script from official Paseo. Check with `node .aris/dist/tools/validation-cli.js status --project .`. The service starts one validation agent per submission with `--provider codex --thinking max`.
+1. Open Codex at thinking `max` in the validator project and invoke `$aris-setup`; the role comes from the installation. If `task.md` is absent, write it with the owner from `.aris/templates/TASK_TEMPLATE.md`.
+2. Review the complete configuration sheet. Configure the pinned benchmark source and data revision, split, full sample count, runner argv, metric and target, hidden paths, submission limits and service address. Validator agents always run Codex at `max`; the sheet sets only their model and mode. The example in `.aris/templates/tester-benchmark/` uses lm-evaluation-harness.
+3. Approve the final configuration digest. Setup runs the benchmark setup, healthcheck and smoke test, freezes the configuration and creates the service token. It writes the `aris-validation` service script into `paseo.json` and initializes `research-wiki/`, the validator machine's long-term memory of verification problems: which ones each submission solved and which persist.
+4. Start that script from official Paseo. Check with `node .aris/dist/tools/validation-cli.js status --project .`. The service starts one validator agent per submission with `--provider codex --thinking max`.
 5. Transfer the printed `worker_connection` URL and token privately to the worker machine.
 
 Setup ends by writing the [environment skill](#environment-skill) and asks you to run `reload-skills` in your client.
 
 On Windows, use `agent.paseo_command: ["node", "<Paseo install>\\bin\\paseo"]` because Node cannot execute a `.cmd` shim directly. On Linux/macOS the default `["paseo"]` uses the official CLI on PATH.
 
-Once a submission is counted, the benchmark and target are frozen. A changed benchmark needs a new validation project.
+Once a submission is counted, the benchmark and target are frozen. A changed benchmark needs a new validator project.
 
 ## Network
 
-For a private network or VPN, set `service.host` to `0.0.0.0`, `service.port` to a fixed port such as `8790`, and `service.public_url` to `http://<validation-address>:8790`. Allow that port in the validation machine's firewall. The worker must reach `/health`; it should return `{"status":"ok"}`.
+For a private network or VPN, set `service.host` to `0.0.0.0`, `service.port` to a fixed port such as `8790`, and `service.public_url` to `http://<validator-address>:8790`. Allow that port in the validator machine's firewall. The worker must reach `/health`; it should return `{"status":"ok"}`.
 
 If you already operate Paseo's service proxy, use host `127.0.0.1`, leave the port null, and use the script's proxy URL as `public_url`. Paseo supplies the runtime port. This package does not configure DNS or a proxy for you.
 
 ## Worker machine
 
-1. Copy the validation machine's `task.md` unchanged to the worker project.
+1. Copy the validator machine's `task.md` unchanged to the worker project.
 2. Open Claude Code at thinking `ultracode` in the worker project and run `/aris-setup`. Fill in `connection.url` and `connection.token`, and under `environment.secrets` any keys the environment scripts need.
 3. Approve the reviewed digest. Setup writes the role block to `CLAUDE.md` and the MCP entry to `.mcp.json`, initializes `research-wiki/` and writes the [environment skill](#environment-skill).
 4. Run `reload-skills` in your client to discover new skills. If it has no skill reload action, open a fresh session. Reopen the worker session to load its MCP configuration. Ask the agent to call `query` and verify the validation service is open.
-5. Tell the worker to work on `task.md`. It follows the numbered iteration in its role block step by step: the research wiki is its mandatory long-term memory and the todo list holds the current iteration's tasks. It commits before every submit, uploads a zip containing `USAGE.md` to the one-time URL and polls `query`. After each published verdict, it saves concise, evidenced, cross-project lessons to `Experience.md` in your local ARL source checkout on branch `arl`; setup records that location in `CLAUDE.md`. Duplicate lessons are merged and project details stay in the wiki. Keep that checkout writable; `.aris/` is not the source checkout. See the [experience contract](skills/shared-references/experience.md). It stops submitting at `completed` (target met) or `closed` (submission limit reached) and finishes saving experience before its final response.
+5. Tell the worker to work on `task.md`. It follows the numbered iteration in its role block step by step: the research wiki is its mandatory long-term memory and the todo list holds the current iteration's tasks. It commits before every submit, uploads a zip containing `USAGE.md` to the one-time URL and polls `query`. After each published verdict, it saves concise, evidenced, cross-project lessons to `Experience.md` on the `experience` branch of your local ARL source checkout, creating that branch from `main` the first time and committing to it afterwards, in a separate worktree that never switches the checkout's branch. It never pushes or merges: you push `experience` and open a pull request into `main`, and other projects read a lesson only after you merge it. Setup records the checkout and worktree in `CLAUDE.md`. Duplicate lessons are merged and project details stay in the wiki. Keep that checkout writable; `.aris/` is not the source checkout. See the [experience contract](skills/shared-references/experience.md). It stops submitting at `completed` (target met) or `closed` (submission limit reached) and finishes saving experience before its final response.
 
 The worker role block routes to `research-wiki`, `browser-act` and the environment skill. Browser work checks or installs the external browser-act CLI on demand. Read the installed skills before using their tools.
 
@@ -106,5 +106,5 @@ Older custom-Paseo installations have no standalone ownership manifest. Back the
 | Skills missing | The opened agent matches the installed role (worker: Claude Code, validation: Codex); Codex trusts the project; reopen the session |
 | query fails | Service is running; worker reaches /health; URL ends in /mcp; token matches |
 | Upload rejected | Zip has USAGE.md at root or in one top-level folder; upload fits limits; URL is single-use |
-| Submission failed | Official Paseo CLI and Codex are available on the validation machine; inspect validation service logs and review timeout |
-| Service refuses after an edit | Restore the pinned benchmark files, or create a new validation project |
+| Submission failed | Official Paseo CLI and Codex are available on the validator machine; inspect validation service logs and review timeout |
+| Service refuses after an edit | Restore the pinned benchmark files, or create a new validator project |

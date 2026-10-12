@@ -1,5 +1,5 @@
 /**
- * Submission records on the validation machine. Each submission directory holds
+ * Submission records on the validator machine. Each submission directory holds
  * one status.json; the service, the CLI and finalize all change it under one lock.
  */
 import crypto from "node:crypto";

@@ -1,7 +1,7 @@
 # Task
 
 <!-- Both machines read this file. Describe what to build, not how it is scored in detail:
-     the validation machine keeps the benchmark and its data hidden. -->
+     the validator machine keeps the benchmark and its data hidden. -->
 
 ## Goal
 

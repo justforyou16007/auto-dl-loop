@@ -35,9 +35,11 @@ import {
   findPage,
   ideaResult,
   projectWiki,
+  applyWikiOperations,
   projectWikiFromEvents,
   readWikiModel,
   replayWikiEvents,
+  wikiStateDigest,
   type WikiModel,
 } from "./wiki-projector.js";
 import { WIKI_SCOPE } from "./wiki-scope.js";
@@ -322,11 +324,21 @@ function commitOperations(
       if (operations === null) return null;
       const evidence =
         typeof evidenceBundleId === "function" ? evidenceBundleId(events, model) : evidenceBundleId;
+      // A command that changes nothing but the log is skipped, so a retry is a
+      // no-op; one that only appends to the log is the `log` command itself.
+      if (operations.some((operation) => operation.op !== "append_log")) {
+        const before = wikiStateDigest(model);
+        applyWikiOperations(model, operations, "");
+        if (wikiStateDigest(model) === before) return null;
+      }
+      // The log head makes a command that returns to an earlier state (solved →
+      // open → solved) a new command instead of a duplicate of the first one.
+      const head = eventLogHead(events).event_id ?? "genesis";
       return {
         producer_kind: "standalone-research-wiki",
         scope: WIKI_SCOPE,
         subject_id: subjectId,
-        evidence_bundle_id: evidence || subjectId,
+        evidence_bundle_id: `${evidence || subjectId}@${head}`,
         payload: { operations },
       };
     },
@@ -344,11 +356,13 @@ function addLog(operations: WikiOperation[], message: string): void {
   operations.push({ op: "append_log", message });
 }
 
-function nodeSlugify(name: string, supplied: string): string {
+/** A supplied slug may carry its own kind prefix (`idea:x`); it names the same node as `x`. */
+function nodeSlugify(name: string, supplied: string, prefix: string): string {
   if (supplied.trim()) {
     assertNotAbsoluteIdentifier(supplied, "node slug");
     const value = supplied
       .trim()
+      .replace(new RegExp(`^${prefix}:`), "")
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^-|-$/g, "");
@@ -404,6 +418,12 @@ function addEdge(
         console.log(`Edge already exists: ${from} --${edgeType}--> ${to}`);
         return null;
       }
+      const opposite = { solves: "reproduces", reproduces: "solves" }[edgeType as string];
+      if (
+        opposite &&
+        model.edges.some((edge) => edge.from === from && edge.to === to && edge.type === opposite)
+      )
+        throw new Error(`add_edge: ${from} already ${opposite} ${to}; one result cannot do both`);
       const operations: WikiOperation[] = [];
       const safeEvidence = sanitizeText(evidence, `edge ${from} -> ${to}`, operations);
       operations.push({
@@ -414,7 +434,10 @@ function addEdge(
       return operations;
     },
   );
-  if (result.status === "skipped") return;
+  if (result.status === "skipped") {
+    console.log(`Edge unchanged: ${from} --${edgeType}--> ${to}`);
+    return;
+  }
   console.log(`Edge added: ${from} --${edgeType}--> ${to}`);
 }
 
@@ -562,7 +585,7 @@ function addClaim(
   assertWikiSchemaSupported(root);
   const status = options.status ?? "drafted";
   assertOneOf(status, CLAIM_STATUSES, "claim status");
-  const slug = nodeSlugify(name, suppliedSlug);
+  const slug = nodeSlugify(name, suppliedSlug, "claim");
   const subject = `claim:${slug}`;
   const references: Array<[string[], WikiEdgeType]> = [
     [nodeIds(options.addresses, "problem", "add_claim"), "addresses"],
@@ -605,7 +628,7 @@ function addClaim(
   });
   const file = pagePath(root, "claim", slug);
   if (result.status === "skipped") {
-    console.log(`Claim skipped: ${file}`);
+    console.log(`Claim unchanged: ${file}`);
     return;
   }
   console.log(`Claim ${existedBefore ? "updated" : "added"}: ${file} [status=${status}]`);
@@ -628,9 +651,8 @@ function upsertIdea(
 ): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
-  const outcome = options.outcome ?? "pending";
-  assertOneOf(outcome, IDEA_OUTCOMES, "idea outcome");
-  const slug = nodeSlugify(title, suppliedSlug);
+  if (options.outcome !== undefined) assertOneOf(options.outcome, IDEA_OUTCOMES, "idea outcome");
+  const slug = nodeSlugify(title, suppliedSlug, "idea");
   const subject = `idea:${slug}`;
   const basedOn = nodeIds(options.basedOn, "survey", "upsert_idea --based-on");
   const targetProblems = nodeIds(
@@ -639,12 +661,16 @@ function upsertIdea(
     "upsert_idea --target-problems",
   );
   let existedBefore = false;
+  let outcome = options.outcome ?? "pending";
   const result = commitOperations(root, subject, subject, (model) => {
-    existedBefore = model.pages.idea.has(slug);
+    const existing = model.pages.idea.get(slug)?.data;
+    existedBefore = existing !== undefined;
     if (existedBefore && !options.updateOnExist) {
       console.log(`Idea already exists: ${slug}.md (slug dedup) — skipping.`);
       return null;
     }
+    // Like add_problem, an update keeps every field it does not set.
+    outcome = options.outcome ?? existingString(existing, "outcome", "pending");
     for (const target of [...basedOn, ...targetProblems])
       assertNodeExists(model, target, "upsert_idea");
     const operations: WikiOperation[] = [];
@@ -655,14 +681,22 @@ function upsertIdea(
       data: {
         title,
         description: sanitizeText(
-          options.description ?? "",
+          options.description ?? existingString(existing, "description"),
           `idea ${slug}.description`,
           operations,
         ),
         outcome,
-        thesis: sanitizeText(options.thesis ?? "", `idea ${slug}.thesis`, operations),
-        risks: sanitizeText(options.risks ?? "", `idea ${slug}.risks`, operations),
-        tags: options.tags ?? [],
+        thesis: sanitizeText(
+          options.thesis ?? existingString(existing, "thesis"),
+          `idea ${slug}.thesis`,
+          operations,
+        ),
+        risks: sanitizeText(
+          options.risks ?? existingString(existing, "risks"),
+          `idea ${slug}.risks`,
+          operations,
+        ),
+        tags: options.tags ?? (Array.isArray(existing?.tags) ? existing.tags : []),
       },
     });
     for (const target of basedOn) operations.push(edgeOperation(subject, target, "inspired_by"));
@@ -674,7 +708,10 @@ function upsertIdea(
     );
     return operations;
   });
-  if (result.status === "skipped") return;
+  if (result.status === "skipped") {
+    console.log(`Idea unchanged: ${pagePath(root, "idea", slug)}`);
+    return;
+  }
   console.log(
     `Idea ${existedBefore ? "updated" : "added"}: ${pagePath(root, "idea", slug)} [outcome=${outcome}]`,
   );
@@ -702,6 +739,7 @@ function addExperiment(
   assertNotAbsoluteIdentifier(slugInput, "experiment slug");
   const slug = slugInput
     .trim()
+    .replace(/^exp:/, "")
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -788,7 +826,7 @@ function addExperiment(
     return;
   }
   if (result.status === "skipped") {
-    console.log(`Experiment skipped: ${file}`);
+    console.log(`Experiment unchanged: ${file}`);
     return;
   }
   console.log(
@@ -814,7 +852,7 @@ function addProblem(
 ): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
-  const slug = nodeSlugify(suppliedTitle, suppliedSlug);
+  const slug = nodeSlugify(suppliedTitle, suppliedSlug, "problem");
   const subject = `problem:${slug}`;
   const parentInput = options.parent
     ? nodeIds([options.parent], "problem", "add_problem --parent")[0]
@@ -871,7 +909,10 @@ function addProblem(
     );
     return operations;
   });
-  if (result.status === "skipped") return;
+  if (result.status === "skipped") {
+    console.log(`Problem unchanged: ${pagePath(root, "problem", slug)}`);
+    return;
+  }
   console.log(`Problem ${existedBefore ? "updated" : "added"}: ${pagePath(root, "problem", slug)}`);
 }
 
@@ -1146,25 +1187,25 @@ program
   .argument("<wiki_root>")
   .option("--slug <slug>", "Stable idea id", "")
   .requiredOption("--title <title>", "Human-readable idea title")
-  .option("--description <text>", "One-line description", "")
-  .option("--outcome <outcome>", IDEA_OUTCOMES.join(" | "), "pending")
-  .option("--thesis <text>", "Core hypothesis", "")
-  .option("--risks <text>", "Risks", "")
-  .option("--tags <list>", "Comma-separated tag list", "")
+  .option("--description <text>", "One-line description")
+  .option("--outcome <outcome>", `${IDEA_OUTCOMES.join(" | ")} (default pending)`)
+  .option("--thesis <text>", "Core hypothesis")
+  .option("--risks <text>", "Risks")
+  .option("--tags <list>", "Comma-separated tag list")
   .option("--based-on <list>", "Survey ids that inspired the idea", "")
   .option("--target-problems <list>", "Problem ids the idea addresses", "")
-  .option("--update-on-exist", "Overwrite an existing idea", false)
+  .option("--update-on-exist", "Update an existing idea; omitted fields are kept", false)
   .action(
     (
       wikiRoot: string,
       options: {
         slug: string;
         title: string;
-        description: string;
-        outcome: string;
-        thesis: string;
-        risks: string;
-        tags: string;
+        description?: string;
+        outcome?: string;
+        thesis?: string;
+        risks?: string;
+        tags?: string;
         basedOn: string;
         targetProblems: string;
         updateOnExist: boolean;
@@ -1175,7 +1216,7 @@ program
         outcome: options.outcome,
         thesis: options.thesis,
         risks: options.risks,
-        tags: splitCsv(options.tags),
+        tags: options.tags === undefined ? undefined : splitCsv(options.tags),
         basedOn: splitCsv(options.basedOn),
         targetProblems: splitCsv(options.targetProblems),
         updateOnExist: options.updateOnExist,
@@ -1235,7 +1276,7 @@ program
   .argument("<wiki_root>")
   .requiredOption("--slug <slug>", "Stable experiment id")
   .option("--title <title>", "Human-readable label", "")
-  .option("--submission <id>", "Validation submission whose published result this is", "")
+  .option("--submission <id>", "Validation submission this result belongs to", "")
   .option("--idea <id>", "Idea the experiment tests", "")
   .option("--result <result>", `${EXPERIMENT_RESULTS.join(" | ")} for --idea`)
   .option("--solves <list>", "Problem ids this result shows fixed", "")

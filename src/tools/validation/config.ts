@@ -1,4 +1,4 @@
-/** The validation machine's frozen terms: what is measured, how often, and by whom. */
+/** The validator machine's frozen terms: what is measured, how often, and by whom. */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -30,14 +30,14 @@ export interface ValidationLimits {
   max_files: number;
   upload_ttl_minutes: number;
   review_timeout_minutes: number;
-  /** Rewrites a validation agent gets when its feedback trips the leak check. */
+  /** Rewrites a validator agent gets when its feedback trips the leak check. */
   feedback_attempts: number;
 }
 
 export interface ValidationAgentConfig {
-  /** Fixed by the validation role: Codex at max thinking. */
-  provider: typeof ROLE_AGENT.validation.provider;
-  thinking: typeof ROLE_AGENT.validation.thinking;
+  /** Fixed by the validator role: Codex at max thinking. */
+  provider: typeof ROLE_AGENT.validator.provider;
+  thinking: typeof ROLE_AGENT.validator.thinking;
   model?: string;
   mode?: string;
   /**
@@ -52,13 +52,20 @@ export interface ValidationConfig {
   metric: { name: string; direction: MetricDirection; target: number };
   /** The benchmark frozen at setup; a different installed config stops the service. */
   tester_config_sha256: string;
-  /** What a validation agent must write into a submission's adapter directory. */
+  /** What a validator agent must write into a submission's adapter directory. */
   adapter_contract: string;
   limits: ValidationLimits;
   leak_check: { hidden_paths: string[]; min_match_chars: number };
   agent: ValidationAgentConfig;
   service: { host: string; public_url: string };
 }
+
+/**
+ * Paseo's Codex modes a validator may run in. `full-access` lets the benchmark and
+ * the deliverable's documented install reach the network and write outside the
+ * project; the sandboxed modes fail or wait for an approval nobody gives.
+ */
+export const VALIDATOR_MODES = ["full-access", "auto-review", "auto"];
 
 export const DEFAULT_LIMITS: ValidationLimits = {
   max_submissions: 20,
@@ -128,9 +135,15 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
   assertNoUnknownFields(agent, ["provider", "model", "mode", "thinking", "paseo_command"], "agent");
   const command = strings(agent.paseo_command ?? ["paseo"], "agent.paseo_command");
   if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.paseo_command");
-  for (const [key, expected] of Object.entries(ROLE_AGENT.validation))
+  for (const [key, expected] of Object.entries(ROLE_AGENT.validator))
     if (agent[key] !== undefined && agent[key] !== null && agent[key] !== expected)
-      failA1("INVALID_VALUE", `validation agents use ${expected}`, `agent.${key}`);
+      failA1("INVALID_VALUE", `validator agents use ${expected}`, `agent.${key}`);
+  if (
+    agent.mode !== undefined &&
+    agent.mode !== null &&
+    !VALIDATOR_MODES.includes(String(agent.mode))
+  )
+    failA1("INVALID_VALUE", `choose one of ${VALIDATOR_MODES.join(", ")}`, "agent.mode");
   const optional = (key: string) =>
     agent[key] === undefined || agent[key] === null
       ? {}
@@ -157,7 +170,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
       min_match_chars: requireInteger(leak.min_match_chars ?? 40, "leak_check.min_match_chars", 8),
     },
     agent: {
-      ...ROLE_AGENT.validation,
+      ...ROLE_AGENT.validator,
       ...optional("model"),
       ...optional("mode"),
       paseo_command: command,

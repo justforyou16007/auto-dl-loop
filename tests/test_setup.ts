@@ -17,7 +17,9 @@ import { facilityConfig } from "./helpers/tester-facility-fixture.js";
 import { environmentSkillDir, projectSlug } from "../src/tools/setup.js";
 
 const read = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
-const installAs = (root: string, role: "worker" | "validation") => {
+// A command execFile can start on every platform; only its argv is checked here.
+const PASEO = [process.execPath, "paseo-cli.mjs"];
+const installAs = (root: string, role: "worker" | "validator") => {
   fs.mkdirSync(path.join(root, ".aris"), { recursive: true });
   const provider = role === "worker" ? "claude" : "codex";
   fs.writeFileSync(path.join(root, ".aris/install.json"), JSON.stringify({ role, provider }));
@@ -34,7 +36,7 @@ async function project(name: string, action: (root: string) => Promise<void>) {
 
 // Worker: the installed role decides the modules; task.md is part of what the owner approves.
 await project("worker", async (root) => {
-  assert.throws(() => refreshSetupReview(root), /--role worker\|validation/);
+  assert.throws(() => refreshSetupReview(root), /--role worker\|validator/);
   installAs(root, "worker");
   let review = refreshSetupReview(root);
   assert.equal(review.role, "worker");
@@ -48,9 +50,12 @@ await project("worker", async (root) => {
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
   // The environment configuration holds only keys and tokens; null clears one.
   review = refreshSetupReview(root, {
-    connection: { url: "http://validation.example:7000/mcp", token: "t".repeat(43) },
+    connection: { url: "http://validation.example:7000/proxy/abc/mcp", token: "t".repeat(43) },
     environment: { secrets: { HF_TOKEN: "hf_secret", "not a name": "x" } },
   });
+  const sheet = fs.readFileSync(review.review_path, "utf8");
+  assert.equal(sheet.includes("hf_secret") || sheet.includes("t".repeat(43)), false);
+  assert.ok(review.modules.flatMap((module) => module.fields).some((field) => field.value === "…cret"));
   assert.deepEqual(
     review.issues.map((issue) => issue.field),
     ["environment.secrets.not a name"],
@@ -82,11 +87,12 @@ await project("worker", async (root) => {
   // Apply names the environment skill; setup's agent writes it.
   assert.equal(fs.existsSync(applied.environment_skill_dir), false);
   assert.deepEqual(read(applied.environment_secrets), { HF_TOKEN: "hf_secret" });
+  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".aris/\n.mcp.json\n");
   const mcp = read(path.join(root, ".mcp.json"));
   assert.deepEqual(mcp.mcpServers.other, { command: "x" });
   assert.deepEqual(mcp.mcpServers["aris-validation"], {
     type: "http",
-    url: "http://validation.example:7000/mcp",
+    url: "http://validation.example:7000/proxy/abc/mcp",
     headers: { Authorization: `Bearer ${"t".repeat(43)}` },
   });
   // The role block is added once and replaced in place on re-apply.
@@ -99,32 +105,38 @@ await project("worker", async (root) => {
   assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
 });
 
-// Validation: Codex at max, the benchmark is installed, the terms frozen, and the service registered.
-await project("validation", async (root) => {
-  installAs(root, "validation");
+assert.match(projectSlug(path.join(os.tmpdir(), "项目")), /^project-[0-9a-f]{8}$/);
+
+// Validator: Codex at max, the benchmark is installed, the terms frozen, and the service registered.
+await project("validator", async (root) => {
+  installAs(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
   fs.writeFileSync(path.join(root, "AGENTS.md"), "Owner instructions.\n");
   const benchmark = facilityConfig(root);
   let review = refreshSetupReview(root, {
     validation: { benchmark, metric: { name: "missing" } },
   });
-  assert.equal(review.role, "validation");
+  assert.equal(review.role, "validator");
   assert.ok(review.issues.some((issue) => issue.field === "validation"));
   review = refreshSetupReview(root, {
     validation: {
       metric: { name: "score", target: 1 },
       leak_check: { hidden_paths: [path.join(root, "bench", "labels.json")] },
-      agent: { provider: "claude" },
+      agent: { provider: "claude", paseo_command: ["paseo"] },
       service: { host: "0.0.0.0", port: 70_000, public_url: "https://validation.example/" },
     },
   });
   assert.deepEqual(
     review.issues.map((issue) => issue.field),
-    ["validation.service.port", "validation"],
+    [
+      ...(process.platform === "win32" ? ["validation.agent.paseo_command"] : []),
+      "validation.service.port",
+      "validation",
+    ],
   );
-  assert.match(review.issues[1]!.message, /codex/);
+  assert.match(review.issues.at(-1)!.message, /codex/);
   review = refreshSetupReview(root, {
-    validation: { agent: { provider: null }, service: { port: 8765 } },
+    validation: { agent: { provider: null, paseo_command: PASEO }, service: { port: 8765 } },
   });
   assert.deepEqual(review.issues, []);
   assert.throws(
@@ -133,8 +145,8 @@ await project("validation", async (root) => {
   );
   confirmSetupReview(root, review.configuration_sha256);
   const applied = await applySetup(root);
-  assert.equal(applied.role, "validation");
-  if (applied.role !== "validation") throw new Error("unreachable");
+  assert.equal(applied.role, "validator");
+  if (applied.role !== "validator") throw new Error("unreachable");
   assert.deepEqual(applied.agent, { provider: "codex", thinking: "max" });
   assert.match(applied.environment_skill_dir, /\.agents[/\\]skills[/\\].+-environment$/);
   assert.equal(applied.worker_connection.url, "https://validation.example/mcp");
@@ -144,7 +156,8 @@ await project("validation", async (root) => {
   );
   const config = readValidationConfig(root);
   assert.deepEqual(config.metric, { name: "score", direction: "higher_better", target: 1 });
-  assert.deepEqual(config.agent, { provider: "codex", thinking: "max", paseo_command: ["paseo"] });
+  assert.deepEqual(config.agent, { provider: "codex", thinking: "max", mode: "full-access", paseo_command: PASEO });
+  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".aris/\n");
   assert.equal(config.limits.max_submissions, 20);
   assert.ok(fs.existsSync(path.join(root, ".aris", "tester-config.json")));
   // The fixed port lives only in the Paseo service entry; the frozen config keeps the bind host.
@@ -156,14 +169,14 @@ await project("validation", async (root) => {
   assert.deepEqual(config.service, { host: "0.0.0.0", public_url: "https://validation.example" });
   const instructions = fs.readFileSync(path.join(root, "AGENTS.md"), "utf8");
   assert.ok(instructions.startsWith("Owner instructions.\n"));
-  assert.match(instructions, /ARIS role: validation/);
+  assert.match(instructions, /ARIS role: validator/);
   assert.ok(instructions.includes(`.agents/skills/${projectSlug(root)}-environment/SKILL.md`));
   assert.equal(fs.existsSync(path.join(root, "CLAUDE.md")), false);
   assert.equal(fs.existsSync(path.join(root, ".mcp.json")), false);
 
   // Re-applying keeps the token the worker already holds.
   const again = await applySetup(root);
-  if (again.role !== "validation") throw new Error("unreachable");
+  if (again.role !== "validator") throw new Error("unreachable");
   assert.equal(again.worker_connection.token, applied.worker_connection.token);
 
   // Missing hidden data is reported.
@@ -214,7 +227,7 @@ await project("distribution", async (sandbox) => {
   assert.equal(archiveManifest.files.some((file: { path: string }) => file.path.startsWith("src/") || file.path.startsWith("agents/") || file.path.includes("server/src/")), false);
   assert.equal(fs.existsSync(path.join(portable, "skills/arxiv")), false);
   assert.equal(fs.existsSync(path.join(portable, "dist/tools/arxiv-fetch.js")), false);
-  for (const role of ["worker", "validation"] as const) {
+  for (const role of ["worker", "validator"] as const) {
     const provider = role === "worker" ? "claude" : "codex";
     const root = path.join(sandbox, `${role} project`);
     const skillDir = role === "worker" ? ".claude/skills" : ".agents/skills";
@@ -234,7 +247,7 @@ await project("distribution", async (sandbox) => {
       fs.writeFileSync(patch, JSON.stringify({ environment: { secrets: { API_KEY: "k" } }, connection: { url: "https://validation.example/mcp", token: "k".repeat(43) } }));
     } else {
       const benchmark = facilityConfig(root);
-      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, metric: { name: "score", target: 1 }, leak_check: { hidden_paths: [path.join(root, "bench/labels.json")] }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
+      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, metric: { name: "score", target: 1 }, leak_check: { hidden_paths: [path.join(root, "bench/labels.json")] }, agent: { paseo_command: PASEO }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
     }
     const review = setup("review", "--input", patch);
     assert.deepEqual(review.issues, []);
@@ -256,7 +269,7 @@ await project("distribution", async (sandbox) => {
       for (const link of toolLinks.filter((link) => !link.includes("-environment/")))
         assert.equal(fs.existsSync(path.join(root, link)), true, `Installed worker tool is missing: ${link}`);
     } else {
-      assert.deepEqual(read(path.join(root, ".aris/validation/config.json")).agent, { provider: "codex", thinking: "max", paseo_command: ["paseo"] });
+      assert.deepEqual(read(path.join(root, ".aris/validation/config.json")).agent, { provider: "codex", thinking: "max", mode: "full-access", paseo_command: PASEO });
       const status = JSON.parse(execFileSync(process.execPath, [path.join(root, ".aris/dist/tools/validation-cli.js"), "status", "--project", root], { cwd: sandbox, encoding: "utf8" }));
       assert.equal(status.service.state, "open");
     }
@@ -287,7 +300,7 @@ await project("distribution", async (sandbox) => {
     assert.equal(fs.readFileSync(path.join(root, ".aris/install.json"), "utf8"), before);
     install("--force");
     assert.equal(fs.readFileSync(skill, "utf8").includes("owner edit"), false);
-    const switched = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role === "worker" ? "validation" : "worker", "--project", root], { encoding: "utf8" });
+    const switched = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role === "worker" ? "validator" : "worker", "--project", root], { encoding: "utf8" });
     assert.equal(switched.status, 1);
     assert.match(switched.stderr, /keep its role/);
   }
@@ -316,20 +329,20 @@ await project("distribution", async (sandbox) => {
   const localInstall = (entry: string, ...args: string[]) => spawnSync("bash", [path.join(localRepo, "distribution", entry), ...args], { cwd: sandbox, env: localEnv, encoding: "utf8" });
   assert.equal(localInstall("install-aris.sh", "--help").status, 0);
   const bootstrapped = path.join(sandbox, "bootstrap project");
-  const missing = localInstall("install-aris.sh", "--role", "validation", "--project", bootstrapped);
+  const missing = localInstall("install-aris.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /npm ci and npm run build/);
   assert.equal(fs.existsSync(bootstrapped), false);
   for (const dependency of ["commander", "typescript"])
     fs.cpSync(path.join(source, "node_modules", dependency), path.join(localRepo, "node_modules", dependency), { recursive: true });
   fs.renameSync(path.join(localRepo, "dist"), path.join(localRepo, "unbuilt-dist"));
-  const unbuilt = localInstall("install-aris.sh", "--role", "validation", "--project", bootstrapped);
+  const unbuilt = localInstall("install-aris.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(unbuilt.status, 1);
   assert.match(unbuilt.stderr, /npm ci and npm run build/);
   assert.equal(fs.existsSync(bootstrapped), false);
   fs.renameSync(path.join(localRepo, "unbuilt-dist"), path.join(localRepo, "dist"));
-  for (const role of ["worker", "validation"]) {
-    const root = role === "validation" ? bootstrapped : path.join(sandbox, "local worker project");
+  for (const role of ["worker", "validator"]) {
+    const root = role === "validator" ? bootstrapped : path.join(sandbox, "local worker project");
     const preview = localInstall("install-aris.sh", "--role", role, "--project", root, "--dry-run");
     assert.equal(preview.status, 0, preview.stderr);
     assert.equal(fs.existsSync(root), false);
@@ -340,7 +353,7 @@ await project("distribution", async (sandbox) => {
   }
   const localSkill = path.join(localRepo, "skills/aris-setup/SKILL.md");
   fs.appendFileSync(localSkill, "\nLocal checkout update.\n");
-  const updated = localInstall("install-arl.sh", "--role", "validation", "--project", bootstrapped);
+  const updated = localInstall("install-arl.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(updated.status, 0, updated.stderr);
   assert.match(fs.readFileSync(path.join(bootstrapped, ".agents/skills/aris-setup/SKILL.md"), "utf8"), /Local checkout update/);
   assert.equal(fs.existsSync(invoked), false, "Installer invoked a download, dependency installation or archive command");
@@ -351,7 +364,7 @@ await project("distribution", async (sandbox) => {
   const changedEntry = archiveManifest.files.find((file: { path: string }) => file.path === "skills/aris-setup/SKILL.md");
   changedEntry.sha256 = crypto.createHash("sha256").update(fs.readFileSync(changedSkill)).digest("hex");
   fs.writeFileSync(path.join(portable, "manifest.json"), JSON.stringify(archiveManifest));
-  execFileSync("bash", [path.join(portable, "install.sh"), "--role", "validation", "--project", bootstrapped], { cwd: sandbox });
+  execFileSync("bash", [path.join(portable, "install.sh"), "--role", "validator", "--project", bootstrapped], { cwd: sandbox });
   assert.equal(read(path.join(bootstrapped, ".aris/install.json")).version, "0.1.1");
   assert.match(fs.readFileSync(path.join(bootstrapped, ".agents/skills/aris-setup/SKILL.md"), "utf8"), /New upstream instructions/);
   const damaged = path.join(portable, "dist/tools/setup-cli.js");

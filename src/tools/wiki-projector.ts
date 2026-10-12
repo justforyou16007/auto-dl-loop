@@ -6,6 +6,7 @@ import {
   DEFAULT_QUERY_CHARS,
   parseWikiPayload,
   wikiNodeKind,
+  type WikiOperation,
   type WikiPageKind,
 } from "./wiki-operations.js";
 import {
@@ -119,72 +120,123 @@ export function findPage(model: WikiModel, nodeId: string): WikiPage | undefined
   return kind ? model.pages[kind].get(nodeId.slice(prefix.length + 1)) : undefined;
 }
 
-export function replayWikiEvents(events: readonly WikiEvent[]): WikiModel {
-  const model = emptyModel();
-  for (const event of events) {
-    for (const item of parseWikiPayload(event.payload).operations) {
-      switch (item.op) {
-        case "upsert_page": {
-          const previous = model.pages[item.kind].get(item.id);
-          const data = cloneData(item.data);
-          data.added = previous?.data.added ?? event.committed_at;
-          if (item.kind === "claim" && (!data.date || typeof data.date !== "string")) {
-            data.date =
-              typeof previous?.data.date === "string" && previous.data.date
-                ? previous.data.date
-                : event.committed_at.slice(0, 10);
-          }
-          model.pages[item.kind].set(item.id, { id: item.id, kind: item.kind, data });
-          break;
+/** Apply one command's operations to a model, stamping new pages and edges with committedAt. */
+export function applyWikiOperations(
+  model: WikiModel,
+  operations: readonly WikiOperation[],
+  committedAt: string,
+): void {
+  for (const item of operations) {
+    switch (item.op) {
+      case "upsert_page": {
+        const previous = model.pages[item.kind].get(item.id);
+        const data = cloneData(item.data);
+        data.added = previous?.data.added ?? committedAt;
+        if (item.kind === "claim" && (!data.date || typeof data.date !== "string")) {
+          data.date =
+            typeof previous?.data.date === "string" && previous.data.date
+              ? previous.data.date
+              : committedAt.slice(0, 10);
         }
-        case "remove_page":
-          model.pages[item.kind].delete(item.id);
-          break;
-        case "upsert_edge": {
-          const existingIndex = model.edges.findIndex(
-            (edge) =>
-              edge.from === item.edge.from &&
-              edge.to === item.edge.to &&
-              edge.type === item.edge.type,
-          );
-          const edge: WikiEdge = {
-            from: item.edge.from,
-            to: item.edge.to,
-            type: item.edge.type,
-            evidence: item.edge.evidence ?? "",
-            added: existingIndex >= 0 ? model.edges[existingIndex]!.added : event.committed_at,
-          };
-          if (existingIndex >= 0) model.edges[existingIndex] = edge;
-          else model.edges.push(edge);
-          break;
-        }
-        case "remove_edges":
-          model.edges = model.edges.filter(
-            (edge) =>
-              !(
-                (item.from === undefined || edge.from === item.from) &&
-                (item.to === undefined || edge.to === item.to) &&
-                (item.type === undefined || edge.type === item.type)
-              ),
-          );
-          break;
-        case "append_log":
-          model.logs.push({ timestamp: event.committed_at, message: item.message });
-          break;
-        case "quarantine":
-          model.quarantine.push({
-            timestamp: event.committed_at,
-            target: item.target,
-            findings: [...item.findings],
-            raw_text: item.raw_text,
-          });
-          break;
-        case "set_projection_config":
-          model.max_query_chars = item.max_query_chars;
-          break;
+        model.pages[item.kind].set(item.id, { id: item.id, kind: item.kind, data });
+        break;
       }
+      case "remove_page":
+        model.pages[item.kind].delete(item.id);
+        break;
+      case "upsert_edge": {
+        const existingIndex = model.edges.findIndex(
+          (edge) =>
+            edge.from === item.edge.from &&
+            edge.to === item.edge.to &&
+            edge.type === item.edge.type,
+        );
+        const edge: WikiEdge = {
+          from: item.edge.from,
+          to: item.edge.to,
+          type: item.edge.type,
+          evidence: item.edge.evidence ?? "",
+          added: existingIndex >= 0 ? model.edges[existingIndex]!.added : committedAt,
+        };
+        if (existingIndex >= 0) model.edges[existingIndex] = edge;
+        else model.edges.push(edge);
+        break;
+      }
+      case "remove_edges":
+        model.edges = model.edges.filter(
+          (edge) =>
+            !(
+              (item.from === undefined || edge.from === item.from) &&
+              (item.to === undefined || edge.to === item.to) &&
+              (item.type === undefined || edge.type === item.type)
+            ),
+        );
+        break;
+      case "append_log":
+        model.logs.push({ timestamp: committedAt, message: item.message });
+        break;
+      case "quarantine":
+        model.quarantine.push({
+          timestamp: committedAt,
+          target: item.target,
+          findings: [...item.findings],
+          raw_text: item.raw_text,
+        });
+        break;
+      case "set_projection_config":
+        model.max_query_chars = item.max_query_chars;
+        break;
     }
   }
+}
+
+/** JSON with object keys sorted, so stored (canonical) and freshly built data compare equal. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isObject(value))
+    return `{${Object.keys(value)
+      .sort(compareCodeUnits)
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+/**
+ * The wiki's content apart from its log and timestamps: two models with the
+ * same digest project the same pages, edges and query pack.
+ */
+export function wikiStateDigest(model: WikiModel): string {
+  const pages = Object.fromEntries(
+    Object.entries(model.pages).map(([kind, pages]) => [
+      kind,
+      [...pages.values()]
+        .map((page) => {
+          const { added: _added, ...data } = page.data;
+          return [page.id, data] as const;
+        })
+        .sort(([left], [right]) => compareCodeUnits(left, right)),
+    ]),
+  );
+  const edges = model.edges
+    .map(({ added: _added, ...edge }) => edge)
+    .sort((left, right) =>
+      compareCodeUnits(
+        `${left.from} ${left.type} ${left.to}`,
+        `${right.from} ${right.type} ${right.to}`,
+      ),
+    );
+  return stableJson({
+    pages,
+    edges,
+    quarantine: model.quarantine.length,
+    max_query_chars: model.max_query_chars,
+  });
+}
+
+export function replayWikiEvents(events: readonly WikiEvent[]): WikiModel {
+  const model = emptyModel();
+  for (const event of events)
+    applyWikiOperations(model, parseWikiPayload(event.payload).operations, event.committed_at);
   return model;
 }
 
@@ -442,10 +494,16 @@ function problemMarkers(model: WikiModel, problemId: string): string[] {
   for (const idea of ideas) {
     const supporting = sourcesInto(model, idea, "supports", "exp:");
     const invalidating = sourcesInto(model, idea, "invalidates", "exp:");
-    if (supporting.length > 0) positive.push(`✔ ${withExps(idea, supporting)}`);
-    if (invalidating.length > 0) negative.push(`✘ ${withExps(idea, invalidating)}`);
-    for (const exp of supporting.slice(0, MAX_MARKER_EXPS)) cited.positive.add(exp);
-    for (const exp of invalidating.slice(0, MAX_MARKER_EXPS)) cited.negative.add(exp);
+    // The sign follows the idea's result, so the pack never contradicts an explicit outcome.
+    const page = model.pages.idea.get(idea.slice("idea:".length));
+    const result = page ? ideaResult(model, page) : "pending";
+    const mark = (exps: string[]): string => (exps.length > 0 ? withExps(idea, exps) : idea);
+    if (result === "effective" || result === "mixed") positive.push(`✔ ${mark(supporting)}`);
+    if (result === "ineffective" || result === "mixed") negative.push(`✘ ${mark(invalidating)}`);
+    if (result === "effective" || result === "mixed")
+      for (const exp of supporting.slice(0, MAX_MARKER_EXPS)) cited.positive.add(exp);
+    if (result === "ineffective" || result === "mixed")
+      for (const exp of invalidating.slice(0, MAX_MARKER_EXPS)) cited.negative.add(exp);
   }
   // An experiment already cited beside its idea is not repeated on its own.
   for (const exp of sourcesInto(model, problemId, "solves", "exp:"))
@@ -466,11 +524,21 @@ interface PackSection {
   lines: string[];
 }
 
+/** A solved problem whose latest solves/reproduces evidence reproduces it has come back. */
+function regressed(model: WikiModel, page: WikiPage): boolean {
+  const id = nodeIdOf(page);
+  const latest = model.edges.findLast(
+    (edge) => edge.to === id && (edge.type === "solves" || edge.type === "reproduces"),
+  );
+  return asString(page.data, "status", "open") === "solved" && latest?.type === "reproduces";
+}
+
 function queryPackParts(model: WikiModel): { head: string[]; sections: PackSection[] } {
   const problems = [...model.pages.problem.values()];
-  const status = (page: WikiPage): string => asString(page.data, "status", "open");
+  const status = (page: WikiPage): string =>
+    regressed(model, page) ? "regressed" : asString(page.data, "status", "open");
   const openProblems = problems
-    .filter((page) => status(page) === "open")
+    .filter((page) => status(page) === "open" || status(page) === "regressed")
     .sort(
       (left, right) =>
         (SEVERITY_RANK[asString(left.data, "severity", "medium")] ?? 1) -
@@ -492,7 +560,8 @@ function queryPackParts(model: WikiModel): { head: string[]; sections: PackSecti
     const id = nodeIdOf(page);
     const severity = asString(page.data, "severity", "medium");
     const markers = problemMarkers(model, id);
-    return `- ${id} [${severity}] ${clip(pageTitle(page), 50)}${markers.length ? ` ${markers.join(" ")}` : ""}`;
+    const tag = status(page) === "regressed" ? "[regressed] " : "";
+    return `- ${id} [${severity}] ${tag}${clip(pageTitle(page), 50)}${markers.length ? ` ${markers.join(" ")}` : ""}`;
   });
 
   const ineffectiveLines = ideas
@@ -560,10 +629,10 @@ function renderQueryPack(model: WikiModel): string {
   return warning + assembleQueryPack(model, model.max_query_chars - warning.length);
 }
 
-function removeGeneratedMarkdown(directory: string): void {
-  fs.mkdirSync(directory, { recursive: true });
+/** Delete only pages that no longer exist, after the current ones are written. */
+function removeStaleMarkdown(directory: string, keep: ReadonlySet<string>): void {
   for (const entry of fs.readdirSync(directory)) {
-    if (entry.endsWith(".md")) fs.unlinkSync(path.join(directory, entry));
+    if (entry.endsWith(".md") && !keep.has(entry)) fs.unlinkSync(path.join(directory, entry));
   }
 }
 
@@ -571,10 +640,13 @@ function writeProjections(wikiRoot: string, events: readonly WikiEvent[], model:
   const root = path.resolve(wikiRoot);
   for (const kind of PAGE_KIND_ORDER) {
     const directory = path.join(root, WIKI_PAGE_LAYOUT[kind].dir);
-    removeGeneratedMarkdown(directory);
+    fs.mkdirSync(directory, { recursive: true });
+    const written = new Set<string>();
     for (const page of sortedPages(model, kind)) {
       writeStateFileAtomic(path.join(directory, `${page.id}.md`), renderPage(page, model));
+      written.add(`${page.id}.md`);
     }
+    removeStaleMarkdown(directory, written);
   }
 
   const graphDir = path.join(root, "graph");
