@@ -17,6 +17,7 @@ export const WIKI_EDGE_ENDPOINTS = {
   addresses: { from: ["survey", "idea", "claim"], to: ["problem"] },
   child_of: { from: ["problem"], to: ["problem"] },
   inspired_by: { from: ["idea"], to: ["survey"] },
+  variant_of: { from: ["idea"], to: ["idea"] },
   tested_by: { from: ["idea", "claim"], to: ["exp"] },
   supports: { from: ["exp"], to: ["claim", "idea"] },
   invalidates: { from: ["exp"], to: ["claim", "idea"] },
@@ -76,7 +77,7 @@ const PAGE_DATA_KEYS: Record<WikiPageKind, readonly string[]> = {
     "thesis",
     "abstract",
   ],
-  idea: ["title", "description", "outcome", "thesis", "risks", "tags"],
+  idea: ["title", "description", "outcome", "thesis", "risks", "potential", "feasibility", "tags"],
   experiment: ["title", "idea_id", "result", "submission_id", "metrics", "reasoning", "tags"],
   claim: [
     "name",
@@ -225,6 +226,11 @@ function validatePageData(
     case "idea":
       assertOptionalStrings(data, ["title", "description", "outcome", "thesis", "risks"], location);
       assertOneOf(data, "outcome", IDEA_OUTCOMES, location);
+      for (const field of ["potential", "feasibility"]) {
+        const value = data[field];
+        if (value !== undefined && (typeof value !== "number" || !(value >= 0 && value <= 1)))
+          throw new Error(`${location}.${field} must be a number from 0 to 1`);
+      }
       return;
     case "experiment":
       assertOptionalStrings(

@@ -319,11 +319,22 @@ function renderIdea(page: WikiPage, model: WikiModel): string[] {
   const data = page.data;
   const title = asString(data, "title");
   const outcome = asString(data, "outcome", "pending");
+  // Scores are shown only when the worker assessed the idea, so older pages render unchanged.
+  const scores = (["potential", "feasibility"] as const).filter(
+    (key) => typeof data[key] === "number",
+  );
   return [
-    ...frontmatter(page, [`title: ${yamlQuote(title)}`, `outcome: ${outcome}`]),
+    ...frontmatter(page, [
+      `title: ${yamlQuote(title)}`,
+      `outcome: ${outcome}`,
+      ...scores.map((key) => `${key}: ${data[key] as number}`),
+    ]),
     `# ${title}`,
     "",
-    `**outcome:** \`${outcome}\``,
+    [
+      `**outcome:** \`${outcome}\``,
+      ...scores.map((key) => `**${key}:** ${data[key] as number}`),
+    ].join(" · "),
     "",
     ...(asString(data, "description").trim() ? [asString(data, "description").trim(), ""] : []),
     ...section("Thesis", asString(data, "thesis")),

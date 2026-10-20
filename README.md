@@ -32,7 +32,7 @@ The installer's `--role` fixes the agent, its skills directory and configuration
 
 ### Strict iteration with memory
 
-- **Numbered iteration flow.** The worker's role instructions require every step in order: read memory → choose problems and an untried idea → plan in the todo list → run experiments → commit → submit → record the verdict and test counts → save lessons. Each submission maps to exactly one Git commit.
+- **Numbered iteration flow.** The worker's role instructions require every step in order: read memory → choose problems → five subagents propose one idea each (three with the wiki, one knowing only the ineffective ideas, one with no prior knowledge) → the worker scores each idea's potential and feasibility and ranks the pool with UCB (`rank_ideas`), implementing the top idea first → plan in the todo list → run experiments → commit → submit → record the verdict and test counts → save lessons. Each submission maps to exactly one Git commit.
 - **Long-term memory is mandatory.** The `research-wiki` records, for one or more problems, what existing work did (surveys from arXiv, Semantic Scholar, OpenAlex, Exa and others), which ideas and experiments were tried, and which were effective or ineffective. Typed evidence edges link them (`supports`, `invalidates`, `solves`, `reproduces`, …).
 - **Compact query pack.** Each iteration starts from a deterministic summary of at most 1000 characters, with one line per open problem marking effective (✔) and ineffective (✘) attempts by node id. Details stay in the node pages.
 - **Validation memory.** The validator machine keeps its own wiki of verification problems, recording which ones each submission solved and which persist. Reviews check them again and report both.
