@@ -12,14 +12,21 @@ You are the worker. `task.md` is the whole task. Deliver through the `aris-valid
 ### Iteration (follow every step, in order)
 
 1. **Read** the query pack, the relevant wiki pages, the latest feedback and the applicable lessons in `Experience.md`.
-2. **Choose** one or more open problems (a `[regressed]` one first) and an idea that is not a repeat of an ineffective one. When the wiki does not cover the problem, survey existing work with WebSearch/WebFetch (or a literature skill, if installed) and record each work with `ingest_survey --arxiv-id` or `--url`. Record the idea against its problems before working on it.
-3. **Plan** the iteration in the todo list.
-4. **Run** experiments through the environment skill's scripts. Several may run at once, each under its own name. Record each experiment that informs the decision, labelling local measurements as local.
-5. **Commit** the code and files that produce the deliverable (run `git init` first if needed) and note the hash; each submission maps to exactly one commit. Keep `.git/` out of the zip.
-6. **Submit** with the commit hash as `note`: `submit` returns a one-time upload URL; upload with `curl.exe --fail-with-body -T deliverable.zip "<upload_url>"` (plain `curl` outside Windows), then poll `query` until the submission's status is final. `tested`, `rejected_cheating` and `unusable` carry a verdict. `invalid`, `expired` and `failed` do not count: read `reason`, fix it and submit again.
-7. **Record** the verdict as an experiment with the test counts copied from `query` and the commit hash, mark the idea effective or ineffective, and link which problems it solved or left in place. File every issue from the feedback as a problem and add it to the todo list.
-8. **Save experience**: commit new or updated lessons to `Experience.md` on the local `experience` branch, creating it from `main` if missing, per the contract (the owner reviews them by pull request), or state that no new lesson qualified.
-9. **Continue** with step 1 until `query` reports `closed` (no submissions left); passing every current test does not end the task. While reviews are still running with no submissions remaining, keep polling.
+2. **Choose** one or more open problems (a `[regressed]` one first). When the wiki does not cover them, survey existing work with WebSearch/WebFetch (or a literature skill, if installed) and record each work with `ingest_survey --arxiv-id` or `--url`.
+3. **Ideate** with five subagents started together (Agent tool), one idea each, so the wiki's past directions do not trap every iteration in the same few ideas. Each gets `task.md`, the chosen problems' statements and only the knowledge its slot allows, and writes nothing to the wiki:
+   - three `informed`: the query pack, the wiki pages, the latest feedback and the applicable lessons;
+   - one `failures-only`: just the ineffective ideas and what each tried, to avoid them without following the rest of the wiki;
+   - one `blank`: nothing else; it reads no wiki, feedback, lessons or past ideas and reasons from the task alone.
+
+   Each returns a title, the approach, the problems it targets, why it should work and its risks. Drop any that repeats an ineffective idea. Assess the rest yourself with the whole wiki: `potential` (0–1, how much of its problems it fixes if it works) and `feasibility` (0–1, the chance it can be built and works with the submissions and compute left). Record each as a pending idea with `upsert_idea --target-problems … --potential … --feasibility … --variant-of <earlier ideas in the same direction> --tags ideation:<slot>`, and any work it relies on as a survey.
+4. **Rank** with `rank_ideas research-wiki/` and implement the top idea first. Its score is potential × feasibility plus an exploration bonus that shrinks as more ideas in its direction are tested, so a direction tried many times gives way to a new one. Ideas not chosen stay pending and are ranked again with the next five; update a pending idea's scores with `--update-on-exist` when new evidence changes them.
+5. **Plan** the iteration in the todo list.
+6. **Run** experiments through the environment skill's scripts. Several may run at once, each under its own name. Record each experiment that informs the decision, labelling local measurements as local.
+7. **Commit** the code and files that produce the deliverable (run `git init` first if needed) and note the hash; each submission maps to exactly one commit. Keep `.git/` out of the zip.
+8. **Submit** with the commit hash as `note`: `submit` returns a one-time upload URL; upload with `curl.exe --fail-with-body -T deliverable.zip "<upload_url>"` (plain `curl` outside Windows), then poll `query` until the submission's status is final. `tested`, `rejected_cheating` and `unusable` carry a verdict. `invalid`, `expired` and `failed` do not count: read `reason`, fix it and submit again.
+9. **Record** the verdict as an experiment with the test counts copied from `query` and the commit hash, mark the idea effective or ineffective, and link which problems it solved or left in place. File every issue from the feedback as a problem and add it to the todo list.
+10. **Save experience**: commit new or updated lessons to `Experience.md` on the local `experience` branch, creating it from `main` if missing, per the contract (the owner reviews them by pull request), or state that no new lesson qualified.
+11. **Continue** with step 1 until `query` reports `closed` (no submissions left); passing every current test does not end the task. While reviews are still running with no submissions remaining, keep polling.
 
 ### Rules
 

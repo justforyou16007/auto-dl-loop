@@ -256,6 +256,15 @@ function assertNotAbsoluteIdentifier(value: string, label: string): void {
   }
 }
 
+/** Parse an optional score option; it must be a number from 0 to 1. */
+function unitScore(value: string | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  const score = Number(value);
+  if (value.trim() === "" || !(score >= 0 && score <= 1))
+    throw new Error(`${label} must be a number from 0 to 1, got '${value}'`);
+  return score;
+}
+
 function assertOneOf(value: string, allowed: readonly string[], label: string): void {
   if (!allowed.includes(value)) {
     throw new Error(`unknown ${label} '${value}' (expected ${allowed.join(" | ")})`);
@@ -644,8 +653,11 @@ function upsertIdea(
     thesis?: string;
     risks?: string;
     tags?: string[];
+    potential?: number;
+    feasibility?: number;
     basedOn?: string[];
     targetProblems?: string[];
+    variantOf?: string[];
     updateOnExist?: boolean;
   },
 ): void {
@@ -660,6 +672,9 @@ function upsertIdea(
     "problem",
     "upsert_idea --target-problems",
   );
+  const variantOf = nodeIds(options.variantOf, "idea", "upsert_idea --variant-of");
+  if (variantOf.includes(subject))
+    throw new Error(`upsert_idea --variant-of: ${subject} cannot be a variant of itself`);
   let existedBefore = false;
   let outcome = options.outcome ?? "pending";
   const result = commitOperations(root, subject, subject, (model) => {
@@ -671,8 +686,12 @@ function upsertIdea(
     }
     // Like add_problem, an update keeps every field it does not set.
     outcome = options.outcome ?? existingString(existing, "outcome", "pending");
-    for (const target of [...basedOn, ...targetProblems])
+    for (const target of [...basedOn, ...targetProblems, ...variantOf])
       assertNodeExists(model, target, "upsert_idea");
+    const score = (key: "potential" | "feasibility"): { [key: string]: number } => {
+      const value = options[key] ?? existing?.[key];
+      return typeof value === "number" ? { [key]: value } : {};
+    };
     const operations: WikiOperation[] = [];
     operations.push({
       op: "upsert_page",
@@ -696,10 +715,13 @@ function upsertIdea(
           `idea ${slug}.risks`,
           operations,
         ),
+        ...score("potential"),
+        ...score("feasibility"),
         tags: options.tags ?? (Array.isArray(existing?.tags) ? existing.tags : []),
       },
     });
     for (const target of basedOn) operations.push(edgeOperation(subject, target, "inspired_by"));
+    for (const target of variantOf) operations.push(edgeOperation(subject, target, "variant_of"));
     for (const target of targetProblems)
       operations.push(edgeOperation(subject, target, "addresses"));
     addLog(
@@ -961,6 +983,127 @@ function getStats(wikiRoot: string, asJson: boolean): void {
   console.log(`Wiki root:   ${stats.wiki_root}`);
 }
 
+interface RankedIdea {
+  id: string;
+  title: string;
+  score: number;
+  value: number;
+  bonus: number;
+  potential: number;
+  feasibility: number;
+  direction_tested: number;
+  tags: string[];
+}
+
+/**
+ * Rank the pending ideas by UCB: value = potential × feasibility, plus an
+ * exploration bonus c·√(ln(N+1)/(n+1)), where N is the number of tested ideas
+ * and n the tested ideas in the candidate's direction (ideas joined by
+ * `variant_of`, directly or through other variants).
+ */
+function rankIdeas(wikiRoot: string, c: number, asJson: boolean): void {
+  if (!(c >= 0 && Number.isFinite(c))) throw new Error("--c must be a finite number >= 0");
+  const model = readWikiModel(path.resolve(wikiRoot));
+  const ideas = [...model.pages.idea.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const tested = new Set(
+    ideas.filter((page) => ideaResult(model, page) !== "pending").map((page) => page.id),
+  );
+
+  // Directions are the connected groups of the variant_of graph.
+  const parent = new Map(ideas.map((page) => [page.id, page.id]));
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root) as string;
+    parent.set(id, root);
+    return root;
+  };
+  for (const edge of model.edges) {
+    if (edge.type !== "variant_of") continue;
+    const from = edge.from.slice("idea:".length);
+    const to = edge.to.slice("idea:".length);
+    if (parent.has(from) && parent.has(to)) parent.set(find(from), find(to));
+  }
+  const testedPerDirection = new Map<string, number>();
+  for (const id of tested) {
+    const root = find(id);
+    testedPerDirection.set(root, (testedPerDirection.get(root) ?? 0) + 1);
+  }
+
+  const openProblem = (id: string): boolean => {
+    const page = findPage(model, id);
+    return page !== undefined && (page.data.status ?? "open") === "open";
+  };
+  const ranking: RankedIdea[] = [];
+  const unscored: string[] = [];
+  const closed: string[] = [];
+  for (const page of ideas) {
+    if (tested.has(page.id)) continue;
+    const id = `idea:${page.id}`;
+    const targets = model.edges
+      .filter((edge) => edge.from === id && edge.type === "addresses")
+      .map((edge) => edge.to);
+    if (targets.length > 0 && !targets.some(openProblem)) {
+      closed.push(id);
+      continue;
+    }
+    const { potential, feasibility } = page.data;
+    if (typeof potential !== "number" || typeof feasibility !== "number") {
+      unscored.push(id);
+      continue;
+    }
+    const directionTested = testedPerDirection.get(find(page.id)) ?? 0;
+    const value = potential * feasibility;
+    const bonus = c * Math.sqrt(Math.log(tested.size + 1) / (directionTested + 1));
+    ranking.push({
+      id,
+      title: typeof page.data.title === "string" ? page.data.title : "",
+      score: value + bonus,
+      value,
+      bonus,
+      potential,
+      feasibility,
+      direction_tested: directionTested,
+      tags: Array.isArray(page.data.tags) ? (page.data.tags as string[]) : [],
+    });
+  }
+  ranking.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+
+  if (asJson) {
+    const round = (value: number): number => Number(value.toFixed(4));
+    console.log(
+      JSON.stringify(
+        {
+          c,
+          tested: tested.size,
+          ranking: ranking.map((idea) => ({
+            ...idea,
+            score: round(idea.score),
+            value: round(idea.value),
+            bonus: round(idea.bonus),
+          })),
+          unscored,
+          closed,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  console.log(`Idea ranking (UCB, c=${c}, ${tested.size} tested ideas)`);
+  if (ranking.length === 0) console.log("No scored pending idea.");
+  ranking.forEach((idea, index) => {
+    console.log(
+      `${index + 1}. ${idea.id} ${idea.score.toFixed(3)} = value ${idea.value.toFixed(3)} ` +
+        `(potential ${idea.potential} × feasibility ${idea.feasibility}) + bonus ${idea.bonus.toFixed(3)} ` +
+        `(direction tested ${idea.direction_tested})${idea.title ? ` · ${idea.title}` : ""}`,
+    );
+  });
+  if (unscored.length > 0)
+    console.log(`Unscored (set --potential and --feasibility): ${unscored.join(", ")}`);
+  if (closed.length > 0) console.log(`Skipped, every target problem closed: ${closed.join(", ")}`);
+}
+
 function rebuildWiki(wikiRoot: string, message: string): void {
   const root = path.resolve(wikiRoot);
   assertWikiSchemaSupported(root);
@@ -1066,6 +1209,16 @@ program
   .option("--json", "Emit machine-readable stats")
   .action((wikiRoot: string, options: { json?: boolean }) =>
     getStats(wikiRoot, options.json === true),
+  );
+
+program
+  .command("rank_ideas")
+  .description("Rank pending ideas by UCB: potential × feasibility plus an exploration bonus")
+  .argument("<wiki_root>")
+  .option("--c <n>", "Exploration weight", "1")
+  .option("--json", "Emit machine-readable ranking")
+  .action((wikiRoot: string, options: { c: string; json?: boolean }) =>
+    rankIdeas(wikiRoot, Number(options.c), options.json === true),
   );
 
 program
@@ -1194,6 +1347,9 @@ program
   .option("--tags <list>", "Comma-separated tag list")
   .option("--based-on <list>", "Survey ids that inspired the idea", "")
   .option("--target-problems <list>", "Problem ids the idea addresses", "")
+  .option("--potential <0-1>", "How much of its problems the idea fixes if it works")
+  .option("--feasibility <0-1>", "Chance the idea can be built and works with the budget left")
+  .option("--variant-of <list>", "Earlier idea ids in the same direction", "")
   .option("--update-on-exist", "Update an existing idea; omitted fields are kept", false)
   .action(
     (
@@ -1208,10 +1364,16 @@ program
         tags?: string;
         basedOn: string;
         targetProblems: string;
+        potential?: string;
+        feasibility?: string;
+        variantOf: string;
         updateOnExist: boolean;
       },
     ) => {
       upsertIdea(wikiRoot, options.slug, options.title, {
+        potential: unitScore(options.potential, "--potential"),
+        feasibility: unitScore(options.feasibility, "--feasibility"),
+        variantOf: splitCsv(options.variantOf),
         description: options.description,
         outcome: options.outcome,
         thesis: options.thesis,

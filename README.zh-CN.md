@@ -28,7 +28,7 @@ ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只
 
 ### 有记忆的严格迭代
 
-- **编号迭代流程**：worker 的角色指令要求依次完成每一步：读记忆 → 选择问题和未试过的想法 → 在 todo list 中规划 → 运行实验 → commit → submit → 记录结论和测试项计数 → 保存经验。每次提交对应一个 Git commit。
+- **编号迭代流程**：worker 的角色指令要求依次完成每一步：读记忆 → 选择问题 → 5 个子 agent 各提一个想法（3 个使用 wiki 知识，1 个只知道哪些想法无效，1 个不用任何已有知识），worker 评估每个想法的潜力和可行性，用 UCB 对候选池排序（`rank_ideas`），先实施得分最高的 → 在 todo list 中规划 → 运行实验 → commit → submit → 记录结论和测试项计数 → 保存经验。每次提交对应一个 Git commit。
 - **必须使用长期记忆**：`research-wiki` 按问题（可以是多个）记录已有工作的调研（survey，来自 arXiv、Semantic Scholar、OpenAlex、Exa 等）、尝试过的想法和实验，以及哪些有效、哪些无效，并用 `supports`、`invalidates`、`solves`、`reproduces` 等证据边关联。
 - **精简 query pack**：每轮迭代从不超过 1000 字符的确定性摘要开始。每个未解决问题一行，按节点 id 标出有效（✔）和无效（✘）的尝试，细节见节点页面。
 - **验证记忆**：validator 机器有自己的 wiki，记录验证问题，以及每次提交解决了哪些、哪些仍然存在；每次评审都会重新检查并在反馈中说明。

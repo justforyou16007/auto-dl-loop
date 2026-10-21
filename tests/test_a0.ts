@@ -1125,6 +1125,53 @@ test("experiment results and problem evidence become graph edges", () => {
   }
 });
 
+test("rank_ideas orders pending ideas by UCB over directions joined by variant_of", () => {
+  const root = tmpDir();
+  try {
+    wikiOk("init", root);
+    wikiOk("add_problem", root, "--slug", "p1", "--title", "Open problem");
+    wikiOk("add_problem", root, "--slug", "p2", "--title", "Closed problem", "--status", "solved");
+    wikiOk("upsert_idea", root, "--slug", "old1", "--title", "Old 1", "--target-problems", "p1", "--outcome", "ineffective");
+    wikiOk("upsert_idea", root, "--slug", "old2", "--title", "Old 2", "--variant-of", "old1", "--outcome", "mixed");
+    wikiOk("upsert_idea", root, "--slug", "other", "--title", "Other", "--outcome", "effective");
+    wikiOk("upsert_idea", root, "--slug", "same", "--title", "Same", "--variant-of", "idea:old2", "--target-problems", "p1", "--potential", "0.9", "--feasibility", "0.8");
+    wikiOk("upsert_idea", root, "--slug", "fresh", "--title", "Fresh", "--target-problems", "p1", "--potential", "0.5", "--feasibility", "0.6", "--tags", "ideation:blank");
+    wikiOk("upsert_idea", root, "--slug", "unscored", "--title", "Unscored");
+    wikiOk("upsert_idea", root, "--slug", "done", "--title", "Done", "--target-problems", "p2", "--potential", "1", "--feasibility", "1");
+    wikiFails(/--potential must be a number from 0 to 1/, "upsert_idea", root, "--slug", "x", "--title", "X", "--potential", "1.5");
+    wikiFails(/cannot be a variant of itself/, "upsert_idea", root, "--slug", "same", "--title", "Same", "--variant-of", "same", "--update-on-exist");
+    assert.ok(edgeKeys(root).includes("idea:same variant_of idea:old2"));
+
+    // An update without scores keeps them.
+    wikiOk("upsert_idea", root, "--slug", "fresh", "--title", "Fresh", "--update-on-exist");
+    assert.match(fs.readFileSync(path.join(root, "ideas", "fresh.md"), "utf-8"), /^potential: 0\.5$/m);
+
+    const ranked = JSON.parse(wikiOk("rank_ideas", root, "--json")) as {
+      tested: number;
+      ranking: { id: string; score: number; value: number; bonus: number; direction_tested: number; tags: string[] }[];
+      unscored: string[];
+      closed: string[];
+    };
+    // Three tested ideas: the fresh direction earns √ln4, the one with two tested variants √(ln4/3).
+    assert.equal(ranked.tested, 3);
+    assert.deepEqual(ranked.ranking.map((idea) => [idea.id, idea.direction_tested]), [["idea:fresh", 0], ["idea:same", 2]]);
+    assert.equal(ranked.ranking[0]!.score, Number((0.3 + Math.sqrt(Math.log(4))).toFixed(4)));
+    assert.equal(ranked.ranking[1]!.bonus, Number(Math.sqrt(Math.log(4) / 3).toFixed(4)));
+    assert.deepEqual(ranked.ranking[0]!.tags, ["ideation:blank"]);
+    assert.deepEqual(ranked.unscored, ["idea:unscored"]);
+    assert.deepEqual(ranked.closed, ["idea:done"]);
+
+    // Without exploration the higher value wins; a tested idea leaves the pool.
+    const greedy = JSON.parse(wikiOk("rank_ideas", root, "--json", "--c", "0")) as { ranking: { id: string }[] };
+    assert.deepEqual(greedy.ranking.map((idea) => idea.id), ["idea:same", "idea:fresh"]);
+    wikiOk("upsert_idea", root, "--slug", "same", "--title", "Same", "--outcome", "ineffective", "--update-on-exist");
+    assert.match(wikiOk("rank_ideas", root), /^1\. idea:fresh /m);
+    assert.doesNotMatch(wikiOk("rank_ideas", root), /idea:same/);
+  } finally {
+    cleanup(root);
+  }
+});
+
 test("add_edge rejects edges whose endpoint kinds do not fit the type", () => {
   const root = tmpDir();
   try {
