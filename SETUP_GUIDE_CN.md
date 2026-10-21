@@ -1,6 +1,6 @@
 # Auto Research Loop（ARL）安装
 
-ARL 使用两台机器：worker 交付 zip，validation 持有只增不改的 benchmark，作为 worker 的对抗方测试每次提交，发布结论、测试项通过数和经泄漏审查的反馈。双方只通过 `submit` 和 `query` MCP 工具交互。规划、编码、调试和委派由 agent 自己完成，不恢复旧的固定研究流水线。
+ARL 使用两台机器：worker 交付 zip，validation 持有只增不改的 benchmark，作为 worker 的对抗方测试每次提交，发布结论、测试项通过数和经泄漏审查的反馈。双方只通过 `requirements`、`submit` 和 `query` MCP 工具交互。规划、编码、调试和委派由 agent 自己完成，不恢复旧的固定研究流水线。
 
 两台机器都使用官方 Paseo 和官方 CLI。ARL 从本地源码仓库安装项目技能、编译好的 Node helper、运行依赖和模板，不需要定制 Paseo。官方 App 可查看 agent 和服务脚本，没有定制版 ARIS 知识图谱标签页；wiki 通过技能和文件读取。
 
@@ -46,7 +46,7 @@ setup 写入角色指令，以及 worker 在 `.mcp.json` 中的 `aris-validation
 两台机器建立独立项目并加入官方 Paseo，不共享磁盘、仓库或同步目录。项目 `.gitignore` 排除 `.aris/` 和 worker 的 `.mcp.json`，因为它们包含凭据。
 
 1. 验证端先写 `task.md`，以 thinking `max` 打开 Codex 并调用 `$aris-setup`；角色来自安装记录，无需指定。
-2. 一次审阅完整配置表：benchmark 固定源码/数据版本、切分、样本数、runner argv 和指标；逐样本通过规则 `pass_rule`（`metric`、`op` 取 `>=` `>` `<=` `<` `==` 之一、`threshold`），每个样本即一个测试项；adapter 约定；`hidden_paths`，即隐藏样本、标签和参考答案的绝对路径，泄漏审查 agent 对照它们检查反馈；次数、上传、评审超时、`feedback_attempts` 和 `max_new_tests_per_review`（默认 200）等限制；以及服务地址。validator agent 固定为 Codex `max`，配置表只设置其 model 和 mode；服务以 `--provider codex --thinking max` 为每次提交启动一个 agent，`validation-cli leak-review` 以同样的 agent 配置启动独立的反馈泄漏审查 agent。
+2. 一次审阅完整配置表：benchmark 固定源码/数据版本、切分、样本数、runner argv 和指标；逐样本通过规则 `pass_rule`（`metric`、`op` 取 `>=` `>` `<=` `<` `==` 之一、`threshold`），每个样本即一个测试项；adapter 约定；`runtime_environment`，即交付物运行时可依赖的环境（操作系统、运行时版本、GPU、网络、每个输入的时间预算），worker 通过 `requirements` 连同 adapter 约定和各项限制一起读取；`hidden_paths`，即隐藏样本、标签和参考答案的绝对路径，泄漏审查 agent 对照它们检查反馈；次数、上传、评审超时、`feedback_attempts` 和 `max_new_tests_per_review`（默认 200）等限制；以及服务地址。validator agent 固定为 Codex `max`，配置表只设置其 model 和 mode；服务以 `--provider codex --thinking max` 为每次提交启动一个 agent，`validation-cli leak-review` 以同样的 agent 配置启动独立的反馈泄漏审查 agent。
 3. 确认配置摘要后，setup 执行 benchmark 安装、healthcheck 和 smoke，冻结 base 层 benchmark 和通过规则，生成 token，将 `aris-validation` 服务写入 `paseo.json`，并初始化 `research-wiki/` 作为验证端的长期记忆：记录各次提交暴露的问题、哪些已解决、哪些仍存在。从官方 Paseo 启动该服务。benchmark 只增不改：已有提交按 base 层和通过规则测试过后，要改它们只能新建 validator 项目；validator agent 用 `validation-cli extend` 新增 `inc-001` 等层，每个测试项从已有测试项派生；每一层是 helper 自有 git 仓库 `.aris/validation/benchmark/` 里一个只新增文件的提交，head 记录在 `.aris/validation/benchmark-head`，helper 逐个提交检查历史只增不改。已登记的层不能修改，错了的层用 `validation-cli retire` 停用（同样只新增文件）；固定的文件或这段历史有任何改动，服务就停止。
 4. 私下把输出的 URL/token 和相同 `task.md` 交给 worker。worker 以 thinking `ultracode` 打开 Claude Code 并运行 `/aris-setup`，在同一配置表中填写连接，以及环境脚本所需的密钥（`environment.secrets`），审阅后确认。setup 把角色段写入 `CLAUDE.md`，把 MCP 条目写入 `.mcp.json`，并初始化 `research-wiki/`。
 5. 两端的 setup 最后都写入[环境技能](#环境技能)。用户随后在客户端执行 `reload-skills` 加载技能；客户端没有重载动作时重新打开会话，worker 的 MCP 配置变更也需要新会话。验证 `query` 返回 open，再让 worker 执行任务。唯一的停止条件是计次提交用完（closed）；通过全部现有测试项不会结束任务，因为 validator 会继续增加测试项。

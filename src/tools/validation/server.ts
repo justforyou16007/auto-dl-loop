@@ -1,6 +1,6 @@
 /**
  * The validator machine's public face. Worker agents reach it as a remote MCP
- * server with two tools, `submit` and `query`; deliverables arrive as a plain
+ * server with three tools, `requirements`, `submit` and `query`; deliverables arrive as a plain
  * HTTP PUT to the one-time URL `submit` returns, so Windows' built-in curl.exe
  * is enough. A tick expires stale uploads and starts one validator agent per
  * queued submission. Everything else (scoring, publishing) happens in the CLI.
@@ -33,7 +33,7 @@ import {
   withSubmissionsLock,
   type SubmissionRecord,
 } from "./store.js";
-import { unzipDeliverable } from "./zip.js";
+import { DELIVERABLE_ZIP_RULES, unzipDeliverable } from "./zip.js";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_RPC_BYTES = 1024 * 1024;
@@ -54,9 +54,15 @@ export interface RunningService {
 
 const TOOLS = [
   {
+    name: "requirements",
+    description:
+      "What a deliverable must meet before it is submitted: the zip format and size limits checked on upload, what USAGE.md must state, how the validator calls the deliverable, the machine it runs on, the review time limit and what each verdict means. Read it before the first submission and after any invalid or unusable one.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "submit",
     description:
-      "Reserve one submission and get a one-time upload URL. Upload a zip whose root (or single top-level folder) holds USAGE.md, explaining how to install and run the deliverable. A malformed zip is rejected and does not count against the limit.",
+      "Reserve one submission and get a one-time upload URL. Upload a zip whose root (or single top-level folder) holds USAGE.md, explaining how to install and run the deliverable; `requirements` lists every check. A malformed zip is rejected and does not count against the limit.",
     inputSchema: {
       type: "object",
       properties: {
@@ -76,6 +82,58 @@ const TOOLS = [
     },
   },
 ];
+
+/**
+ * The terms a deliverable must meet, taken from the frozen config. It carries no
+ * test data, hidden paths, layers or pass rule: only what the worker controls.
+ */
+function requirementsTool(root: string, config: ValidationConfig) {
+  const { limits } = config;
+  return {
+    zip: {
+      rules: DELIVERABLE_ZIP_RULES,
+      max_upload_bytes: limits.max_upload_bytes,
+      max_unpacked_bytes: limits.max_unpacked_bytes,
+      max_files: limits.max_files,
+      upload_ttl_minutes: limits.upload_ttl_minutes,
+      if_broken:
+        "Checked on upload: the submission becomes invalid with a reason and does not count.",
+    },
+    usage_md: {
+      must_state: [
+        "What the deliverable is.",
+        "How to install it on a clean machine like runtime_environment, with every dependency.",
+        "How to call it on one input and where its output goes.",
+      ],
+      if_broken:
+        "The validator installs and runs the deliverable only as USAGE.md says. If it cannot do so with reasonable effort, the verdict is unusable and the submission counts.",
+    },
+    interface: {
+      contract: config.adapter_contract,
+      note: "How the validator's test runner calls the adapter it writes for each submission from USAGE.md; the deliverable must support being called this way.",
+    },
+    runtime_environment:
+      config.runtime_environment ||
+      "Not described by the owner: make USAGE.md install everything the deliverable needs and state its hardware needs.",
+    review: {
+      timeout_minutes: limits.review_timeout_minutes,
+      note: "One review installs the deliverable and runs every test layer, including layers added by earlier reviews, within this time. A deliverable that cannot complete a run is unusable.",
+    },
+    verdicts: {
+      tested: "It ran as documented and its results are honest; counts how many tests passed.",
+      rejected_cheating:
+        "Benchmark data reached it, answers are built in, it behaves differently under evaluation or it tampered with the harness. Every test result is voided.",
+      unusable:
+        "It could not be run from USAGE.md, or no complete run of every layer was possible.",
+      not_counted:
+        "invalid, expired and failed do not count against the limit: read reason, fix it and submit again.",
+    },
+    submissions: {
+      max: limits.max_submissions,
+      remaining: serviceSummary(root, config).remaining,
+    },
+  };
+}
 
 function submitTool(root: string, config: ValidationConfig, args: Record<string, unknown>) {
   // A changed benchmark stops reviews; taking uploads would only drain the budget.
@@ -184,7 +242,7 @@ export async function startValidationService(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "aris-validation", version: "1.0.0" },
         instructions:
-          "Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
+          "Read `requirements` before the first submission and after any invalid or unusable one, and check the zip and USAGE.md against it. Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
       });
     }
     if (method === "ping") return ok({});
@@ -193,11 +251,13 @@ export async function startValidationService(
       const args = isRecord(params.arguments) ? params.arguments : {};
       try {
         const result =
-          params.name === "submit"
-            ? submitTool(root, config, args)
-            : params.name === "query"
-              ? queryTool(root, config, args, blocked)
-              : failA1("UNKNOWN_TOOL", `no tool ${String(params.name)}`);
+          params.name === "requirements"
+            ? requirementsTool(root, config)
+            : params.name === "submit"
+              ? submitTool(root, config, args)
+              : params.name === "query"
+                ? queryTool(root, config, args, blocked)
+                : failA1("UNKNOWN_TOOL", `no tool ${String(params.name)}`);
         return ok({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
       } catch (error) {
         const text = error instanceof A1Error ? error.message : "internal error";

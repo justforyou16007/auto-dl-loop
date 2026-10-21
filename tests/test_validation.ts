@@ -13,6 +13,7 @@ import {
 } from "../src/tools/tester-facility.js";
 import {
   ensureValidationToken,
+  validateValidationConfig,
   validationConfigPath,
   type ValidationConfig,
 } from "../src/tools/validation/config.js";
@@ -182,6 +183,7 @@ try {
       readTesterFacilityConfig(testerConfigPath(root)),
     ),
     adapter_contract: "The runner reads answers.json from the deliverable.",
+    runtime_environment: "Ubuntu 24.04, Python 3.12, one 24 GB GPU, no network during tests.",
     limits: {
       max_submissions: 4,
       max_concurrent: 1,
@@ -256,7 +258,23 @@ try {
     assert.equal(init.result.serverInfo.name, "aris-validation");
     assert.equal((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
     const tools = await rpc("tools/list");
-    assert.deepEqual(tools.result.tools.map((tool: { name: string }) => tool.name), ["submit", "query"]);
+    assert.deepEqual(tools.result.tools.map((tool: { name: string }) => tool.name), ["requirements", "submit", "query"]);
+
+    // The worker learns the deliverable's terms, never the benchmark behind them.
+    const terms = await call("requirements");
+    assert.equal(terms.error, false);
+    const requirements = JSON.parse(terms.text);
+    assert.equal(requirements.zip.max_upload_bytes, 100_000);
+    assert.equal(requirements.zip.max_files, 50);
+    assert.ok(requirements.zip.rules.some((rule: string) => rule.includes("USAGE.md")));
+    assert.equal(requirements.interface.contract, config.adapter_contract);
+    assert.equal(requirements.runtime_environment, config.runtime_environment);
+    assert.equal(requirements.review.timeout_minutes, 60);
+    assert.deepEqual(requirements.submissions, { max: 4, remaining: 4 });
+    for (const secret of [bench, "pass_rule", "threshold", "hidden"])
+      assert.equal(terms.text.includes(secret), false, secret);
+    const { runtime_environment: _unset, ...older } = config;
+    assert.equal(validateValidationConfig(older).runtime_environment, "");
 
     // A malformed deliverable is refused and does not count.
     const s1 = await submit();

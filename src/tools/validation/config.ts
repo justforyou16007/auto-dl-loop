@@ -58,6 +58,11 @@ export interface ValidationConfig {
   tester_config_sha256: string;
   /** What a validator agent must write into a submission's adapter directory. */
   adapter_contract: string;
+  /**
+   * What the validator machine offers a deliverable (OS, runtimes, GPU, network,
+   * time per input), written by the owner and shown to the worker; "" when unset.
+   */
+  runtime_environment: string;
   limits: ValidationLimits;
   /** Hidden samples, labels and references of the base layer, for the leak reviewer. */
   hidden_paths: string[];
@@ -106,6 +111,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
       "pass_rule",
       "tester_config_sha256",
       "adapter_contract",
+      "runtime_environment",
       "limits",
       "hidden_paths",
       "agent",
@@ -167,6 +173,10 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
     },
     tester_config_sha256: String(value.tester_config_sha256),
     adapter_contract: requireString(value.adapter_contract, "adapter_contract"),
+    runtime_environment:
+      value.runtime_environment === undefined || value.runtime_environment === ""
+        ? ""
+        : requireString(value.runtime_environment, "runtime_environment"),
     limits,
     hidden_paths: hidden,
     agent: {

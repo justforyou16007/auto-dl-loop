@@ -29,7 +29,7 @@ node .aris/dist/tools/validation-cli.js status --project . --submission <id>
 node .aris/dist/tools/validation-cli.js status --project .
 ```
 
-Read `research-wiki/query_pack.md` first: the problems still open or `[regressed]` from earlier submissions are what you check again. When the pack ends with `(+N more …)`, read `research-wiki/index.md` for the rest. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract` and `pass_rule` in `.aris/validation/config.json`, the runner named by `.aris/tester-config.json`, and the `layers` list from `status` (each layer's `problem` says what it probes).
+Read `research-wiki/query_pack.md` first: the problems still open or `[regressed]` from earlier submissions are what you check again. When the pack ends with `(+N more …)`, read `research-wiki/index.md` for the rest. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract`, `runtime_environment` and `pass_rule` in `.aris/validation/config.json`, the runner named by `.aris/tester-config.json`, and the `layers` list from `status` (each layer's `problem` says what it probes). The worker was promised `adapter_contract`, `runtime_environment` and the limits through the `requirements` tool: a deliverable that needs more than they offer is `unusable`, while a run that fails because this machine lacks something promised is our side, to fix and rerun.
 
 ## 2. Inspect before running
 

@@ -90,6 +90,7 @@ const MODULE_FIELDS: Record<string, readonly string[]> = {
     "pass_rule",
     "benchmark",
     "adapter_contract",
+    "runtime_environment",
     "limits",
     "hidden_paths",
     "agent",
@@ -185,6 +186,7 @@ function moduleDefaults(root: string, module: string): JsonObject {
     pass_rule: { metric: null, op: ">=", threshold: null },
     benchmark,
     adapter_contract: ADAPTER_CONTRACT,
+    runtime_environment: "",
     limits: DEFAULT_LIMITS,
     hidden_paths: [],
     agent: { model: null, mode: "full-access", paseo_command: ["paseo"] },
@@ -228,6 +230,8 @@ function recommendation(key: string, value: unknown): string {
       "The per-sample value a test must reach, e.g. 1 for an exact-match score of 0 or 1.",
     "validation.adapter_contract":
       "Exactly how your runner calls ARIS_ADAPTER_DIR; a validator agent writes each submission's adapter to this contract.",
+    "validation.runtime_environment":
+      "What a deliverable can rely on when the validator runs it: OS, Python and CUDA versions, GPU and memory, network access, time per input. The worker reads it through `requirements`, so name no test data.",
     "validation.hidden_paths":
       "Absolute paths of the hidden samples, labels and references; the leak reviewer checks feedback against them.",
     "validation.agent.mode":
