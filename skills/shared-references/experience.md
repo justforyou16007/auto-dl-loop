@@ -4,7 +4,7 @@
 
 ## Location and reuse
 
-During worker setup, resolve the local ARL source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the path of its `experience` worktree (default: a sibling directory `<checkout>-experience`) in the worker's `CLAUDE.md`, outside the setup-owned `ARIS ROLE` block. An installed `.aris/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
+During worker setup, resolve the local ARL source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the path of its `experience` worktree (default: a sibling directory `<checkout>-experience`) in the worker's instruction file (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex), outside the setup-owned `ARIS ROLE` block. An installed `.aris/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
 
 Before starting a task, read the relevant reviewed lessons: `git -C <checkout> show main:Experience.md`.
 

@@ -79,7 +79,13 @@ export async function requestLeakReview(
   fs.mkdirSync(reviewDir, { recursive: true });
   fs.writeFileSync(path.join(reviewDir, "feedback.md"), `${feedback}\n`);
   const { agent_id } = await (start ?? paseoStarter(config.agent))(
-    leakReviewRun({ root, submission_id: id, submission_dir: dir, review_dir: reviewDir }),
+    leakReviewRun({
+      root,
+      provider: config.agent.provider,
+      submission_id: id,
+      submission_dir: dir,
+      review_dir: reviewDir,
+    }),
   );
   const review: LeakReview = {
     attempt,

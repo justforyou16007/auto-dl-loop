@@ -8,12 +8,12 @@ allowed-tools: Read, Write, Edit, Bash(*), AskUserQuestion
 
 ARIS runs one task on two machines. The **worker** builds a deliverable; the **validator** owns an append-only benchmark and tests each submission as the worker's adversary, adding tests derived from the problems it finds. The task ends when the counted submissions run out. The two talk only through the validation service's MCP tools. Each machine runs official Paseo, so the owner sees both sides' agents.
 
-The role is chosen at installation from the owner's prepared local Git checkout (`bash distribution/install-aris.sh --role worker|validator --project PATH`) and fixes the agent:
+The role and the backend are chosen at installation from the owner's prepared local Git checkout (`bash distribution/install-aris.sh --role worker|validator --project PATH [--provider claude|codex]`; without `--provider` the worker gets Claude Code and the validator Codex). Either backend can run either role:
 
-| Role       | Agent       | Paseo thinking | Instructions |
-| ---------- | ----------- | -------------- | ------------ |
-| worker     | Claude Code | `ultracode`    | `CLAUDE.md`  |
-| validator  | Codex       | `max`          | `AGENTS.md`  |
+| Backend  | Instructions | Worker MCP config    | Worker thinking | Validator thinking |
+| -------- | ------------ | -------------------- | --------------- | ------------------ |
+| `claude` | `CLAUDE.md`  | `.mcp.json`          | `ultracode`     | `max`              |
+| `codex`  | `AGENTS.md`  | `.codex/config.toml` | `ultra`         | `max`              |
 
 The helper is `node .aris/dist/tools/setup-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)). It owns the draft, the review sheet and the confirmed digest; never edit `.aris/setup-state.json` by hand.
 
@@ -44,7 +44,7 @@ Show the whole sheet again after each refresh. A recommendation becomes a value 
 - `validation.runtime_environment`: what a deliverable can rely on when a validator agent runs it: OS, Python and CUDA versions, GPU and memory, network access, time per input. The worker reads it, with the adapter contract and the limits, through the `requirements` MCP tool, so it must name no test data; leave it empty only if nothing beyond `USAGE.md` can be assumed.
 - `validation.hidden_paths`: absolute paths of the hidden samples, labels and references. The independent leak reviewer checks feedback against them and the added layers.
 - `validation.limits`: maximum counted submissions (the only stop condition), concurrency, upload size, review timeout, leak-review rewrites and the tests one review may add.
-- `validation.agent`: model and mode of the per-submission validator agent, which always runs Codex at `max`. The mode defaults to `full-access`, so the benchmark and the deliverable's documented install can use the network and paths outside the project; `auto` and `auto-review` sandbox them. On Windows `paseo_command` must be `["node", "<Paseo install>\\bin\\paseo"]`; setup rejects the `paseo` shim.
+- `validation.agent`: the per-submission validator agent runs on the installed backend (`provider`, fixed) at `max`; the sheet sets its model and mode. The mode defaults to full access (`full-access` for Codex, `bypassPermissions` for Claude Code), so the benchmark and the deliverable's documented install can use the network and paths outside the project; Codex's `auto` and `auto-review` sandbox them and Claude Code's `auto` has a classifier review each step. On Windows `paseo_command` must be `["node", "<Paseo install>\\bin\\paseo"]`; setup rejects the `paseo` shim.
 - `validation.service`: how the worker reaches the service.
   - Through the Paseo service proxy: keep `host` at `127.0.0.1`, leave `port` null, and set `public_url` to the proxy URL of the `aris-validation` script.
   - Directly on a private network: set `host` to `0.0.0.0`, a fixed `port`, and `public_url` to `http://<this machine's address>:<port>`. On Windows, allow that port through the firewall: `netsh advfirewall firewall add rule name="ARIS validation" dir=in action=allow protocol=TCP localport=<port>`.
@@ -67,9 +67,9 @@ Any later edit, including to `task.md`, invalidates the confirmation. A request 
 node .aris/dist/tools/setup-cli.js apply --project .
 ```
 
-Apply writes the role block between the `ARIS ROLE` markers of the role's instruction file and leaves the rest of the file alone, and writes `environment.secrets` to `.aris/environment.json` (mode 0600 where the platform supports it), and adds `.aris/` (and the worker's `.mcp.json`) to `.gitignore`, because they hold credentials. The review sheet shows keys and tokens masked. Create the wiki, the role's long-term memory, if `research-wiki/` is absent: `node .aris/dist/tools/research-wiki.js init research-wiki/`.
+Apply writes the role block between the `ARIS ROLE` markers of the role's instruction file and leaves the rest of the file alone, and writes `environment.secrets` to `.aris/environment.json` (mode 0600 where the platform supports it), and adds `.aris/` (and the worker's MCP config) to `.gitignore`, because they hold credentials. The review sheet shows keys and tokens masked. Create the wiki, the role's long-term memory, if `research-wiki/` is absent: `node .aris/dist/tools/research-wiki.js init research-wiki/`.
 
-**Worker.** Apply adds the `aris-validation` server to `.mcp.json`. Resolve and record the owner's local ARL source checkout and its `experience` worktree in `CLAUDE.md` outside the managed role block, following [the experience contract](../shared-references/experience.md). Preserve existing owner text. Report an unavailable location as pending; do not use the installed `.aris/` directory as an experience repository.
+**Worker.** Apply adds the `aris-validation` server to `.mcp.json` (Claude Code) or `.codex/config.toml` (Codex, which reads it only in a trusted project), replacing only that entry. Resolve and record the owner's local ARL source checkout and its `experience` worktree in the role's instruction file outside the managed role block, following [the experience contract](../shared-references/experience.md). Preserve existing owner text. Report an unavailable location as pending; do not use the installed `.aris/` directory as an experience repository.
 
 **Validation.** Apply installs the benchmark (setup, healthcheck and smoke must pass), freezes `.aris/validation/config.json`, creates the service token and adds the `aris-validation` service script to `paseo.json`. Then:
 
@@ -90,7 +90,7 @@ Later, when work reveals a new environment fact or a procedure repeated by hand,
 
 ## 6. Hand off
 
-List the available skills, including the environment skill. Tell the owner to run **`reload-skills`** in their client (or open a fresh session) before starting work, and to run the role's agent in Paseo with the `agent` settings apply reports: the worker as Claude Code at `ultracode`; validator agents are started by the service as Codex at `max`. The worker's changed MCP configuration needs a fresh session; then check that `query` answers.
+List the available skills, including the environment skill. Tell the owner to run **`reload-skills`** in Claude Code (or open a fresh session; Codex always needs one) before starting work, and to run the role's agent in Paseo with the `agent` settings apply reports: the worker as Claude Code at `ultracode` or Codex at `ultra`; validator agents are started by the service on the project's backend at `max`. The worker's changed MCP configuration needs a fresh session; then check that `query` answers.
 
 Finish setup at this handoff. Start research only when the owner requests it.
 

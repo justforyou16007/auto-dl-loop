@@ -4,7 +4,7 @@
 
 [中文](README.zh-CN.md) · [Quick start](#quick-start) · [Setup guide](SETUP_GUIDE.md) · [Architecture](ARIS_ARCHITECTURE_GUIDE.md)
 
-Give an agent a task, a benchmark and a submission budget. Auto Research Loop (ARL) lets a Claude Code worker develop a solution, submit it for independent, adversarial testing by Codex validator agents and improve it using measured test results and leak-reviewed feedback.
+Give an agent a task, a benchmark and a submission budget. Auto Research Loop (ARL) lets a worker agent develop a solution, submit it for independent, adversarial testing by validator agents and improve it using measured test results and leak-reviewed feedback.
 
 ARL is designed for benchmark-driven coding, model evaluation and experimental research. The worker chooses how to plan and implement the task. A separate validator machine owns the hidden, append-only benchmark and tests each submission with a pass rule frozen at setup.
 
@@ -21,14 +21,21 @@ Use the official **Paseo** app and CLI to run and monitor agents on both machine
 - **Leak-reviewed feedback.** Feedback states the real problems: what goes wrong, which requirement of `task.md` it breaks, roughly how often, how severe, and which earlier problems were solved or persist. It never reveals the tests. A separate, independent agent checks it against the hidden tests before publication; if it still leaks after the allowed rewrites, only the verdict and test counts are published.
 - **Defined stopping.** The task closes only when the counted submissions are used up; passing every current test does not end it. Upload, format and infrastructure failures do not count against the budget.
 
-### Fixed agents per role
+### Agent backends
 
-| Role | Agent | Paseo thinking | Instructions |
-| --- | --- | --- | --- |
-| worker | Claude Code | `ultracode` | `CLAUDE.md` |
-| validator  | Codex | `max` | `AGENTS.md` |
+Either role runs on either backend, chosen with the installer's `--provider claude|codex`. Without it the worker gets Claude Code and the validator Codex.
 
-The installer's `--role` fixes the agent, its skills directory and configuration. Every review agent the validation service starts, and every feedback leak-review agent, runs as Codex at `max`.
+| Backend | Agent | Skills | Instructions | Worker MCP config |
+| --- | --- | --- | --- | --- |
+| `claude` | Claude Code | `.claude/skills/` | `CLAUDE.md` | `.mcp.json` |
+| `codex` | Codex | `.agents/skills/` | `AGENTS.md` | `.codex/config.toml` |
+
+| Role | Paseo thinking on Claude Code | on Codex |
+| --- | --- | --- |
+| worker | `ultracode` | `ultra` |
+| validator | `max` | `max` |
+
+The worker runs the level that may delegate to subagents; the validator the deepest single-agent level. Every review agent the validation service starts, and every feedback leak-review agent, runs on the validator project's backend at `max`. The backend stays with the project; install into a fresh project to change it.
 
 ### Strict iteration with memory
 
@@ -70,7 +77,7 @@ Keep the two projects on separate machines without a shared or synchronized dire
 On each machine, install:
 
 - **Node.js 22.12+**, **Bash** and **Git**.
-- **Claude Code** on the worker machine and **Codex** on the validator machine, both authenticated.
+- The chosen backend, **Claude Code** or **Codex**, authenticated on each machine.
 - The official **Paseo app and CLI**, with its daemon running.
 
 The validator machine also needs your benchmark's dependencies. On Windows, run the installer in Git Bash with Node.js on `PATH`; see the [setup guide](SETUP_GUIDE.md) for Windows command paths and networking.
@@ -88,16 +95,16 @@ npm run build
 On the **worker** machine:
 
 ```bash
-bash distribution/install-aris.sh --role worker --project /path/to/project
+bash distribution/install-aris.sh --role worker --project /path/to/project [--provider claude|codex]
 ```
 
 On the **validator** machine:
 
 ```bash
-bash distribution/install-aris.sh --role validator --project /path/to/project
+bash distribution/install-aris.sh --role validator --project /path/to/project [--provider claude|codex]
 ```
 
-The role fixes the agent and stays with the project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex must trust the validator project.
+The role and backend stay with the project. Installation reads only the prepared local checkout and makes no downloads; missing dependencies or compiled helpers cause an error. `install-arl.sh` is an alias for the same local installation. Codex must trust each project it runs in.
 
 ### Configure the two roles
 
@@ -105,10 +112,10 @@ Add both projects to official Paseo. Setup reads the role from the installation.
 
 | Step | Agent in Paseo | Invoke |
 | --- | --- | --- |
-| Set up the validator project first | Codex at thinking `max` | `$aris-setup` |
-| Set up the worker project | Claude Code at thinking `ultracode` | `/aris-setup` |
+| Set up the validator project first | its backend at thinking `max` | `/aris-setup` (Claude Code) or `$aris-setup` (Codex) |
+| Set up the worker project | its backend at thinking `ultracode` (Claude Code) or `ultra` (Codex) | `/aris-setup` or `$aris-setup` |
 
-On the validator machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine and configure the worker connection. On each machine setup then writes the project environment skill and verifies its scripts. Run `reload-skills` in your client to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
+On the validator machine, review the setup sheet, approve its configuration and start the generated `aris-validation` service. Transfer its worker connection URL and token privately to the worker machine and configure the worker connection. On each machine setup then writes the project environment skill and verifies its scripts. Run `reload-skills` in Claude Code, or open a fresh Codex session, to load the skills, reopen the worker session for its MCP configuration and ask it to work on `task.md`.
 
 Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETUP_GUIDE_CN.md)** for benchmark setup, networking, offline installation, updates and troubleshooting.
 

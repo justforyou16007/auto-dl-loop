@@ -29,11 +29,13 @@ import {
 import { assertBenchmarkIntact } from "./validation/layers.js";
 import { countedSubmissions } from "./validation/store.js";
 import {
-  ROLE_AGENT,
+  installedAgent,
   installedProvider,
   installedRole,
   providerSkillsDir,
+  type ArlProvider,
   type ArlRole,
+  type RoleAgent,
 } from "./provider.js";
 
 export type SetupRole = ArlRole;
@@ -99,12 +101,20 @@ const MODULE_FIELDS: Record<string, readonly string[]> = {
 };
 const CHOICES: Record<string, readonly unknown[]> = {
   "project.language": ["zh", "en"],
-  "validation.agent.mode": VALIDATOR_MODES,
   "validation.pass_rule.op": PASS_OPERATORS,
   "validation.benchmark.metrics.*.direction": ["higher_better", "lower_better"],
   "validation.benchmark.metrics.*.aggregation": ["mean", "sum", "external"],
   "validation.service.host": ["127.0.0.1", "0.0.0.0"],
 };
+/** CHOICES plus the ones fixed by the backend this project was installed with. */
+function choicesFor(root: string): Record<string, readonly unknown[]> {
+  const provider = installedProvider(root);
+  return {
+    ...CHOICES,
+    "validation.agent.provider": [provider],
+    "validation.agent.mode": VALIDATOR_MODES[provider],
+  };
+}
 const ADAPTER_CONTRACT =
   'The runner calls `python <ARIS_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in ARIS_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes ARIS_TEST_OUTPUT.';
 const ROLE_BEGIN = "<!-- ARIS ROLE BEGIN -->";
@@ -189,7 +199,12 @@ function moduleDefaults(root: string, module: string): JsonObject {
     runtime_environment: "",
     limits: DEFAULT_LIMITS,
     hidden_paths: [],
-    agent: { model: null, mode: "full-access", paseo_command: ["paseo"] },
+    agent: {
+      provider: installedProvider(root),
+      model: null,
+      mode: VALIDATOR_MODES[installedProvider(root)][0]!,
+      paseo_command: ["paseo"],
+    },
     service: { host: "127.0.0.1", port: null, public_url: null },
   };
 }
@@ -234,8 +249,10 @@ function recommendation(key: string, value: unknown): string {
       "What a deliverable can rely on when the validator runs it: OS, Python and CUDA versions, GPU and memory, network access, time per input. The worker reads it through `requirements`, so name no test data.",
     "validation.hidden_paths":
       "Absolute paths of the hidden samples, labels and references; the leak reviewer checks feedback against them.",
+    "validation.agent.provider":
+      "The backend chosen at installation (--provider); install into a new project to change it.",
     "validation.agent.mode":
-      "full-access lets the benchmark and the deliverable's install use the network and paths outside the project; sandboxed modes make those steps fail or wait for approval.",
+      "The first option (full-access for Codex, bypassPermissions for Claude) lets the benchmark and the deliverable's install use the network and paths outside the project; the others sandbox or classify those steps and may make them fail.",
     "validation.agent.paseo_command":
       'On Windows use ["node", "<install dir>\\\\bin\\\\paseo"]; the paseo.cmd shim cannot be spawned directly.',
     "validation.service.host":
@@ -256,17 +273,22 @@ function recommendation(key: string, value: unknown): string {
 const isSecret = (key: string): boolean =>
   key === "connection.token" || key.startsWith("environment.secrets.");
 /** The review sheet is shown in chat; `mask` keeps keys and tokens out of it. */
-function rows(value: unknown, key: string, mask = false): SetupReviewField[] {
+function rows(
+  value: unknown,
+  key: string,
+  choices: Record<string, readonly unknown[]>,
+  mask = false,
+): SetupReviewField[] {
   if (isRecord(value) && Object.keys(value).length)
-    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`, mask));
+    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`, choices, mask));
   if (Array.isArray(value) && value.some(isRecord))
-    return value.flatMap((v, i) => rows(v, `${key}.${i}`, mask));
+    return value.flatMap((v, i) => rows(v, `${key}.${i}`, choices, mask));
   if (mask && isSecret(key) && typeof value === "string" && value)
     return [
       { path: key, value: `…${value.slice(-4)}`, recommendation: recommendation(key, value) },
     ];
   const options =
-    CHOICES[key.replace(/\.\d+(?=\.|$)/g, ".*")] ??
+    choices[key.replace(/\.\d+(?=\.|$)/g, ".*")] ??
     (typeof value === "boolean" ? [true, false] : undefined);
   return [
     {
@@ -282,6 +304,7 @@ function rows(value: unknown, key: string, mask = false): SetupReviewField[] {
 function draftValidationConfig(
   validation: JsonObject,
   benchmark: TesterFacilityConfig,
+  provider: ArlProvider,
 ): ValidationConfig {
   const metricName = get(validation, "pass_rule.metric");
   if (!benchmark.metrics.some((metric) => metric.name === metricName))
@@ -293,8 +316,11 @@ function draftValidationConfig(
   const { benchmark: _benchmark, ...rest } = validation;
   // The port belongs to the paseo.json service entry; Paseo hands it to the service as PASEO_PORT.
   const { port: _port, ...service } = isRecord(validation.service) ? validation.service : {};
+  // The backend comes from the installation; the sheet only shows it.
+  const agent = { ...(isRecord(validation.agent) ? validation.agent : {}), provider };
   return validateValidationConfig({
     ...rest,
+    agent,
     service,
     schema_version: 2,
     tester_config_sha256: testerFacilityConfigSha256(benchmark),
@@ -323,7 +349,7 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
     }
     for (const key of Object.keys(value))
       if (!MODULE_FIELDS[module]!.includes(key)) add(`${module}.${key}`, "unknown field");
-    for (const row of rows(value, module)) {
+    for (const row of rows(value, module, choicesFor(root))) {
       if (row.options && !empty(row.value) && !row.options.includes(row.value))
         add(row.path, `choose one of ${JSON.stringify(row.options)}`);
       if (
@@ -385,7 +411,7 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
     });
     if (benchmark)
       attempt("validation", () => {
-        const next = draftValidationConfig(validation, benchmark!);
+        const next = draftValidationConfig(validation, benchmark!, installedProvider(root));
         for (const hidden of next.hidden_paths)
           if (!fs.existsSync(hidden)) add("validation.hidden_paths", `${hidden} is missing`);
         const frozenFile = validationConfigPath(root);
@@ -480,7 +506,7 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
       modules: ROLE_MODULES[role].map((id) => ({
         id,
         title: TITLES[id]!.split(" / ")[language === "en" ? 1 : 0]!,
-        fields: rows(draft.configuration[id], id, true),
+        fields: rows(draft.configuration[id], id, choicesFor(root), true),
       })),
       issues,
     };
@@ -570,12 +596,44 @@ function mergeJsonEntry(file: string, key: string, name: string, entry: JsonObje
   writeStateJsonAtomic(file, { ...current, [key]: { ...section, [name]: entry } });
 }
 
+/**
+ * Add or replace one `[mcp_servers.<name>]` table of a Codex config.toml and
+ * keep the rest of the file as it is. JSON string escapes are valid TOML basic strings.
+ */
+function mergeCodexMcpServer(file: string, name: string, url: string, token: string): void {
+  const header = `[mcp_servers.${name}]`;
+  const block = [
+    header,
+    `url = ${JSON.stringify(url)}`,
+    `http_headers = { Authorization = ${JSON.stringify(`Bearer ${token}`)} }`,
+  ];
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
+  const start = lines.findIndex((line) => line.trim() === header);
+  let next: string[];
+  if (start < 0) {
+    while (lines.length && lines.at(-1)!.trim() === "") lines.pop();
+    next = [...lines, ...(lines.length ? [""] : []), ...block];
+  } else {
+    // The table ends at the next header that is not one of its own subtables.
+    let end = start + 1;
+    while (
+      end < lines.length &&
+      !(/^\s*\[/.test(lines[end]!) && !lines[end]!.trim().startsWith(`[mcp_servers.${name}.`))
+    )
+      end += 1;
+    while (end > start + 1 && lines[end - 1]!.trim() === "") end -= 1;
+    next = [...lines.slice(0, start), ...block, ...lines.slice(end)];
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${next.join("\n").trimEnd()}\n`);
+}
+
 type SetupEnvironmentResult = {
   /** Where setup's environment step writes the environment skill; apply does not create it. */
   environment_skill_dir: string;
   environment_secrets: string;
   /** The agent settings this role runs with in Paseo. */
-  agent: (typeof ROLE_AGENT)[SetupRole];
+  agent: RoleAgent;
 };
 
 export type SetupApplyResult = SetupEnvironmentResult &
@@ -597,7 +655,7 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
   const environment = {
     environment_skill_dir: environmentSkillDir(root),
     environment_secrets: environmentSecretsPath(root),
-    agent: ROLE_AGENT[role],
+    agent: installedAgent(root),
   };
   const secrets = Object.entries(get(configuration, "environment.secrets") as JsonObject);
   // A null entry is a cleared secret.
@@ -606,14 +664,21 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
     Object.fromEntries(secrets.filter(([, value]) => value !== null)),
   );
   fs.chmodSync(environment.environment_secrets, 0o600);
-  ensureGitignored(root, role === "worker" ? [".aris/", ".mcp.json"] : [".aris/"]);
+  // Claude Code reads project MCP servers from .mcp.json, Codex from .codex/config.toml.
+  const mcpFile = environment.agent.provider === "codex" ? ".codex/config.toml" : ".mcp.json";
+  ensureGitignored(root, role === "worker" ? [".aris/", mcpFile] : [".aris/"]);
   if (role === "worker") {
-    const file = path.join(root, ".mcp.json");
-    mergeJsonEntry(file, "mcpServers", "aris-validation", {
-      type: "http",
-      url: get(configuration, "connection.url"),
-      headers: { Authorization: `Bearer ${String(get(configuration, "connection.token"))}` },
-    });
+    const file = path.join(root, mcpFile);
+    const url = String(get(configuration, "connection.url"));
+    const token = String(get(configuration, "connection.token"));
+    if (environment.agent.provider === "codex")
+      mergeCodexMcpServer(file, "aris-validation", url, token);
+    else
+      mergeJsonEntry(file, "mcpServers", "aris-validation", {
+        type: "http",
+        url,
+        headers: { Authorization: `Bearer ${token}` },
+      });
     fs.chmodSync(file, 0o600);
     writeRoleBlock(root, role);
     return { role, mcp_config: file, ...environment };
@@ -621,7 +686,7 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
   const validation = configuration.validation as JsonObject;
   if (countedSubmissions(root) > 0) assertBenchmarkIntact(root, readValidationConfig(root));
   const benchmark = await setupTesterFacility(root, validation.benchmark);
-  const config = draftValidationConfig(validation, benchmark);
+  const config = draftValidationConfig(validation, benchmark, installedProvider(root));
   writeStateJsonAtomic(validationConfigPath(root), config);
   const token = ensureValidationToken(root);
   const port = get(validation, "service.port");

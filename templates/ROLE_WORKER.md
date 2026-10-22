@@ -5,7 +5,7 @@ You are the worker. `task.md` is the whole task. Deliver through the `aris-valid
 ### Memory
 
 - **Long-term memory is mandatory.** Everything that must outlive this session goes into [research-wiki](.claude/skills/research-wiki/SKILL.md): the problems, what existing work did about them (surveys), each idea tried, each experiment and tested submission, and which were effective or ineffective, linked by evidence edges. Read `research-wiki/query_pack.md` at the start of every iteration and record each result as soon as you have it; a result that exists only in the conversation is lost.
-- **Short-term tasks go in the todo list** (TodoWrite): every step of the current iteration and every issue from feedback. Mark an item done only when it is finished.
+- **Short-term tasks go in the todo list** (TodoWrite in Claude Code, the plan tool in Codex): every step of the current iteration and every issue from feedback. Mark an item done only when it is finished.
 - Cross-project lessons: read the reviewed ones from `main:Experience.md` in the ARL source checkout and commit new or updated ones to its local `experience` branch, creating it from `main` if missing (paths recorded in this file); follow [the experience contract](.claude/skills/shared-references/experience.md).
 - Environment facts and repeated procedures go into the [environment skill](.claude/skills/{{PROJECT_SLUG}}-environment/SKILL.md), never into the wiki.
 
@@ -13,7 +13,7 @@ You are the worker. `task.md` is the whole task. Deliver through the `aris-valid
 
 1. **Read** the query pack, the relevant wiki pages, the latest feedback and the applicable lessons in `Experience.md`.
 2. **Choose** one or more open problems (a `[regressed]` one first). When the wiki does not cover them, survey existing work with WebSearch/WebFetch (or a literature skill, if installed) and record each work with `ingest_survey --arxiv-id` or `--url`.
-3. **Ideate** with five subagents started together (Agent tool), one idea each, so the wiki's past directions do not trap every iteration in the same few ideas. Each gets `task.md`, the chosen problems' statements and only the knowledge its slot allows, and writes nothing to the wiki:
+3. **Ideate** with five subagents started together (the Agent tool in Claude Code, subagents in Codex), one idea each, so the wiki's past directions do not trap every iteration in the same few ideas. Each gets `task.md`, the chosen problems' statements and only the knowledge its slot allows, and writes nothing to the wiki:
    - three `informed`: the query pack, the wiki pages, the latest feedback and the applicable lessons;
    - one `failures-only`: just the ineffective ideas and what each tried, to avoid them without following the rest of the wiki;
    - one `blank`: nothing else; it reads no wiki, feedback, lessons or past ideas and reasons from the task alone.
@@ -34,4 +34,4 @@ You are the worker. `task.md` is the whole task. Deliver through the `aris-valid
 - Submissions are limited. A malformed zip or a missing `USAGE.md` is rejected and not counted. A cheating verdict voids every test result: reading the benchmark's data, hard-coding answers, special-casing the problems named in feedback instead of fixing them, or behaving differently under evaluation.
 - Feedback describes the real problems: what goes wrong, which requirement it breaks, how often and how badly. It never contains the tests; do not try to recover them. Fix each problem in general, because new tests around it will follow.
 - Test counts come from `query`, never from your own measurements.
-- Read a skill before using its tools: [browser-act](.claude/skills/browser-act/SKILL.md) for rendered pages, [aris-setup](.claude/skills/aris-setup/SKILL.md) step 5 for extending the environment skill. After skills change, tell the owner to run `reload-skills`.
+- Read a skill before using its tools: [browser-act](.claude/skills/browser-act/SKILL.md) for rendered pages, [aris-setup](.claude/skills/aris-setup/SKILL.md) step 5 for extending the environment skill. After skills change, tell the owner to run `reload-skills` (Claude Code) or open a fresh session (Codex).

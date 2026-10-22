@@ -4,7 +4,7 @@
 
 ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只增不改的 benchmark，为每次提交启动与 worker 对抗的验证 agent，发布结论、测试项通过数和经泄漏审查的反馈。双方通过 `requirements`、`submit` 和 `query` 三个 MCP 工具交互。
 
-本分支只包含 ARL 源码、技能、测试和独立安装包。两台机器分别安装官方 Paseo；worker 使用 Claude Code（Paseo thinking `ultracode`），validation 使用 Codex（`max`），Paseo 负责执行和监控 agent。
+本分支只包含 ARL 源码、技能、测试和独立安装包。两台机器分别安装官方 Paseo；每个角色都可以用 Claude Code 或 Codex 作为执行后端（安装参数 `--provider`，默认 worker 用 Claude Code、validator 用 Codex），Paseo 负责执行和监控 agent。
 
 ## 功能特性
 
@@ -17,14 +17,21 @@ ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只
 - **反馈经泄漏审查**：反馈写出实际问题：交付物错在哪里、违反 `task.md` 的哪项要求、大致多常见、多严重，以及上次的问题哪些解决了、哪些还在；但不透露测试用例。发布前由另一个独立 agent 对照隐藏测试交叉检查；重写次数用完仍泄漏时，只发布结论和测试项计数。
 - **明确的停止条件**：唯一的停止条件是计次提交用完（`closed`），通过全部现有测试项不会结束任务；上传、格式和基础设施故障不计入次数。
 
-### 按角色固定 agent
+### 执行后端
 
-| 角色 | Agent | Paseo thinking | 指令文件 |
-| --- | --- | --- | --- |
-| worker | Claude Code | `ultracode` | `CLAUDE.md` |
-| validator  | Codex | `max` | `AGENTS.md` |
+每个角色都可以用任一后端，安装时用 `--provider claude|codex` 选择；不指定时 worker 用 Claude Code，validator 用 Codex。
 
-安装参数 `--role` 决定 agent、技能目录和配置；validation 服务启动的每个评审 agent，以及每个反馈泄漏审查 agent，都是 Codex `max`。
+| 后端 | Agent | 技能目录 | 指令文件 | worker 的 MCP 配置 |
+| --- | --- | --- | --- | --- |
+| `claude` | Claude Code | `.claude/skills/` | `CLAUDE.md` | `.mcp.json` |
+| `codex` | Codex | `.agents/skills/` | `AGENTS.md` | `.codex/config.toml` |
+
+| 角色 | Claude Code 的 Paseo thinking | Codex 的 Paseo thinking |
+| --- | --- | --- |
+| worker | `ultracode` | `ultra` |
+| validator | `max` | `max` |
+
+worker 使用可以自动委派子 agent 的档位，validator 使用单 agent 最深的档位。validation 服务启动的每个评审 agent 和每个反馈泄漏审查 agent，都使用 validator 项目的后端、thinking `max`。后端随项目固定，要更换请安装到新项目。
 
 ### 有记忆的严格迭代
 
@@ -57,16 +64,16 @@ setup 在真实机器上写入项目技能 `<项目>-environment`：
 cd /你的本地arl仓库
 npm ci
 npm run build
-bash distribution/install-aris.sh --role worker --project /你的项目目录
+bash distribution/install-aris.sh --role worker --project /你的项目目录 [--provider claude|codex]
 # validator 机器使用：
-bash distribution/install-aris.sh --role validator --project /你的项目目录
+bash distribution/install-aris.sh --role validator --project /你的项目目录 [--provider claude|codex]
 ```
 
-安装器仅从准备好的本地仓库复制项目技能、编译好的 helper 和运行依赖，不触发下载；缺少依赖或编译产物时直接报错。角色决定 agent，更新时不可更换。`install-arl.sh` 保留为同一安装流程的别名。Codex 必须信任 validator 项目。
+安装器仅从准备好的本地仓库复制项目技能、编译好的 helper 和运行依赖，不触发下载；缺少依赖或编译产物时直接报错。角色和后端随项目固定，更新时不可更换。`install-arl.sh` 保留为同一安装流程的别名。Codex 必须信任它运行的每个项目。
 
 先配置 validator，再把地址和 token 私下交给 worker。完整步骤见[中文部署指南](SETUP_GUIDE_CN.md)。
 
-`/aris-setup` 从安装记录读取角色，最后在本机写入并验证项目环境技能 `<项目>-environment`：只记录 agent 无从得知的环境事实，以及同步代码、启动命名实验、检查、取回结果、停止等固定脚本，worker 可在一轮迭代中并行运行多个实验。`research-wiki` 是角色的长期记忆，记录问题、已有工作调研（survey）、尝试过的想法和实验及其有效性；`browser-act` 访问浏览器。技能变更后提示用户在客户端执行 `reload-skills`。升级或修复继续使用安装脚本。
+`/aris-setup` 从安装记录读取角色，最后在本机写入并验证项目环境技能 `<项目>-environment`：只记录 agent 无从得知的环境事实，以及同步代码、启动命名实验、检查、取回结果、停止等固定脚本，worker 可在一轮迭代中并行运行多个实验。`research-wiki` 是角色的长期记忆，记录问题、已有工作调研（survey）、尝试过的想法和实验及其有效性；`browser-act` 访问浏览器。技能变更后提示用户在 Claude Code 中执行 `reload-skills`，或重新打开 Codex 会话。升级或修复继续使用安装脚本。
 
 ## 开发
 

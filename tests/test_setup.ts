@@ -19,9 +19,12 @@ import { environmentSkillDir, projectSlug } from "../src/tools/setup.js";
 const read = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
 // A command execFile can start on every platform; only its argv is checked here.
 const PASEO = [process.execPath, "paseo-cli.mjs"];
-const installAs = (root: string, role: "worker" | "validator") => {
+const installAs = (
+  root: string,
+  role: "worker" | "validator",
+  provider: "claude" | "codex" = role === "worker" ? "claude" : "codex",
+) => {
   fs.mkdirSync(path.join(root, ".aris"), { recursive: true });
-  const provider = role === "worker" ? "claude" : "codex";
   fs.writeFileSync(path.join(root, ".aris/install.json"), JSON.stringify({ role, provider }));
 };
 const issueFields = (root: string) => refreshSetupReview(root).issues.map((issue) => issue.field);
@@ -105,9 +108,77 @@ await project("worker", async (root) => {
   assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
 });
 
+// A Codex worker: AGENTS.md, .agents/skills, the delegating thinking level and a Codex MCP entry.
+await project("codex-worker", async (root) => {
+  installAs(root, "worker", "codex");
+  fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
+  fs.mkdirSync(path.join(root, ".codex"));
+  const toml = path.join(root, ".codex", "config.toml");
+  fs.writeFileSync(
+    toml,
+    'model = "gpt"\n\n[mcp_servers.aris-validation]\nurl = "http://old/mcp"\n\n[mcp_servers.aris-validation.env]\nX = "1"\n\n[mcp_servers.other]\ncommand = "x"\n',
+  );
+  const review = refreshSetupReview(root, {
+    connection: { url: "http://validation.example:7000/mcp", token: "t".repeat(43) },
+  });
+  assert.deepEqual(review.issues, []);
+  confirmSetupReview(root, review.configuration_sha256);
+  const applied = await applySetup(root);
+  assert.equal(applied.role, "worker");
+  if (applied.role !== "worker") throw new Error("unreachable");
+  assert.deepEqual(applied.agent, { provider: "codex", thinking: "ultra" });
+  assert.equal(applied.mcp_config, toml);
+  await applySetup(root);
+  // Only the aris-validation table and its subtables are replaced, once.
+  assert.equal(
+    fs.readFileSync(toml, "utf8"),
+    `model = "gpt"\n\n[mcp_servers.aris-validation]\nurl = "http://validation.example:7000/mcp"\nhttp_headers = { Authorization = "Bearer ${"t".repeat(43)}" }\n\n[mcp_servers.other]\ncommand = "x"\n`,
+  );
+  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".aris/\n.codex/config.toml\n");
+  assert.equal(fs.existsSync(path.join(root, ".mcp.json")), false);
+  assert.equal(fs.existsSync(path.join(root, "CLAUDE.md")), false);
+  const instructions = fs.readFileSync(path.join(root, "AGENTS.md"), "utf8");
+  assert.match(instructions, /ARIS role: worker/);
+  assert.ok(instructions.includes(`.agents/skills/${projectSlug(root)}-environment/SKILL.md`));
+  assert.equal(instructions.includes(".claude/skills"), false);
+});
+
+// A Claude Code validator: max thinking, Claude's own full-access mode, CLAUDE.md.
+await project("claude-validator", async (root) => {
+  installAs(root, "validator", "claude");
+  fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
+  const validation = {
+    benchmark: facilityConfig(root),
+    pass_rule: { metric: "score", op: ">=", threshold: 1 },
+    hidden_paths: [path.join(root, "bench", "labels.json")],
+    service: { public_url: "https://validation.example" },
+  };
+  let review = refreshSetupReview(root, {
+    validation: { ...validation, agent: { mode: "full-access", paseo_command: PASEO } },
+  });
+  const field = (name: string) =>
+    review.modules.flatMap((module) => module.fields).find((row) => row.path === name);
+  assert.deepEqual(field("validation.agent.mode")?.options, ["bypassPermissions", "auto"]);
+  assert.deepEqual(field("validation.agent.provider")?.value, "claude");
+  assert.deepEqual(review.issues.map((issue) => issue.field), ["validation.agent.mode", "validation"]);
+  review = refreshSetupReview(root, { validation: { agent: { mode: "bypassPermissions" } } });
+  assert.deepEqual(review.issues, []);
+  confirmSetupReview(root, review.configuration_sha256);
+  const applied = await applySetup(root);
+  assert.deepEqual(applied.agent, { provider: "claude", thinking: "max" });
+  assert.deepEqual(readValidationConfig(root).agent, {
+    provider: "claude",
+    thinking: "max",
+    mode: "bypassPermissions",
+    paseo_command: PASEO,
+  });
+  assert.match(fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"), /ARIS role: validator/);
+  assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
+});
+
 assert.match(projectSlug(path.join(os.tmpdir(), "项目")), /^project-[0-9a-f]{8}$/);
 
-// Validator: Codex at max, the benchmark is installed, the terms frozen, and the service registered.
+// Validator on the default backend (Codex at max): the benchmark is installed, the terms frozen, and the service registered.
 await project("validator", async (root) => {
   installAs(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
@@ -126,15 +197,16 @@ await project("validator", async (root) => {
       service: { host: "0.0.0.0", port: 70_000, public_url: "https://validation.example/" },
     },
   });
+  // The backend comes from the installation; the sheet only shows it.
   assert.deepEqual(
     review.issues.map((issue) => issue.field),
     [
+      "validation.agent.provider",
       ...(process.platform === "win32" ? ["validation.agent.paseo_command"] : []),
       "validation.service.port",
-      "validation",
     ],
   );
-  assert.match(review.issues.at(-1)!.message, /codex/);
+  assert.match(review.issues[0]!.message, /codex/);
   review = refreshSetupReview(root, {
     validation: { agent: { provider: null, paseo_command: PASEO }, service: { port: 8765 } },
   });
@@ -303,7 +375,28 @@ await project("distribution", async (sandbox) => {
     const switched = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role === "worker" ? "validator" : "worker", "--project", root], { encoding: "utf8" });
     assert.equal(switched.status, 1);
     assert.match(switched.stderr, /keep its role/);
+    const otherBackend = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, "--provider", provider === "claude" ? "codex" : "claude"], { encoding: "utf8" });
+    assert.equal(otherBackend.status, 1);
+    assert.match(otherBackend.stderr, /keep its provider/);
   }
+  // Either backend runs either role: the swapped pair installs to the other skills directory.
+  for (const [role, provider, skillDir, thinking] of [
+    ["worker", "codex", ".agents/skills", "Codex at thinking ultra"],
+    ["validator", "claude", ".claude/skills", "Claude Code at thinking max"],
+  ] as const) {
+    const root = path.join(sandbox, `${provider} ${role}`);
+    const output = execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, "--provider", provider], { cwd: sandbox, encoding: "utf8" });
+    assert.ok(output.includes(thinking), output);
+    assert.equal(read(path.join(root, ".aris/install.json")).provider, provider);
+    const setupSkill = fs.readFileSync(path.join(root, skillDir, "aris-setup/SKILL.md"), "utf8");
+    assert.equal(setupSkill.includes(provider === "codex" ? ".claude/skills" : ".agents/skills/aris"), false);
+    // An update without --provider keeps the installed backend.
+    execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root], { cwd: sandbox });
+    assert.equal(read(path.join(root, ".aris/install.json")).provider, provider);
+  }
+  const unknownBackend = spawnSync("bash", [path.join(portable, "install.sh"), "--role", "worker", "--project", path.join(sandbox, "gemini"), "--provider", "gemini"], { encoding: "utf8" });
+  assert.equal(unknownBackend.status, 1);
+  assert.match(unknownBackend.stderr, /--provider must be claude or codex/);
   // Installation from a prepared local Git checkout needs no download or archive tools.
   const localRepo = path.join(sandbox, "local ARL checkout");
   fs.mkdirSync(localRepo);

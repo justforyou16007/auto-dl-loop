@@ -5,6 +5,7 @@
  * command is an argv list from the frozen config.
  */
 import { execFile } from "node:child_process";
+import { PROVIDER_SKILLS, type ArlProvider } from "../provider.js";
 import { failA1 } from "../validate.js";
 import type { ValidationAgentConfig } from "./config.js";
 
@@ -38,6 +39,7 @@ export function reviewRun(request: DispatchRequest): AgentRun {
 
 export function leakReviewRun(request: {
   root: string;
+  provider: ArlProvider;
   submission_id: string;
   submission_dir: string;
   review_dir: string;
@@ -50,7 +52,7 @@ export function leakReviewRun(request: {
       `Cross-check the feedback of ARIS validation submission ${request.submission_id} before it reaches the worker.`,
       `Feedback to check: ${request.review_dir}/feedback.md`,
       `Submission directory: ${request.submission_dir}`,
-      `Follow .agents/skills/validation-review/leak-review.md and write ${request.review_dir}/result.json; change nothing else.`,
+      `Follow ${PROVIDER_SKILLS[request.provider]}/validation-review/leak-review.md and write ${request.review_dir}/result.json; change nothing else.`,
     ].join("\n"),
   };
 }
