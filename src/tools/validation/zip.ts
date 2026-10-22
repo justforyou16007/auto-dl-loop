@@ -31,6 +31,14 @@ interface Entry {
   directory: boolean;
 }
 
+/** The checks below, in words, for the `requirements` tool; keep the two in step. */
+export const DELIVERABLE_ZIP_RULES = [
+  "A standard zip (zip64 allowed) whose entries are stored or deflated, none encrypted and none a symbolic link.",
+  "USAGE.md at the zip root or in its single top-level folder.",
+  "Relative paths only: no absolute path, no `..`, no two paths that differ only in letter case, no file and folder sharing a path.",
+  'Names portable to Windows: no control characters or any of <>:"|?*, no trailing dot or space, no reserved name such as CON, NUL, COM1 or LPT1.',
+];
+
 const EOCD = 0x06054b50,
   ZIP64_LOCATOR = 0x07064b50,
   ZIP64_EOCD = 0x06064b50,

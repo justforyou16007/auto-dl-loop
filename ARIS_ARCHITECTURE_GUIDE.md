@@ -19,14 +19,14 @@ ARL 是可独立安装、配合官方 Paseo 使用的两机研究任务包。保
 worker 机器                                   validator 机器
 ┌───────────────────────┐                     ┌──────────────────────────────────┐
 │ Paseo                 │                     │ Paseo                            │
-│  └ worker agent       │  MCP: submit/query  │  ├ aris-validation 服务脚本       │
+│  └ worker agent       │  MCP: 三个工具      │  ├ aris-validation 服务脚本       │
 │     task.md           │ ──────────────────▶ │  │   .aris/validation/            │
 │     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validator agent  │
 │     .mcp.json         │ ──────────────────▶ │      .aris/tester-config.json     │
 └───────────────────────┘                     └──────────────────────────────────┘
 ```
 
-两边不共享磁盘、不共享仓库、不互发消息。worker 能拿到的只有 `query` 返回的内容：服务状态、剩余次数，以及某次提交的状态、结论、测试项总数与通过数和反馈。这样防作弊就不靠规则约束 agent，而是靠物理隔离：worker 根本读不到 benchmark。
+两边不共享磁盘、不共享仓库、不互发消息。worker 能拿到的只有服务的三个 MCP 工具返回的内容。`requirements` 返回提交要求：zip 格式和大小限制、`USAGE.md` 必须写清的内容、调用接口（`adapter_contract`）、owner 填写的运行环境说明（`runtime_environment`）、审查时限和各结论的含义，让 worker 一开始就按要求构建，减少因格式或环境不符造成的返工；它不含测试数据、隐藏路径、测试层和判分规则。`submit` 预约一次提交。`query` 返回服务状态、剩余次数，以及某次提交的状态、结论、测试项总数与通过数和反馈。这样防作弊就不靠规则约束 agent，而是靠物理隔离：worker 根本读不到 benchmark。
 
 验证机器不断网，因为有些任务的验证本身要联网（下载依赖、调用外部服务）。防作弊靠的是 validator agent 检查交付内容，而不是切断网络。
 

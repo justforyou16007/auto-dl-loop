@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只增不改的 benchmark，为每次提交启动与 worker 对抗的验证 agent，发布结论、测试项通过数和经泄漏审查的反馈。双方通过 `submit` 和 `query` 两个 MCP 工具交互。
+ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只增不改的 benchmark，为每次提交启动与 worker 对抗的验证 agent，发布结论、测试项通过数和经泄漏审查的反馈。双方通过 `requirements`、`submit` 和 `query` 三个 MCP 工具交互。
 
 本分支只包含 ARL 源码、技能、测试和独立安装包。两台机器分别安装官方 Paseo；worker 使用 Claude Code（Paseo thinking `ultracode`），validation 使用 Codex（`max`），Paseo 负责执行和监控 agent。
 
@@ -10,7 +10,7 @@ ARL 把研究任务分到两台机器：worker 交付 zip；validation 持有只
 
 ### 独立、可度量的验证
 
-- **两台机器、两个项目**：worker 构建交付物，validation 持有隐藏 benchmark；双方只通过 `submit` 和 `query` 两个 MCP 工具交互，不共享目录。
+- **两台机器、两个项目**：worker 构建交付物，validation 持有隐藏 benchmark；双方只通过 `requirements`、`submit` 和 `query` 三个 MCP 工具交互，不共享目录。`requirements` 事先告诉 worker 交付物要满足的条件（zip 检查项和限制、`USAGE.md` 必须写清的内容、调用接口和运行环境），避免因格式或环境不符被拒收或判为无法运行。
 - **只增不改的 benchmark**：setup 时固定 base 层 benchmark 的代码、数据版本、切分、样本数、评测设置和逐样本通过规则；validator agent 按层（`inc-001`、…）新增测试项，每项都从已有测试项派生，不凭空编造。新增的层放在只由 helper 提交的 git 仓库里，每个提交只能新增文件，helper 逐个提交检查；错了的层只能 retire、不能修改；固定的文件或这段历史有任何改动，服务就停止。
 - **实测测试结果**：每个 benchmark 样本是一个测试项，按冻结的通过规则（`metric`、`op`、`threshold`）根据完整的逐样本 runner 输出判定通过或失败。结果只报告测试项总数和通过数，没有分数，也不比较不同提交的结果；worker 不自报结果。
 - **对抗式审查**：validator agent 检查每个交付物，根据 `USAGE.md` 自写 adapter，重跑 benchmark 的每一层，并在 `task.md` 范围内尽可能多地找出真实问题，可以使用任何工具或调研来的测试方法；判定为 `valid`、`cheating` 或 `unusable`，`cheating` 时所有测试结果作废。
