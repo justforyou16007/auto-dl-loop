@@ -5,11 +5,35 @@ import { failA1, isRecord } from "./validate.js";
 export type ArlRole = "worker" | "validator";
 export type ArlProvider = "claude" | "codex";
 
-/** The role fixes the agent: the worker runs Claude Code at ultracode, the validator runs Codex at max. */
-export const ROLE_AGENT = {
-  worker: { provider: "claude", thinking: "ultracode" },
-  validator: { provider: "codex", thinking: "max" },
-} as const satisfies Record<ArlRole, { provider: ArlProvider; thinking: string }>;
+export const ARL_PROVIDERS: readonly ArlProvider[] = ["claude", "codex"];
+
+/** The backend a role gets when installation names none. */
+export const DEFAULT_PROVIDER: Record<ArlRole, ArlProvider> = {
+  worker: "claude",
+  validator: "codex",
+};
+
+/**
+ * Paseo thinking per role and backend: the worker runs the level that may
+ * delegate to subagents, the validator the deepest single-agent level.
+ */
+export const ROLE_THINKING: Record<ArlRole, Record<ArlProvider, string>> = {
+  worker: { claude: "ultracode", codex: "ultra" },
+  validator: { claude: "max", codex: "max" },
+};
+
+export interface RoleAgent {
+  provider: ArlProvider;
+  thinking: string;
+}
+
+export function roleAgent(role: ArlRole, provider: ArlProvider): RoleAgent {
+  return { provider, thinking: ROLE_THINKING[role][provider] };
+}
+
+export function isArlProvider(value: unknown): value is ArlProvider {
+  return value === "claude" || value === "codex";
+}
 
 /** The role chosen at installation (`install-aris.sh --role`); setup never changes it. */
 export function installedRole(root: string): ArlRole {
@@ -22,13 +46,31 @@ export function installedRole(root: string): ArlRole {
   return installed.role;
 }
 
+/** The backend chosen at installation (`--provider`); installs that recorded none use the role's default. */
 export function installedProvider(root: string): ArlProvider {
-  return ROLE_AGENT[installedRole(root)].provider;
+  const role = installedRole(root);
+  const file = path.join(root, ".aris", "install.json");
+  const installed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+  const provider = isRecord(installed) ? installed.provider : undefined;
+  if (provider === undefined) return DEFAULT_PROVIDER[role];
+  if (!isArlProvider(provider))
+    failA1("INVALID_VALUE", "reinstall ARL with --provider claude|codex", file);
+  return provider;
 }
+
+export function installedAgent(root: string): RoleAgent {
+  return roleAgent(installedRole(root), installedProvider(root));
+}
+
+/** Where each backend reads project skills, relative to the project root. */
+export const PROVIDER_SKILLS: Record<ArlProvider, string> = {
+  claude: ".claude/skills",
+  codex: ".agents/skills",
+};
 
 /** The source checkout has no installation; its skills are found under `.claude/skills`. */
 export function providerSkillsDir(root: string): string {
   const installed = fs.existsSync(path.join(root, ".aris", "install.json"));
   const provider = installed ? installedProvider(root) : "claude";
-  return path.join(root, provider === "codex" ? ".agents" : ".claude", "skills");
+  return path.join(root, ...PROVIDER_SKILLS[provider].split("/"));
 }

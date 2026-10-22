@@ -166,10 +166,26 @@ try {
   ]);
   const leakArgv = paseoRunArgv(
     agent,
-    leakReviewRun({ ...request, review_dir: path.join(root, "s001", "leak-review", "1") }),
+    leakReviewRun({
+      ...request,
+      provider: "codex",
+      review_dir: path.join(root, "s001", "leak-review", "1"),
+    }),
   );
   assert.ok(leakArgv.includes("aris.role=leak-review"));
-  assert.match(leakArgv.at(-1)!, /leak-review\.md/);
+  assert.match(leakArgv.at(-1)!, /\.agents\/skills\/validation-review\/leak-review\.md/);
+
+  // A Claude Code validator: its own backend, max thinking, Claude's skills directory.
+  const claudeAgent = { ...agent, provider: "claude" as const, model: undefined };
+  const claudeArgv = paseoRunArgv(claudeAgent, reviewRun(request));
+  assert.deepEqual(claudeArgv.slice(claudeArgv.indexOf("--provider"), claudeArgv.indexOf("--provider") + 4), [
+    "--provider",
+    "claude",
+    "--thinking",
+    "max",
+  ]);
+  const claudeLeak = leakReviewRun({ ...request, provider: "claude", review_dir: path.join(root, "r") });
+  assert.match(claudeLeak.prompt, /\.claude\/skills\/validation-review\/leak-review\.md/);
   process.env.PASEO_AGENT_ID = "parent-agent";
   assert.deepEqual(await paseoDispatcher(agent)(request), { agent_id: "standalone" });
   delete process.env.PASEO_AGENT_ID;
@@ -275,6 +291,20 @@ try {
       assert.equal(terms.text.includes(secret), false, secret);
     const { runtime_environment: _unset, ...older } = config;
     assert.equal(validateValidationConfig(older).runtime_environment, "");
+    // Either backend may validate, each at max and only in modes that need no approval.
+    const withAgent = (agent: Record<string, unknown>) =>
+      validateValidationConfig({ ...config, agent: { paseo_command: ["paseo"], ...agent } }).agent;
+    assert.deepEqual(withAgent({}), { provider: "codex", thinking: "max", paseo_command: ["paseo"] });
+    assert.deepEqual(withAgent({ provider: "claude", mode: "bypassPermissions" }), {
+      provider: "claude",
+      thinking: "max",
+      mode: "bypassPermissions",
+      paseo_command: ["paseo"],
+    });
+    assert.throws(() => withAgent({ provider: "claude", mode: "full-access" }), /bypassPermissions, auto/);
+    assert.throws(() => withAgent({ provider: "claude", mode: "default" }), /bypassPermissions, auto/);
+    assert.throws(() => withAgent({ provider: "claude", thinking: "ultracode" }), /use max/);
+    assert.throws(() => withAgent({ provider: "gemini" }), /claude or codex/);
 
     // A malformed deliverable is refused and does not count.
     const s1 = await submit();

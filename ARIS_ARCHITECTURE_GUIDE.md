@@ -8,8 +8,8 @@ ARL 是可独立安装、配合官方 Paseo 使用的两机研究任务包。保
 
 模型还做不好的一件事，是给自己的成果下结论：同一个 agent 写的评测，评出来的结果不可信。ARIS 现在只解决这一件事，做法是把"做"和"判"放到两台互相看不见的机器上：
 
-- **worker** 只管做。它是 Paseo 中 thinking 为 `ultracode` 的 Claude Code，拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
-- **validator** 只管测，并且和 worker 对抗。它持有 worker 看不到、只增不改的 benchmark，为每次提交启动一个 thinking 为 `max` 的 Codex agent，在 `task.md` 范围内尽可能多地找出交付物的真实问题，围绕已有测试项派生新的相似场景测试项，给出结论、测试项通过数和只讲问题、不讲用例的反馈。提交次数用完，任务结束。
+- **worker** 只管做。它是 Paseo 中的一个 agent：Claude Code（thinking `ultracode`）或 Codex（thinking `ultra`），拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
+- **validator** 只管测，并且和 worker 对抗。它持有 worker 看不到、只增不改的 benchmark，为每次提交启动一个 thinking 为 `max` 的 agent（后端是验证端项目安装时选的 Claude Code 或 Codex），在 `task.md` 范围内尽可能多地找出交付物的真实问题，围绕已有测试项派生新的相似场景测试项，给出结论、测试项通过数和只讲问题、不讲用例的反馈。提交次数用完，任务结束。
 
 角色在安装时确定（`--role worker|validator`），同时固定 agent、技能目录和指令文件，更新时不能更换。
 
@@ -22,7 +22,7 @@ worker 机器                                   validator 机器
 │  └ worker agent       │  MCP: 三个工具      │  ├ aris-validation 服务脚本       │
 │     task.md           │ ──────────────────▶ │  │   .aris/validation/            │
 │     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validator agent  │
-│     .mcp.json         │ ──────────────────▶ │      .aris/tester-config.json     │
+│     MCP 配置          │ ──────────────────▶ │      .aris/tester-config.json     │
 └───────────────────────┘                     └──────────────────────────────────┘
 ```
 
@@ -68,7 +68,7 @@ agent 的结论只决定"算不算数"，每个测试项通过与否由 helper �
 
 | 文件 | 唯一写入方 |
 | --- | --- |
-| `.aris/setup-*.json`、`.aris/tester-config.json`、`.aris/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、`.mcp.json` 和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
+| `.aris/setup-*.json`、`.aris/tester-config.json`、`.aris/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、worker MCP 配置（`.mcp.json` 或 `.codex/config.toml`）和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
 | `.aris/validation/` 下的提交记录、发布结果、新增层的 git 仓库 `benchmark/` 及其 head 记录 `benchmark-head` | `validation-cli.js`（服务、`extend`、`retire`、`leak-review`、`finalize`） |
 | 提交目录里的 `inspection.md`、`review.json`、`feedback.md`、适配器、新层草稿 | validator agent |
 | 提交目录里的 `leak-review/<n>/result.json` | 该次泄漏审查 agent |
@@ -94,7 +94,7 @@ worker 每次获得 validation 已发布的最终结论后，按[经验保存约
 
 ## 七、保留了什么、删掉了什么
 
-判断标准只有一条：Claude Code agent 自己能做的，ARIS 就不再提供流程。
+判断标准只有一条：agent 自己能做的，ARIS 就不再提供流程。
 
 - **独立包包含**：setup、validation-review、research-wiki、browser-act 四个技能及其 helper 依赖闭包。setup 的环境输出是项目环境技能；安装和升级使用同一安装器。部署和技能重载见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。GPU 平台、文献检索、飞书和 Overleaf 等技能留在源码中，不进入安装包。
 - **删除**：研究循环、各类审计和评审技能、子 agent 派发协议、worker manifest、Pipeline/Review 等前端视图，以及环境 PRD、环境配置技能和实验队列。规划、派发、自查和实验调度都是 agent 自己的工作。

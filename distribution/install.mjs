@@ -8,17 +8,23 @@ const { values } = parseArgs({
   options: {
     role: { type: "string" },
     project: { type: "string" },
+    provider: { type: "string" },
     force: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
 });
 if (values.help) {
-  console.log("bash install.sh --role worker|validator --project PATH [--dry-run] [--force]");
+  console.log(
+    "bash install.sh --role worker|validator --project PATH [--provider claude|codex] [--dry-run] [--force]",
+  );
   process.exit(0);
 }
 if (!values.project || !["worker", "validator"].includes(values.role)) {
   throw new Error("Specify --role worker|validator and --project PATH. See --help.");
+}
+if (values.provider !== undefined && !["claude", "codex"].includes(values.provider)) {
+  throw new Error("--provider must be claude or codex. See --help.");
 }
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ required");
@@ -26,9 +32,6 @@ if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(values.project);
 const role = values.role;
-// The role fixes the provider: the worker runs Claude Code, the validator runs Codex.
-const provider = role === "worker" ? "claude" : "codex";
-const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
 const manifestFile = path.join(root, ".aris/install.json");
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -78,6 +81,15 @@ if (previous && !["worker", "validator"].includes(previous.role)) {
 if (previous && previous.role !== role) {
   throw new Error(`This project is installed for ${previous.role}; keep its role when updating.`);
 }
+// Either backend can run either role; without --provider an update keeps the installed one
+// and a new install takes the role's default: Claude Code for the worker, Codex for the validator.
+const provider = values.provider ?? previous?.provider ?? (role === "worker" ? "claude" : "codex");
+if (previous?.provider && previous.provider !== provider) {
+  throw new Error(
+    `This project is installed for ${previous.provider}; keep its provider when updating, or install into a fresh project.`,
+  );
+}
+const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))
   throw new Error("Invalid ARL archive manifest");
@@ -167,8 +179,16 @@ console.log(
     2,
   ),
 );
+const thinking = {
+  worker: { claude: "ultracode", codex: "ultra" },
+  validator: { claude: "max", codex: "max" },
+}[role][provider];
+const client =
+  provider === "claude"
+    ? "Run reload-skills after skills change, or open a fresh session."
+    : "Codex must trust the project to read its .codex/config.toml; open a fresh session after skills change.";
 console.log(
   role === "worker"
-    ? "Next: open this project in official Paseo with Claude Code at thinking ultracode and invoke aris-setup. Run reload-skills after skills change, or open a fresh session; a changed MCP configuration needs a fresh session."
-    : "Next: open this project in official Paseo with Codex at thinking max and invoke aris-setup. Codex must trust the project; open a fresh session after skills change.",
+    ? `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke aris-setup. ${client} A changed MCP configuration needs a fresh session.`
+    : `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke aris-setup; the service starts validator agents with the same backend. ${client}`,
 );

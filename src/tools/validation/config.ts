@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { ROLE_AGENT } from "../provider.js";
+import { ROLE_THINKING, isArlProvider, type ArlProvider } from "../provider.js";
 import { readStateFile, writeStateFileAtomic } from "../state-file.js";
 import {
   assertNoUnknownFields,
@@ -39,9 +39,9 @@ export interface ValidationLimits {
 }
 
 export interface ValidationAgentConfig {
-  /** Fixed by the validator role: Codex at max thinking. */
-  provider: typeof ROLE_AGENT.validator.provider;
-  thinking: typeof ROLE_AGENT.validator.thinking;
+  /** The backend the validator project was installed with, at the role's thinking level. */
+  provider: ArlProvider;
+  thinking: string;
   model?: string;
   mode?: string;
   /**
@@ -71,11 +71,15 @@ export interface ValidationConfig {
 }
 
 /**
- * Paseo's Codex modes a validator may run in. `full-access` lets the benchmark and
- * the deliverable's documented install reach the network and write outside the
- * project; the sandboxed modes fail or wait for an approval nobody gives.
+ * Paseo modes a validator may run in, per backend, the default first. Full access
+ * lets the benchmark and the deliverable's documented install reach the network
+ * and write outside the project; a sandboxed mode makes those steps fail. Modes
+ * that wait for an approval nobody gives are not offered.
  */
-export const VALIDATOR_MODES = ["full-access", "auto-review", "auto"];
+export const VALIDATOR_MODES: Record<ArlProvider, readonly string[]> = {
+  claude: ["bypassPermissions", "auto"],
+  codex: ["full-access", "auto-review", "auto"],
+};
 
 export const DEFAULT_LIMITS: ValidationLimits = {
   max_submissions: 20,
@@ -144,15 +148,15 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
   assertNoUnknownFields(agent, ["provider", "model", "mode", "thinking", "paseo_command"], "agent");
   const command = strings(agent.paseo_command ?? ["paseo"], "agent.paseo_command");
   if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.paseo_command");
-  for (const [key, expected] of Object.entries(ROLE_AGENT.validator))
-    if (agent[key] !== undefined && agent[key] !== null && agent[key] !== expected)
-      failA1("INVALID_VALUE", `validator agents use ${expected}`, `agent.${key}`);
-  if (
-    agent.mode !== undefined &&
-    agent.mode !== null &&
-    !VALIDATOR_MODES.includes(String(agent.mode))
-  )
-    failA1("INVALID_VALUE", `choose one of ${VALIDATOR_MODES.join(", ")}`, "agent.mode");
+  // Configs written before the backend became a choice name none: they ran Codex.
+  const provider = agent.provider ?? "codex";
+  if (!isArlProvider(provider)) failA1("INVALID_VALUE", "choose claude or codex", "agent.provider");
+  const thinking = ROLE_THINKING.validator[provider];
+  if (agent.thinking !== undefined && agent.thinking !== null && agent.thinking !== thinking)
+    failA1("INVALID_VALUE", `${provider} validator agents use ${thinking}`, "agent.thinking");
+  const modes = VALIDATOR_MODES[provider];
+  if (agent.mode !== undefined && agent.mode !== null && !modes.includes(String(agent.mode)))
+    failA1("INVALID_VALUE", `choose one of ${modes.join(", ")}`, "agent.mode");
   const optional = (key: string) =>
     agent[key] === undefined || agent[key] === null
       ? {}
@@ -180,7 +184,8 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
     limits,
     hidden_paths: hidden,
     agent: {
-      ...ROLE_AGENT.validator,
+      provider,
+      thinking,
       ...optional("model"),
       ...optional("mode"),
       paseo_command: command,

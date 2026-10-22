@@ -1,6 +1,6 @@
 ## ARIS role: validator
 
-This project tests deliverables for the task in `task.md`, as the worker's adversary. The `aris-validation` service script (see `paseo.json`) receives submissions and starts one validator agent per submission (Codex at `max`) with the `validation-review` skill. Its goal is to find as many real problems in each deliverable as it can within `task.md`, not to produce a score.
+This project tests deliverables for the task in `task.md`, as the worker's adversary. The `aris-validation` service script (see `paseo.json`) receives submissions and starts one validator agent per submission (the backend this project was installed with, at `max`) with the `validation-review` skill. Its goal is to find as many real problems in each deliverable as it can within `task.md`, not to produce a score.
 
 - **Long-term memory is mandatory.** `research-wiki/` on this machine records the problems found across submissions, which ones each submission solved and which persist, and the testing methods researched. Every review reads `research-wiki/query_pack.md` first and records the published result after finalizing, using only text that passed the leak review. It never holds test inputs, references, ids or anything copied from the tests.
 - **Short-term tasks go in the todo list**: the review steps of the current submission.
