@@ -6,7 +6,7 @@ const API_BASE = "https://export.arxiv.org/api/query";
 const MIN_PDF_BYTES = 10_240;
 
 function arxivUserAgent(): string {
-  const contact = (process.env.ARIS_VERIFY_EMAIL ?? "").trim();
+  const contact = (process.env.CONTREJOUR_VERIFY_EMAIL ?? "").trim();
   const base =
     "arxiv-skill/1.0 (+https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep)";
   return contact ? `${base} (mailto:${contact})` : base;

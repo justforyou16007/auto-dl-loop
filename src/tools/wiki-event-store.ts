@@ -55,7 +55,7 @@ export interface WikiAppendOptions {
 
 export interface WikiSchemaDocument {
   schema_version: typeof WIKI_SCHEMA_VERSION;
-  format: "aris-research-wiki";
+  format: "contrejour-research-wiki";
   event_log: "events.jsonl";
   canonicalization: "RFC8785-equivalent";
   projection_version: 1;
@@ -107,7 +107,7 @@ function assertSchemaDocument(value: unknown, schemaPath: string): WikiSchemaDoc
   if (
     !isObject(value) ||
     value.schema_version !== WIKI_SCHEMA_VERSION ||
-    value.format !== "aris-research-wiki" ||
+    value.format !== "contrejour-research-wiki" ||
     value.event_log !== WIKI_EVENTS_FILE ||
     value.canonicalization !== "RFC8785-equivalent" ||
     value.projection_version !== 1
@@ -167,7 +167,7 @@ export function initializeWikiSchema(wikiRoot: string): void {
 
     const schema: WikiSchemaDocument = {
       schema_version: WIKI_SCHEMA_VERSION,
-      format: "aris-research-wiki",
+      format: "contrejour-research-wiki",
       event_log: WIKI_EVENTS_FILE,
       canonicalization: "RFC8785-equivalent",
       projection_version: 1,

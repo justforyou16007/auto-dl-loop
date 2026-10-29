@@ -18,10 +18,10 @@ second path and never substitutes arXiv, Semantic Scholar, or AlphaXiv.
 From the project root, require both the compiled helper and the DeepXiv CLI:
 
 ```bash
-DEEPXIV_FETCHER=".aris/dist/tools/deepxiv-fetch.js"
+DEEPXIV_FETCHER=".contrejour/dist/tools/deepxiv-fetch.js"
 [ -f "$DEEPXIV_FETCHER" ] || DEEPXIV_FETCHER="dist/tools/deepxiv-fetch.js"
 [ -f "$DEEPXIV_FETCHER" ] || {
-  echo "ERROR: deepxiv-fetch.js is required. Build the ARL source and install this optional helper." >&2
+  echo "ERROR: deepxiv-fetch.js is required. Build the Contrejour source and install this optional helper." >&2
   exit 1
 }
 command -v deepxiv >/dev/null 2>&1 || {
@@ -55,7 +55,7 @@ deepen with another command after a failed fetch.
 ## Research Wiki
 
 If `research-wiki/` exists, ingest the papers returned by this invocation with
-the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`). A failed ingest fails the skill.
+the wiki helper (`WIKI_SCRIPT=.contrejour/dist/tools/research-wiki.js`). A failed ingest fails the skill.
 
 ```bash
 node "$WIKI_SCRIPT" ingest_survey research-wiki/ --arxiv-id "$ARXIV_ID" || exit 1

@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { ROLE_THINKING, isArlProvider, type ArlProvider } from "../provider.js";
+import { ROLE_THINKING, isProvider, type Provider } from "../provider.js";
 import { readStateFile, writeStateFileAtomic } from "../state-file.js";
 import {
   assertNoUnknownFields,
@@ -40,7 +40,7 @@ export interface ValidationLimits {
 
 export interface ValidationAgentConfig {
   /** The backend the validator project was installed with, at the role's thinking level. */
-  provider: ArlProvider;
+  provider: Provider;
   thinking: string;
   model?: string;
   mode?: string;
@@ -76,7 +76,7 @@ export interface ValidationConfig {
  * and write outside the project; a sandboxed mode makes those steps fail. Modes
  * that wait for an approval nobody gives are not offered.
  */
-export const VALIDATOR_MODES: Record<ArlProvider, readonly string[]> = {
+export const VALIDATOR_MODES: Record<Provider, readonly string[]> = {
   claude: ["bypassPermissions", "auto"],
   codex: ["full-access", "auto-review", "auto"],
 };
@@ -94,7 +94,7 @@ export const DEFAULT_LIMITS: ValidationLimits = {
 };
 
 export const validationDir = (root: string): string =>
-  path.join(path.resolve(root), ".aris", "validation");
+  path.join(path.resolve(root), ".contrejour", "validation");
 export const validationConfigPath = (root: string): string =>
   path.join(validationDir(root), "config.json");
 export const validationTokenPath = (root: string): string =>
@@ -107,7 +107,10 @@ function strings(value: unknown, location: string): string[] {
 
 export function validateValidationConfig(value: unknown): ValidationConfig {
   if (!isRecord(value) || value.schema_version !== 2)
-    failA1("INVALID_VALIDATION_CONFIG", "run /aris-setup validation to create it");
+    failA1(
+      "INVALID_VALIDATION_CONFIG",
+      "run /validator-setup on the validator machine to create it",
+    );
   assertNoUnknownFields(
     value,
     [
@@ -150,7 +153,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
   if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.paseo_command");
   // Configs written before the backend became a choice name none: they ran Codex.
   const provider = agent.provider ?? "codex";
-  if (!isArlProvider(provider)) failA1("INVALID_VALUE", "choose claude or codex", "agent.provider");
+  if (!isProvider(provider)) failA1("INVALID_VALUE", "choose claude or codex", "agent.provider");
   const thinking = ROLE_THINKING.validator[provider];
   if (agent.thinking !== undefined && agent.thinking !== null && agent.thinking !== thinking)
     failA1("INVALID_VALUE", `${provider} validator agents use ${thinking}`, "agent.thinking");
@@ -200,7 +203,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
 export function readValidationConfig(root: string): ValidationConfig {
   const file = validationConfigPath(root);
   if (!fs.existsSync(file))
-    failA1("VALIDATION_NOT_CONFIGURED", "run /aris-setup validation on this machine");
+    failA1("VALIDATION_NOT_CONFIGURED", "run /validator-setup on this validator machine");
   return validateValidationConfig(readStateFile(file));
 }
 
@@ -212,9 +215,19 @@ export function readValidationToken(root: string): string {
   return token;
 }
 
-/** Create the bearer token once; re-running setup keeps the worker's copy valid. */
-export function ensureValidationToken(root: string): string {
+/**
+ * The bearer token: the one the machine provides (CONTREJOUR_TOKEN), otherwise
+ * one created once, so re-running setup keeps the worker's copy valid.
+ */
+export function ensureValidationToken(root: string, provided?: string): string {
   const file = validationTokenPath(root);
+  if (provided !== undefined) {
+    if (provided.length < 32)
+      failA1("INVALID_VALUE", "must be at least 32 characters", "CONTREJOUR_TOKEN");
+    if (!fs.existsSync(file) || fs.readFileSync(file, "utf8").trim() !== provided)
+      writeStateFileAtomic(file, `${provided}\n`);
+    return provided;
+  }
   if (fs.existsSync(file)) return readValidationToken(root);
   const token = crypto.randomBytes(32).toString("base64url");
   writeStateFileAtomic(file, `${token}\n`);

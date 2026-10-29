@@ -11,9 +11,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const directoryOnly = process.argv[2] === "--directory";
 const output = path.resolve(process.argv[directoryOnly ? 3 : 2] ?? path.join(root, "artifacts"));
 const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "arl-package-"));
-const stage = path.join(temp, "arl");
-const skills = ["aris-setup", "validation-review", "research-wiki", "browser-act", "shared-references"];
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
+const stage = path.join(temp, "contrejour");
+const skills = ["worker-setup", "validator-setup", "validation-review", "research-wiki", "browser-act", "shared-references"];
 const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act"];
 const visited = new Set();
 
@@ -41,7 +41,7 @@ try {
   copy("SETUP_GUIDE.md");
   fs.copyFileSync(path.join(root, "SETUP_GUIDE.md"), path.join(stage, "README.md"));
   for (const name of ["install.sh", "install.mjs"]) fs.copyFileSync(path.join(root, "distribution", name), path.join(stage, name));
-  fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "auto-research-loop", version, private: true, type: "module", engines: { node: ">=22.12.0" } }, null, 2) + "\n");
+  fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "contrejour", version, private: true, type: "module", engines: { node: ">=22.12.0" } }, null, 2) + "\n");
   const require = createRequire(path.join(root, "package.json"));
   const commander = path.dirname(require.resolve("commander"));
   fs.cpSync(commander, path.join(stage, "node_modules/commander"), { recursive: true, dereference: true });
@@ -57,13 +57,13 @@ try {
   fs.writeFileSync(path.join(stage, "manifest.json"), JSON.stringify({ format: 1, version, files }, null, 2) + "\n");
   fs.mkdirSync(output, { recursive: true });
   if (directoryOnly) {
-    const bundle = path.join(output, "arl");
+    const bundle = path.join(output, "contrejour");
     if (fs.existsSync(bundle)) throw new Error(`Bundle directory already exists: ${bundle}`);
     fs.cpSync(stage, bundle, { recursive: true });
     console.log(bundle);
   } else {
-    const archive = path.join(output, `arl-${version}.tar.gz`);
-    execFileSync("tar", ["-czf", archive, "-C", temp, "arl"]);
+    const archive = path.join(output, `contrejour-${version}.tar.gz`);
+    execFileSync("tar", ["-czf", archive, "-C", temp, "contrejour"]);
     const sum = crypto.createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
     fs.writeFileSync(`${archive}.sha256`, `${sum}  ${path.basename(archive)}\n`);
     console.log(archive);

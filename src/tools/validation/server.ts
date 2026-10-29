@@ -1,16 +1,18 @@
 /**
  * The validator machine's public face. Worker agents reach it as a remote MCP
- * server with three tools, `requirements`, `submit` and `query`; deliverables arrive as a plain
+ * server with four tools, `task`, `requirements`, `submit` and `query`; deliverables arrive as a plain
  * HTTP PUT to the one-time URL `submit` returns, so Windows' built-in curl.exe
  * is enough. A tick expires stale uploads and starts one validator agent per
  * queued submission. Everything else (scoring, publishing) happens in the CLI.
  */
+import { isUtf8 } from "node:buffer";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { readTask } from "../task.js";
 import { A1Error, failA1, isRecord } from "../validate.js";
 import {
   readValidationConfig,
@@ -54,6 +56,12 @@ export interface RunningService {
 
 const TOOLS = [
   {
+    name: "task",
+    description:
+      "The task statement (task.md) every deliverable is judged against, with its sha256. The worker's task.md must be this text byte for byte: setup's fetch-task copies it, and it is fetched again whenever `query` reports another task_sha256.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "requirements",
     description:
       "What a deliverable must meet before it is submitted: the zip format and size limits checked on upload, what USAGE.md must state, how the validator calls the deliverable, the machine it runs on, the review time limit and what each verdict means. Read it before the first submission and after any invalid or unusable one.",
@@ -74,7 +82,7 @@ const TOOLS = [
   {
     name: "query",
     description:
-      "Service state (open or closed), submissions left and, for one submission, its status, verdict, how many tests it passed out of how many, and feedback on the problems found. The tests themselves stay hidden.",
+      "Service state (open or closed), submissions left, the sha256 of the current task.md and, for one submission, its status, verdict, how many tests it passed out of how many, and feedback on the problems found. The tests themselves stay hidden.",
     inputSchema: {
       type: "object",
       properties: { submission_id: { type: "string", description: "For example s001." } },
@@ -82,6 +90,17 @@ const TOOLS = [
     },
   },
 ];
+
+/**
+ * task.md as it stands on this machine, read on every call so an owner's edit
+ * reaches the worker at its next fetch. task.md is public by design.
+ */
+function taskTool(root: string) {
+  const task = readTask(root);
+  if (!task) failA1("TASK_MISSING", "the validator has no task.md");
+  if (!isUtf8(task.bytes)) failA1("INVALID_TASK", "the validator's task.md is not UTF-8 text");
+  return { sha256: task.sha256, text: task.bytes.toString("utf8") };
+}
 
 /**
  * The terms a deliverable must meet, taken from the frozen config. It carries no
@@ -175,7 +194,11 @@ function queryTool(
   args: Record<string, unknown>,
   blocked: string | null,
 ) {
-  const service = { ...serviceSummary(root, config), ...(blocked ? { blocked } : {}) };
+  const service = {
+    ...serviceSummary(root, config),
+    task_sha256: readTask(root)?.sha256 ?? null,
+    ...(blocked ? { blocked } : {}),
+  };
   if (typeof args.submission_id === "string")
     return {
       service,
@@ -240,9 +263,9 @@ export async function startValidationService(
       return ok({
         protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "aris-validation", version: "1.0.0" },
+        serverInfo: { name: "contrejour", version: "1.0.0" },
         instructions:
-          "Read `requirements` before the first submission and after any invalid or unusable one, and check the zip and USAGE.md against it. Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
+          "`task` is the task: your task.md must match it byte for byte (setup's fetch-task copies it); fetch it again whenever `query` reports another task_sha256. Read `requirements` before the first submission and after any invalid or unusable one, and check the zip and USAGE.md against it. Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
       });
     }
     if (method === "ping") return ok({});
@@ -251,13 +274,15 @@ export async function startValidationService(
       const args = isRecord(params.arguments) ? params.arguments : {};
       try {
         const result =
-          params.name === "requirements"
-            ? requirementsTool(root, config)
-            : params.name === "submit"
-              ? submitTool(root, config, args)
-              : params.name === "query"
-                ? queryTool(root, config, args, blocked)
-                : failA1("UNKNOWN_TOOL", `no tool ${String(params.name)}`);
+          params.name === "task"
+            ? taskTool(root)
+            : params.name === "requirements"
+              ? requirementsTool(root, config)
+              : params.name === "submit"
+                ? submitTool(root, config, args)
+                : params.name === "query"
+                  ? queryTool(root, config, args, blocked)
+                  : failA1("UNKNOWN_TOOL", `no tool ${String(params.name)}`);
         return ok({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
       } catch (error) {
         const text = error instanceof A1Error ? error.message : "internal error";

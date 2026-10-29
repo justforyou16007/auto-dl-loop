@@ -8,6 +8,7 @@ import {
   assertTesterSetupReady,
   checkTesterResult,
   evidenceFile,
+  execute,
   executeTesterJob,
   prepareTesterJob,
   readTesterJob,
@@ -18,7 +19,7 @@ import {
 } from "../src/tools/tester-facility.js";
 import { facilityConfig } from "./helpers/tester-facility-fixture.js";
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "aris-facility-"));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-facility-"));
 try {
   const config = facilityConfig(root);
   await setupTesterFacility(root, config);
@@ -101,6 +102,17 @@ try {
   assert.equal(readTesterJob(staleDir).status, "failed");
   await executeTesterJob(staleDir);
   assert.equal(readTesterJob(staleDir).status, "completed");
+
+  // A runner drives the deliverable under test, which gets no copy of the service token.
+  process.env.CONTREJOUR_TOKEN = "t".repeat(43);
+  process.env.CONTREJOUR_URL = "https://validation.example";
+  try {
+    const check = "process.exit(!process.env.CONTREJOUR_TOKEN && process.env.CONTREJOUR_URL ? 0 : 3)";
+    await execute({ cwd: root, env: {} }, { argv: [process.execPath, "-e", check], timeout_ms: 30_000 }, {}, path.join(root, "env.log"));
+  } finally {
+    delete process.env.CONTREJOUR_TOKEN;
+    delete process.env.CONTREJOUR_URL;
+  }
 
   // Changing a pinned benchmark file invalidates the installation.
   fs.appendFileSync(path.join(config.execution.cwd, "labels.json"), " ");

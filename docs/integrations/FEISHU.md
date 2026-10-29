@@ -30,8 +30,8 @@ Group notifications with rich cards — experiment done, submission scored, task
 
 1. Open your Feishu group (or create a test group)
 2. Group Settings → Bots → Add Bot → **Custom Bot**
-3. Name it (e.g., `ARIS Notifications`), copy the **Webhook URL**
-4. Security: add custom keyword `ARIS` (all notifications include this word), or leave unrestricted
+3. Name it (e.g., `Contrejour Notifications`), copy the **Webhook URL**
+4. Security: add custom keyword `Contrejour` (all notifications include this word), or leave unrestricted
 
 ### Step 2: Create config file
 
@@ -52,7 +52,7 @@ curl -s -X POST "YOUR_WEBHOOK_URL" \
   -d '{
     "msg_type": "interactive",
     "card": {
-      "header": {"title": {"tag": "plain_text", "content": "🧪 ARIS Test"}, "template": "blue"},
+      "header": {"title": {"tag": "plain_text", "content": "🧪 Contrejour Test"}, "template": "blue"},
       "elements": [{"tag": "markdown", "content": "Push mode working! 🎉"}]
     }
   }'
@@ -81,7 +81,7 @@ Everything Push mode does, **plus** bidirectional private chat with Claude Code 
 
 ### Step 2: Create a Feishu app on [open.feishu.cn](https://open.feishu.cn/app)
 
-1. Click **Create Enterprise App** → name it (e.g., `ARIS Claude Bot`) → create
+1. Click **Create Enterprise App** → name it (e.g., `Contrejour Claude Bot`) → create
 2. Left menu → **Add Capabilities** → check **Bot**
 3. Left menu → **Permissions** → search and enable these 5 permissions:
 
@@ -123,7 +123,7 @@ DEFAULT_CWD=/path/to/your/project      # Working directory for Claude Code
 PERMISSION_MODE=bypassPermissions      # Or "default" for safer mode
 ```
 
-> ⚠️ **Model matters**: The default `claude-sonnet-4-6` works but may struggle with complex project context. `claude-opus-4-6` correctly identified 18 ARIS skills on first try where sonnet could not.
+> ⚠️ **Model matters**: The default `claude-sonnet-4-6` works but may struggle with complex project context. `claude-opus-4-6` correctly identified all 18 skills on first try where sonnet could not.
 
 Start the bridge:
 
@@ -162,7 +162,7 @@ Go back to Feishu Open Platform → Events & Callbacks → the long connection s
 | Session has stale context                  | The current session predates a config change    | Send `/new` in chat to start a fresh session   |
 | "未检测到应用连接信息" when saving events | Bridge not running yet                           | Start bridge first, then save event config      |
 
-### Step 6: Update ARIS config
+### Step 6: Update Contrejour config
 
 ```bash
 cat > ~/.claude/feishu.json << 'EOF'

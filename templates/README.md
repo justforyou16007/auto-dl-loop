@@ -1,11 +1,11 @@
 # Templates
 
-`/aris-setup` reads these; you do not copy them by hand.
+The setup skills (`/worker-setup`, `/validator-setup`) read these; you do not copy them by hand.
 
 | Template | Used by |
 | --- | --- |
-| [TASK_TEMPLATE.md](TASK_TEMPLATE.md) | Both roles. Becomes `task.md`, the only statement of the task. |
-| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATOR.md](ROLE_VALIDATOR.md) | Setup writes the matching one between the `ARIS ROLE` markers in `CLAUDE.md` (worker) or `AGENTS.md` (validator). |
+| [TASK_TEMPLATE.md](TASK_TEMPLATE.md) | Validator role. Becomes `task.md`, the only statement of the task; the worker's setup fetches it through the `task` tool. |
+| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATOR.md](ROLE_VALIDATOR.md) | Setup writes the matching one between the `CONTREJOUR ROLE` markers in `CLAUDE.md` (worker) or `AGENTS.md` (validator). |
 | [TESTER_FACILITY_CONFIG_TEMPLATE.json](TESTER_FACILITY_CONFIG_TEMPLATE.json) | Validator role. Starting point for the benchmark's frozen base layer. |
 | [tester-benchmark/](tester-benchmark/) | Validator role. A worked lm-evaluation-harness deployment. |
 
@@ -15,16 +15,16 @@ The base layer's `setup`, `healthcheck`, `smoke` and `test` entries are argv arr
 
 | Variable | Value |
 | --- | --- |
-| `ARIS_TEST_MODE` | `smoke` or `full` |
-| `ARIS_TEST_ID`, `ARIS_PROJECT_ID` | Identity of this run |
-| `ARIS_ARTIFACT_REF`, `ARIS_ARTIFACT_SHA256` | The unpacked deliverable and its digest |
-| `ARIS_ADAPTER_DIR` | The validator agent's adapter for this deliverable |
-| `ARIS_TEST_DIR` | Where to write predictions and native benchmark output |
-| `ARIS_TEST_OUTPUT` | Where to write the result JSON, only after evaluation finishes |
+| `CONTREJOUR_TEST_MODE` | `smoke` or `full` |
+| `CONTREJOUR_TEST_ID`, `CONTREJOUR_PROJECT_ID` | Identity of this run |
+| `CONTREJOUR_ARTIFACT_REF`, `CONTREJOUR_ARTIFACT_SHA256` | The unpacked deliverable and its digest |
+| `CONTREJOUR_ADAPTER_DIR` | The validator agent's adapter for this deliverable |
+| `CONTREJOUR_TEST_DIR` | Where to write predictions and native benchmark output |
+| `CONTREJOUR_TEST_OUTPUT` | Where to write the result JSON, only after evaluation finishes |
 
 ```json
 {
-  "artifact_sha256": "<ARIS_ARTIFACT_SHA256>",
+  "artifact_sha256": "<CONTREJOUR_ARTIFACT_SHA256>",
   "metrics": {"accuracy": 0.5},
   "samples": [
     {"id": "case-1", "status": "ok", "metrics": {"accuracy": 1}},

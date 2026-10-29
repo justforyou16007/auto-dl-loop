@@ -5,7 +5,7 @@
  * command is an argv list from the frozen config.
  */
 import { execFile } from "node:child_process";
-import { PROVIDER_SKILLS, type ArlProvider } from "../provider.js";
+import { PROVIDER_SKILLS, type Provider } from "../provider.js";
 import { failA1 } from "../validate.js";
 import type { ValidationAgentConfig } from "./config.js";
 
@@ -27,10 +27,10 @@ export type Dispatcher = (request: DispatchRequest) => Promise<{ agent_id: strin
 export function reviewRun(request: DispatchRequest): AgentRun {
   return {
     root: request.root,
-    title: `ARIS validation ${request.submission_id}`,
-    labels: { "aris.role": "validator", "aris.submission": request.submission_id },
+    title: `Contrejour validation ${request.submission_id}`,
+    labels: { "contrejour.role": "validator", "contrejour.submission": request.submission_id },
     prompt: [
-      `Review ARIS validation submission ${request.submission_id}.`,
+      `Review Contrejour validation submission ${request.submission_id}.`,
       `Submission directory: ${request.submission_dir}`,
       "Follow the validation-review skill from start to finish, ending with finalize.",
     ].join("\n"),
@@ -39,17 +39,17 @@ export function reviewRun(request: DispatchRequest): AgentRun {
 
 export function leakReviewRun(request: {
   root: string;
-  provider: ArlProvider;
+  provider: Provider;
   submission_id: string;
   submission_dir: string;
   review_dir: string;
 }): AgentRun {
   return {
     root: request.root,
-    title: `ARIS leak review ${request.submission_id}`,
-    labels: { "aris.role": "leak-review", "aris.submission": request.submission_id },
+    title: `Contrejour leak review ${request.submission_id}`,
+    labels: { "contrejour.role": "leak-review", "contrejour.submission": request.submission_id },
     prompt: [
-      `Cross-check the feedback of ARIS validation submission ${request.submission_id} before it reaches the worker.`,
+      `Cross-check the feedback of Contrejour validation submission ${request.submission_id} before it reaches the worker.`,
       `Feedback to check: ${request.review_dir}/feedback.md`,
       `Submission directory: ${request.submission_dir}`,
       `Follow ${PROVIDER_SKILLS[request.provider]}/validation-review/leak-review.md and write ${request.review_dir}/result.json; change nothing else.`,

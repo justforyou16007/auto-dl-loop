@@ -26,11 +26,11 @@ if (
   checkout.status !== 0 ||
   fs.realpathSync(checkout.stdout.trim()) !== fs.realpathSync(root)
 ) {
-  throw new Error("Run distribution/install-aris.sh from a local ARL Git checkout.");
+  throw new Error("Run distribution/install-contrejour.sh from a local Contrejour Git checkout.");
 }
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-if (pkg.name !== "auto-research-loop")
-  throw new Error("This checkout is not the standalone ARL repository.");
+if (pkg.name !== "contrejour")
+  throw new Error("This checkout is not the standalone Contrejour repository.");
 for (const relative of [
   "node_modules/typescript/package.json",
   "node_modules/commander/package.json",
@@ -43,18 +43,18 @@ for (const relative of [
     );
   }
 }
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "arl-local-install-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-local-install-"));
 let status = 1;
 try {
   const staged = spawnSync(
     process.execPath,
-    [path.join(root, "tools/pack-arl.mjs"), "--directory", temp],
+    [path.join(root, "tools/pack-contrejour.mjs"), "--directory", temp],
     { encoding: "utf8" },
   );
   if (staged.error) throw staged.error;
   if (staged.status !== 0)
-    throw new Error(`Could not assemble the local ARL runtime. ${staged.stderr}`);
-  const result = spawnSync(process.execPath, [path.join(temp, "arl/install.mjs"), ...args], {
+    throw new Error(`Could not assemble the local Contrejour runtime. ${staged.stderr}`);
+  const result = spawnSync(process.execPath, [path.join(temp, "contrejour/install.mjs"), ...args], {
     stdio: "inherit",
   });
   if (result.error) throw result.error;

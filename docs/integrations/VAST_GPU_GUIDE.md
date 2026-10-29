@@ -3,13 +3,13 @@
 > 🇨🇳 中文版：[VAST_GPU_GUIDE_CN.md](VAST_GPU_GUIDE_CN.md)
 > Use this when you don't own a GPU server.
 
-ARIS supports renting GPUs on demand from [Vast.ai](https://vast.ai) — the cheapest spot-rental marketplace for ML hardware. When an experiment needs a GPU, `/vast-gpu` **analyzes your training task** (model size, dataset, estimated time), searches for the cheapest GPU that fits the workload, and presents options ranked by **estimated total cost** (not just $/hr). After you pick, it handles everything: rent → setup → run → collect results → destroy.
+Contrejour supports renting GPUs on demand from [Vast.ai](https://vast.ai) — the cheapest spot-rental marketplace for ML hardware. When an experiment needs a GPU, `/vast-gpu` **analyzes your training task** (model size, dataset, estimated time), searches for the cheapest GPU that fits the workload, and presents options ranked by **estimated total cost** (not just $/hr). After you pick, it handles everything: rent → setup → run → collect results → destroy.
 
 ## When to use this vs. `gpu: remote` / `gpu: local`
 
 | Option        | When                                                                     | Cost model                              |
 | ------------- | ------------------------------------------------------------------------ | --------------------------------------- |
-| `gpu: remote` | You own (or your lab provides) a fixed SSH-accessible server             | Sunk cost; ARIS treats it as free       |
+| `gpu: remote` | You own (or your lab provides) a fixed SSH-accessible server             | Sunk cost; Contrejour treats it as free       |
 | `gpu: local`  | You're already on the GPU host                                           | Sunk cost; no SSH overhead              |
 | `gpu: vast`   | No GPU, or you need bigger hardware than what you own for one experiment | Per-hour rental, auto-billed by Vast.ai |
 
@@ -45,7 +45,7 @@ Vast.ai works for one-off ablations, baseline reruns, or scaling up to A100/H100
    vastai search offers 'gpu_ram>=24 reliability>0.95' -o 'dph+' --limit 3
    ```
 
-## Tell ARIS to use Vast.ai
+## Tell Contrejour to use Vast.ai
 
 Add to your project's `CLAUDE.md`:
 
@@ -57,7 +57,7 @@ Add to your project's `CLAUDE.md`:
 - max_budget: 5.00 # optional: warn if estimated cost exceeds this
 ```
 
-That's it — no GPU model or hardware config needed. ARIS reads your experiment scripts/plan, estimates VRAM and training time, then presents options:
+That's it — no GPU model or hardware config needed. Contrejour reads your experiment scripts/plan, estimates VRAM and training time, then presents options:
 
 ```
 | # | GPU       | VRAM  | $/hr  | Est. Hours | Est. Total | Offer ID |
@@ -66,7 +66,7 @@ That's it — no GPU model or hardware config needed. ARIS reads your experiment
 | 2 | A100 SXM  | 80 GB | $0.95 | ~2h        | ~$1.90     | 7023456  |  ← fastest
 ```
 
-Pick a number and ARIS handles the rest.
+Pick a number and Contrejour handles the rest.
 
 ## Manual control
 
@@ -82,13 +82,13 @@ For one-off rentals outside an experiment, call the skill directly:
 
 ## Cost expectations
 
-Typical ARIS workloads with Vast.ai:
+Typical Contrejour workloads with Vast.ai:
 
 - Small ablation (single-GPU, 1–4 hours): **~$0.30 – $2 / run** on RTX 3090/4090
 - Bigger baseline rerun (40–80 GB VRAM, multi-hour): **~$2 – $10 / run** on A100/H100
 - Spot-prices fluctuate; `vastai search offers` reflects live market rates
 
-Set `max_budget` in `CLAUDE.md` to get a warning when ARIS's estimate exceeds your comfort zone — it doesn't hard-block, just confirms before renting.
+Set `max_budget` in `CLAUDE.md` to get a warning when Contrejour's estimate exceeds your comfort zone — it doesn't hard-block, just confirms before renting.
 
 If the project sets `gpu: vast` and no instance can be rented, the experiment stops with the
 error. It never falls back to another environment.

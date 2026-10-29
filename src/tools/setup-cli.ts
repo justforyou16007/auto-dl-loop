@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** `/aris-setup` helper: review/refresh the sheet, confirm one digest, apply it. */
+/** `/worker-setup` and `/validator-setup` helper: review/refresh the sheet, fetch the worker's task, confirm one digest, apply it. */
 import fs from "node:fs";
 
 import { createCli, runCli } from "../lib/cli.js";
@@ -7,11 +7,15 @@ import { A1Error } from "./validate.js";
 import {
   applySetup,
   confirmSetupReview,
+  fetchTask,
   refreshSetupReview,
   SetupReviewIncompleteError,
 } from "./setup.js";
 
-const program = createCli("setup", "Review, confirm and apply the ARIS worker or validator setup");
+const program = createCli(
+  "setup",
+  "Review, confirm and apply the Contrejour worker or validator setup",
+);
 
 function reject(fallback: string, error: unknown): void {
   const body: Record<string, unknown> = {
@@ -40,6 +44,17 @@ program
       console.log(JSON.stringify(refreshSetupReview(options.project, patch), null, 2));
     } catch (error) {
       reject("setup_review_failed", error);
+    }
+  });
+program
+  .command("fetch-task")
+  .description("Worker: copy the validator's task.md through the connection in the sheet")
+  .requiredOption("--project <dir>")
+  .action(async (options: { project: string }) => {
+    try {
+      console.log(JSON.stringify(await fetchTask(options.project), null, 2));
+    } catch (error) {
+      reject("setup_fetch_task_failed", error);
     }
   });
 program

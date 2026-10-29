@@ -12,7 +12,7 @@ Subcommand: **$ARGUMENTS**
 The wiki is lean long-term memory, not a log of stages. It keeps what existing
 work did, what each attempt tried, which results were effective and which were
 not, and the evidence linking them. Every operation goes through
-`node .aris/dist/tools/research-wiki.js` (`$WIKI_SCRIPT` below; see
+`node .contrejour/dist/tools/research-wiki.js` (`$WIKI_SCRIPT` below; see
 [integration-contract.md](../shared-references/integration-contract.md)). The
 helper appends an event to `events.jsonl` and regenerates every page; never
 create or edit wiki files by hand, because the next command rewrites them.
@@ -207,7 +207,7 @@ that passed the leak review: the event log is append-only.
 ## Capture hygiene
 
 Before writing an idea, claim or experiment note, run
-`node .aris/dist/tools/capture-filter.js -` on it (see
+`node .contrejour/dist/tools/capture-filter.js -` on it (see
 [capture-antipatterns.md](../shared-references/capture-antipatterns.md)). If it
 flags env-failure, transient-error or negative-tool-claim, record the fix
 instead or drop the note. A failed research idea is not noise: record it as

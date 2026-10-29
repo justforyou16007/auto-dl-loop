@@ -1,14 +1,17 @@
 /**
- * The one editable configuration sheet behind `/aris-setup` for the installed worker or validator role.
+ * The one editable configuration sheet behind `/worker-setup` and `/validator-setup`, for the installed role.
  * refresh writes the draft and its review, confirm records the owner's approval
- * of one digest, and apply is the only step that changes the project.
+ * of one digest, and apply is the only step that changes the project, apart
+ * from the worker's fetch-task, which copies the validator's task.md.
  */
+import { isUtf8 } from "node:buffer";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalJsonSha256 } from "./canonical-json.js";
 import { readStateFile, withStateFileLock, writeStateJsonAtomic } from "./state-file.js";
+import { fetchValidatorTask, readTask, taskPath, writeTask } from "./task.js";
 import {
   setupTesterFacility,
   testerFacilityConfigSha256,
@@ -33,12 +36,12 @@ import {
   installedProvider,
   installedRole,
   providerSkillsDir,
-  type ArlProvider,
-  type ArlRole,
+  type Provider,
+  type Role,
   type RoleAgent,
 } from "./provider.js";
 
-export type SetupRole = ArlRole;
+export type SetupRole = Role;
 export interface SetupDraft {
   schema_version: 1;
   project_root: string;
@@ -106,19 +109,31 @@ const CHOICES: Record<string, readonly unknown[]> = {
   "validation.benchmark.metrics.*.aggregation": ["mean", "sum", "external"],
   "validation.service.host": ["127.0.0.1", "0.0.0.0"],
 };
-/** CHOICES plus the ones fixed by the backend this project was installed with. */
+/**
+ * The validation service's public address and bearer token, when the validator
+ * machine provides them: setup then uses them instead of asking for an address
+ * or creating a token.
+ */
+function serviceEnvironment(): { url?: string; token?: string } {
+  const url = process.env.CONTREJOUR_URL?.trim().replace(/\/+$/, "");
+  const token = process.env.CONTREJOUR_TOKEN?.trim();
+  return { ...(url ? { url } : {}), ...(token ? { token } : {}) };
+}
+/** CHOICES plus the ones fixed by the backend this project was installed with and by the machine. */
 function choicesFor(root: string): Record<string, readonly unknown[]> {
   const provider = installedProvider(root);
+  const { url } = serviceEnvironment();
   return {
     ...CHOICES,
     "validation.agent.provider": [provider],
     "validation.agent.mode": VALIDATOR_MODES[provider],
+    ...(url ? { "validation.service.public_url": [url] } : {}),
   };
 }
 const ADAPTER_CONTRACT =
-  'The runner calls `python <ARIS_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in ARIS_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes ARIS_TEST_OUTPUT.';
-const ROLE_BEGIN = "<!-- ARIS ROLE BEGIN -->";
-const ROLE_END = "<!-- ARIS ROLE END -->";
+  'The runner calls `python <CONTREJOUR_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in CONTREJOUR_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes CONTREJOUR_TEST_OUTPUT.';
+const ROLE_BEGIN = "<!-- CONTREJOUR ROLE BEGIN -->";
+const ROLE_END = "<!-- CONTREJOUR ROLE END -->";
 const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../templates");
 
 function get(object: unknown, key: string): unknown {
@@ -136,6 +151,13 @@ function merge(base: unknown, patch: unknown): unknown {
   const out = { ...base };
   for (const [key, value] of Object.entries(patch)) out[key] = merge(out[key], value);
   return out;
+}
+/** The worker's way to the validation service, as the sheet holds it. */
+function connectionOf(configuration: JsonObject): { url: string; token: string } {
+  return {
+    url: String(get(configuration, "connection.url")),
+    token: String(get(configuration, "connection.token")),
+  };
 }
 function empty(value: unknown): boolean {
   return (
@@ -168,27 +190,17 @@ export function environmentSkillDir(projectRoot: string): string {
 }
 /** The only environment configuration file: keys and tokens the environment scripts read. */
 export const environmentSecretsPath = (root: string): string =>
-  path.join(path.resolve(root), ".aris", "environment.json");
+  path.join(path.resolve(root), ".contrejour", "environment.json");
 export const setupDraftPath = (root: string): string =>
-  path.join(path.resolve(root), ".aris", "setup-draft.json");
+  path.join(path.resolve(root), ".contrejour", "setup-draft.json");
 const statePath = (root: string): string =>
-  path.join(path.resolve(root), ".aris", "setup-state.json");
-export const taskPath = (root: string): string => path.join(path.resolve(root), "task.md");
-
-function taskSha256(root: string): string | null {
-  const file = taskPath(root);
-  if (!fs.existsSync(file)) return null;
-  const text = fs.readFileSync(file);
-  return text.toString("utf8").trim()
-    ? crypto.createHash("sha256").update(text).digest("hex")
-    : null;
-}
+  path.join(path.resolve(root), ".contrejour", "setup-state.json");
 
 function moduleDefaults(root: string, module: string): JsonObject {
   if (module === "project") return { name: path.basename(path.resolve(root)), language: "zh" };
   if (module === "environment") return { secrets: {} };
   if (module === "connection") return { url: null, token: null };
-  const installed = path.join(root, ".aris", "tester-config.json");
+  const installed = path.join(root, ".contrejour", "tester-config.json");
   const benchmark = fs.existsSync(installed)
     ? readJson(installed)
     : readJson(path.join(TEMPLATES, "TESTER_FACILITY_CONFIG_TEMPLATE.json"));
@@ -208,11 +220,19 @@ function moduleDefaults(root: string, module: string): JsonObject {
     service: { host: "127.0.0.1", port: null, public_url: null },
   };
 }
-/** A draft carries only the modules of the installed role. */
+/**
+ * A draft carries only the modules of the installed role. A value the machine
+ * provides replaces the draft's, so the owner confirms what apply will use.
+ */
 function completeModules(root: string, configuration: JsonObject): JsonObject {
+  const { url } = serviceEnvironment();
+  const provided: JsonObject = url ? { validation: { service: { public_url: url } } } : {};
   const out: JsonObject = {};
   for (const module of ROLE_MODULES[installedRole(root)])
-    out[module] = merge(moduleDefaults(root, module), configuration[module] ?? {});
+    out[module] = merge(
+      merge(moduleDefaults(root, module), configuration[module] ?? {}),
+      provided[module] ?? {},
+    );
   return out;
 }
 function loadDraft(root: string): SetupDraft {
@@ -226,17 +246,22 @@ function loadDraft(root: string): SetupDraft {
 }
 /** The task text is part of what the owner approves, so editing task.md needs a new confirmation. */
 function draftDigest(root: string, draft: SetupDraft): string {
-  return canonicalJsonSha256({ draft: draft as unknown as JsonObject, task: taskSha256(root) });
+  return canonicalJsonSha256({
+    draft: draft as unknown as JsonObject,
+    task: readTask(root)?.sha256 ?? null,
+  });
 }
 
 function recommendation(key: string, value: unknown): string {
+  if (key === "validation.service.public_url" && serviceEnvironment().url)
+    return "Taken from CONTREJOUR_URL on this machine; unset that variable to enter another address.";
   const advice: Record<string, string> = {
     "project.language": "zh for Chinese collaboration; en for English.",
     "environment.secrets":
       'Only keys and tokens the environment scripts need, as {"NAME": "value"}; {} when there are none. Hosts, paths and commands go into the environment skill, not here.',
-    "connection.url": "The `url` printed by `/aris-setup` on the validator machine.",
+    "connection.url": "The `url` printed by `/validator-setup` on the validator machine.",
     "connection.token":
-      "The `token` printed by `/aris-setup`; the provider MCP config will hold it, so keep that file out of git.",
+      "The `token` printed by `/validator-setup`; the provider MCP config will hold it, so keep that file out of git.",
     "validation.pass_rule.metric":
       "The benchmark metric each sample reports; one sample is one test, passed or failed by this rule.",
     "validation.pass_rule.op":
@@ -244,7 +269,7 @@ function recommendation(key: string, value: unknown): string {
     "validation.pass_rule.threshold":
       "The per-sample value a test must reach, e.g. 1 for an exact-match score of 0 or 1.",
     "validation.adapter_contract":
-      "Exactly how your runner calls ARIS_ADAPTER_DIR; a validator agent writes each submission's adapter to this contract.",
+      "Exactly how your runner calls CONTREJOUR_ADAPTER_DIR; a validator agent writes each submission's adapter to this contract.",
     "validation.runtime_environment":
       "What a deliverable can rely on when the validator runs it: OS, Python and CUDA versions, GPU and memory, network access, time per input. The worker reads it through `requirements`, so name no test data.",
     "validation.hidden_paths":
@@ -260,7 +285,7 @@ function recommendation(key: string, value: unknown): string {
     "validation.service.port":
       "null lets Paseo pick a port on every start; a direct connection needs a fixed one, e.g. 8765, open in the firewall.",
     "validation.service.public_url":
-      "The address the worker machine reaches: the Paseo service proxy URL, or http://<this machine's address>:<port>.",
+      "The root address the worker machine reaches, without /mcp: the Paseo service proxy URL, or http://<this machine's address>:<port>. Setting CONTREJOUR_URL on this machine fills it in.",
   };
   if (advice[key]) return advice[key];
   if (key.startsWith("validation.limits."))
@@ -304,7 +329,7 @@ function rows(
 function draftValidationConfig(
   validation: JsonObject,
   benchmark: TesterFacilityConfig,
-  provider: ArlProvider,
+  provider: Provider,
 ): ValidationConfig {
   const metricName = get(validation, "pass_rule.metric");
   if (!benchmark.metrics.some((metric) => metric.name === metricName))
@@ -360,7 +385,16 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
     }
   }
   if (empty(get(configuration, "project.name"))) add("project.name", "required");
-  if (!taskSha256(root)) add("task.md", "write the task in task.md at the project root");
+  const task = readTask(root);
+  if (!task)
+    add(
+      "task.md",
+      role === "worker"
+        ? "fetch the validator's task with `setup-cli.js fetch-task` once the connection is set"
+        : "write the task in task.md at the project root",
+    );
+  else if (role === "validator" && !isUtf8(task.bytes))
+    add("task.md", "save it as UTF-8 text; the worker fetches it as text through the `task` tool");
   const secrets = get(configuration, "environment.secrets");
   if (!isRecord(secrets)) add("environment.secrets", "must be an object of NAME: value");
   else
@@ -386,6 +420,12 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
   }
   if (role === "validator" && isRecord(configuration.validation)) {
     const validation = configuration.validation;
+    const provided = serviceEnvironment().token;
+    if (provided !== undefined && provided.length < 32)
+      add(
+        "CONTREJOUR_TOKEN",
+        "must be at least 32 characters; the worker's setup takes no shorter token",
+      );
     const command = get(validation, "agent.paseo_command");
     // execFile cannot start the paseo.cmd shim; Windows needs node and the CLI script.
     if (
@@ -435,7 +475,7 @@ function markdown(review: SetupReview): string {
   const t = (en: string, zh: string) => (review.language === "en" ? en : zh);
   const cell = (value: string) => value.replace(/\|/g, "\\|").replace(/\n/g, "\\n");
   const lines = [
-    t("# ARIS Configuration Review", "# ARIS 配置总览"),
+    t("# Contrejour Configuration Review", "# Contrejour 配置总览"),
     "",
     `${t("Role", "角色")}: ${review.role ?? t("unset", "待选择")}`,
     `${t("Configuration version", "配置版本")}: \`${review.configuration_sha256}\``,
@@ -478,7 +518,7 @@ function markdown(review: SetupReview): string {
   return lines.join("\n");
 }
 
-/** Refresh is the only draft writer; it never changes the project outside `.aris/`. */
+/** Refresh is the only draft writer; it never changes the project outside `.contrejour/`. */
 export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupReview {
   const root = path.resolve(projectRoot),
     stateFile = statePath(root);
@@ -498,8 +538,8 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
       role,
       language,
       draft_path: setupDraftPath(root),
-      review_path: path.join(root, ".aris", "setup-review.md"),
-      task: { path: taskPath(root), sha256: taskSha256(root) },
+      review_path: path.join(root, ".contrejour", "setup-review.md"),
+      task: { path: taskPath(root), sha256: readTask(root)?.sha256 ?? null },
       configuration_sha256: digest,
       ready_to_confirm: issues.length === 0,
       confirmed: previous.confirmed_sha256 === digest && issues.length === 0,
@@ -558,6 +598,29 @@ function confirmedDraft(root: string): SetupDraft {
   const issues = validateSetupConfiguration(draft.configuration, root);
   if (issues.length) throw new SetupReviewIncompleteError(issues);
   return draft;
+}
+
+/**
+ * Worker only: copy the validator's task.md through the connection in the
+ * draft. The draft need not be confirmed: the copy becomes part of what the
+ * owner confirms next.
+ */
+export async function fetchTask(
+  projectRoot: string,
+): Promise<{ task: string; sha256: string; changed: boolean }> {
+  const root = path.resolve(projectRoot);
+  if (installedRole(root) !== "worker")
+    failA1("WORKER_ONLY", "the validator writes task.md with the owner; the worker fetches it");
+  const { configuration } = loadDraft(root);
+  const issues = validateSetupConfiguration(configuration, root).filter((issue) =>
+    issue.field.startsWith("connection."),
+  );
+  if (issues.length) throw new SetupReviewIncompleteError(issues);
+  const { url, token } = connectionOf(configuration);
+  const task = await fetchValidatorTask(url, token);
+  // Refresh digests task.md under this lock.
+  const changed = withStateFileLock(statePath(root), () => writeTask(root, task));
+  return { task: taskPath(root), sha256: task.sha256, changed };
 }
 
 /** Replace only the marked block so the owner's own CLAUDE.md text survives re-runs. */
@@ -644,6 +707,8 @@ export type SetupApplyResult = SetupEnvironmentResult &
         validation_config: string;
         service_script: string;
         worker_connection: { url: string; token: string };
+        /** CONTREJOUR_URL and CONTREJOUR_TOKEN when this machine provided them. */
+        from_environment: string[];
       }
   );
 
@@ -652,6 +717,15 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
   const root = path.resolve(projectRoot),
     configuration = confirmedDraft(root).configuration,
     role = installedRole(root);
+  if (role === "worker") {
+    // The confirmed task.md must still be the one the validator judges against.
+    const { url, token } = connectionOf(configuration);
+    if ((await fetchValidatorTask(url, token)).sha256 !== readTask(root)?.sha256)
+      failA1(
+        "TASK_CHANGED",
+        "the validator's task.md differs from this copy; run fetch-task, then review and confirm again",
+      );
+  }
   const environment = {
     environment_skill_dir: environmentSkillDir(root),
     environment_secrets: environmentSecretsPath(root),
@@ -666,15 +740,13 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
   fs.chmodSync(environment.environment_secrets, 0o600);
   // Claude Code reads project MCP servers from .mcp.json, Codex from .codex/config.toml.
   const mcpFile = environment.agent.provider === "codex" ? ".codex/config.toml" : ".mcp.json";
-  ensureGitignored(root, role === "worker" ? [".aris/", mcpFile] : [".aris/"]);
+  ensureGitignored(root, role === "worker" ? [".contrejour/", mcpFile] : [".contrejour/"]);
   if (role === "worker") {
     const file = path.join(root, mcpFile);
-    const url = String(get(configuration, "connection.url"));
-    const token = String(get(configuration, "connection.token"));
-    if (environment.agent.provider === "codex")
-      mergeCodexMcpServer(file, "aris-validation", url, token);
+    const { url, token } = connectionOf(configuration);
+    if (environment.agent.provider === "codex") mergeCodexMcpServer(file, "contrejour", url, token);
     else
-      mergeJsonEntry(file, "mcpServers", "aris-validation", {
+      mergeJsonEntry(file, "mcpServers", "contrejour", {
         type: "http",
         url,
         headers: { Authorization: `Bearer ${token}` },
@@ -688,11 +760,12 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
   const benchmark = await setupTesterFacility(root, validation.benchmark);
   const config = draftValidationConfig(validation, benchmark, installedProvider(root));
   writeStateJsonAtomic(validationConfigPath(root), config);
-  const token = ensureValidationToken(root);
+  const provided = serviceEnvironment();
+  const token = ensureValidationToken(root, provided.token);
   const port = get(validation, "service.port");
-  mergeJsonEntry(path.join(root, "paseo.json"), "scripts", "aris-validation", {
+  mergeJsonEntry(path.join(root, "paseo.json"), "scripts", "contrejour", {
     type: "service",
-    command: "node .aris/dist/tools/validation-cli.js serve --project .",
+    command: "node .contrejour/dist/tools/validation-cli.js serve --project .",
     ...(typeof port === "number" ? { port } : {}),
   });
   writeRoleBlock(root, role);
@@ -700,7 +773,11 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
     role,
     validation_config: validationConfigPath(root),
     ...environment,
-    service_script: "aris-validation",
+    service_script: "contrejour",
     worker_connection: { url: `${config.service.public_url}/mcp`, token },
+    from_environment: [
+      ...(provided.url ? ["CONTREJOUR_URL"] : []),
+      ...(provided.token ? ["CONTREJOUR_TOKEN"] : []),
+    ],
   };
 }

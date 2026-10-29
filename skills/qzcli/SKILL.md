@@ -24,7 +24,7 @@ cd qzcli_tool && pip install -e .
 To use qzcli as an MCP tool directly from Claude Code or Codex:
 
 ```bash
-# Claude Code (the ARIS host)
+# Claude Code (the Contrejour host)
 claude mcp add qzcli -- qzcli-mcp
 ```
 

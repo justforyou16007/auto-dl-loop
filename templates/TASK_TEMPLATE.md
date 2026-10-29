@@ -1,7 +1,8 @@
 # Task
 
-<!-- Both machines read this file. Describe what to build, not how it is tested in detail:
-     the validator machine keeps the benchmark and its data hidden. -->
+<!-- Written on the validator machine and published to the worker byte for byte through the
+     `task` tool. Describe what to build, not how it is tested in detail: the validator
+     machine keeps the benchmark and its data hidden. Save it as UTF-8. -->
 
 ## Goal
 

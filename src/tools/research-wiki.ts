@@ -99,9 +99,8 @@ function xmlSelfClosingAttr(xml: string, localName: string, attribute: string): 
 }
 
 function arxivUserAgent(): string {
-  const contact = (process.env.ARIS_VERIFY_EMAIL ?? "").trim();
-  const base =
-    "ARIS-research-wiki/1.0 (+https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep)";
+  const contact = (process.env.CONTREJOUR_VERIFY_EMAIL ?? "").trim();
+  const base = "Contrejour-research-wiki/1.0 (+https://github.com/justforyou16007/auto-dl-loop)";
   return contact ? `${base} (mailto:${contact})` : base;
 }
 
@@ -1147,7 +1146,7 @@ async function syncSurveys(root: string, ids: string[], updateOnExist: boolean):
   }
 }
 
-const program = createCli("research-wiki", "ARIS Research Wiki utilities");
+const program = createCli("research-wiki", "Contrejour Research Wiki utilities");
 
 program
   .command("init")

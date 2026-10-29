@@ -1,6 +1,6 @@
 # Browser Access
 
-Every browser interaction in ARIS goes through the
+Every browser interaction in Contrejour goes through the
 [browser-act](https://github.com/browser-act/skills) CLI. One browser stack,
 one place where sessions and logins live. A skill that needs a page never
 writes its own Playwright/Selenium/Puppeteer script and never treats `curl` as
@@ -19,17 +19,17 @@ When an environment-skill script needs a browser, setup records the browser id a
 here":
 
 ```bash
-node .aris/dist/tools/ensure-browser-act.js           # install when missing, then verify
-node .aris/dist/tools/ensure-browser-act.js --check   # verify only
+node .contrejour/dist/tools/ensure-browser-act.js           # install when missing, then verify
+node .contrejour/dist/tools/ensure-browser-act.js --check   # verify only
 ```
 
 It prints one JSON object (`status`, `binary`, `version`, `in_path`,
 `skill_stub`, `hint`) and exits non-zero when the CLI is not usable. When
 a browser is needed, a non-zero exit stops the step with the helper's
-`hint`. Run it within `/aris-setup` before writing a script that needs a browser, or from the `browser-act` skill before interactive browser work. Both runs are idempotent.
+`hint`. Run it while writing an environment-skill script that needs a browser (see [environment-skill.md](environment-skill.md)), or from the `browser-act` skill before interactive browser work. Both runs are idempotent.
 
 The helper installs the CLI with `uv tool install browser-act-cli --python
-3.12`. The ARL archive includes an agent-facing `browser-act` skill in the provider's project skill directory. If it is missing, the helper can fetch the upstream skill stub into that directory. The CLI serves its current workflow content through `browser-act get-skills core`; environment scripts call the CLI directly. Browser runtimes and `uv` are external dependencies, installed only when needed.
+3.12`. The Contrejour archive includes an agent-facing `browser-act` skill in the provider's project skill directory. If it is missing, the helper can fetch the upstream skill stub into that directory. The CLI serves its current workflow content through `browser-act get-skills core`; environment scripts call the CLI directly. Browser runtimes and `uv` are external dependencies, installed only when needed.
 
 ## Calling it from an environment script
 

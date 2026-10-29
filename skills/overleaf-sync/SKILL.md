@@ -11,7 +11,7 @@ Bridge a local `paper/` directory with an Overleaf project through the Overleaf 
 
 The agent **never sees the authentication token**. The owner does the one-time setup in their own terminal, and the token goes straight into the operating system's git credential store (Windows Credential Manager, macOS Keychain, or git's in-memory cache on Linux), never into chat, a file, a command line or a URL.
 
-The helper is `node .aris/dist/tools/overleaf-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)). It works the same on Windows, macOS and Linux.
+The helper is `node .contrejour/dist/tools/overleaf-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)). It works the same on Windows, macOS and Linux.
 
 ## Layout
 
@@ -31,9 +31,9 @@ Tell the owner:
 ```
 Run this in your own terminal (PowerShell, Windows Terminal or a shell), not through me:
 
-    node .aris/dist/tools/overleaf-cli.js setup <project-id-or-url>
+    node .contrejour/dist/tools/overleaf-cli.js setup <project-id-or-url>
 
-If its helper is missing, build the ARL source and install this optional integration first. Tell me "setup done" when it finishes.
+If its helper is missing, build the Contrejour source and install this optional integration first. Tell me "setup done" when it finishes.
 ```
 
 Setup refuses to run without an interactive terminal, reads the token from a hidden prompt, stores it with the credential helper, clones with a token-free URL and installs a `pre-commit` hook in `paper-overleaf/.git/hooks/` that rejects any staged `olp_...` token.
@@ -44,7 +44,7 @@ After "setup done", verify without touching the token:
 git -C paper-overleaf remote -v                        # URL has no token
 git -C paper-overleaf config --get credential.helper
 git -C paper-overleaf fetch                            # succeeds without a prompt
-node .aris/dist/tools/overleaf-cli.js audit .          # "clean": true
+node .contrejour/dist/tools/overleaf-cli.js audit .          # "clean": true
 ```
 
 If the Overleaf project is empty, continue with `push` to fill it from `paper/`.
@@ -73,7 +73,7 @@ Apply approved hunks with the Edit tool, or copy whole approved files.
 
 ```bash
 git -C paper-overleaf pull --ff-only                                    # 1. surface remote drift first
-node .aris/dist/tools/overleaf-cli.js mirror paper paper-overleaf       # 2. make the clone match paper/
+node .contrejour/dist/tools/overleaf-cli.js mirror paper paper-overleaf       # 2. make the clone match paper/
 git -C paper-overleaf status --short                                    # 3. review
 git -C paper-overleaf diff --stat
 git -C paper-overleaf add -A                                            # 4. commit and push
@@ -93,7 +93,7 @@ Commit messages say what changed and where it came from, for example `sec/3: rew
 git -C paper-overleaf fetch
 git -C paper-overleaf log --oneline HEAD..@{u}                          # Overleaf ahead
 git -C paper-overleaf log --oneline @{u}..HEAD                          # unpushed local commits
-node .aris/dist/tools/overleaf-cli.js mirror paper paper-overleaf --dry-run   # paper/ vs clone
+node .contrejour/dist/tools/overleaf-cli.js mirror paper paper-overleaf --dry-run   # paper/ vs clone
 ```
 
 | Overleaf ahead | `paper/` differs from the clone | Meaning                | Action                           |

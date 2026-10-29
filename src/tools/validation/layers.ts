@@ -110,9 +110,9 @@ function git(repo: string, args: string[], env: Record<string, string> = {}): st
       "-c",
       "commit.gpgsign=false",
       "-c",
-      "user.name=aris-validation",
+      "user.name=contrejour",
       "-c",
-      "user.email=aris-validation@localhost",
+      "user.email=contrejour@localhost",
       ...args,
     ],
     {
@@ -449,7 +449,7 @@ const sha256File = (file: string): string =>
 
 /** Check a git tree out into `dest` through a private index, leaving the repository untouched. */
 function materialise(root: string, tree: string, dest: string): void {
-  const index = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aris-layer-")), "index");
+  const index = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-layer-")), "index");
   try {
     const env = { GIT_INDEX_FILE: index };
     git(benchmarkRepo(root), ["read-tree", tree], env);
@@ -479,14 +479,14 @@ export async function runLayer(
     { cwd, env: {} },
     spec.run,
     {
-      ARIS_TEST_MODE: "full",
-      ARIS_TEST_ID: request.test_id,
-      ARIS_TEST_OUTPUT: output,
-      ARIS_TEST_DIR: dir,
-      ARIS_LAYER_DIR: cwd,
-      ARIS_ARTIFACT_REF: request.artifact.ref,
-      ARIS_ARTIFACT_SHA256: request.artifact.sha256,
-      ...(request.adapter_dir ? { ARIS_ADAPTER_DIR: request.adapter_dir } : {}),
+      CONTREJOUR_TEST_MODE: "full",
+      CONTREJOUR_TEST_ID: request.test_id,
+      CONTREJOUR_TEST_OUTPUT: output,
+      CONTREJOUR_TEST_DIR: dir,
+      CONTREJOUR_LAYER_DIR: cwd,
+      CONTREJOUR_ARTIFACT_REF: request.artifact.ref,
+      CONTREJOUR_ARTIFACT_SHA256: request.artifact.sha256,
+      ...(request.adapter_dir ? { CONTREJOUR_ADAPTER_DIR: request.adapter_dir } : {}),
     },
     path.join(dir, "test.log"),
   );

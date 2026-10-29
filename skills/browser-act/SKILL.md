@@ -11,7 +11,7 @@ Use the external browser-act CLI for browser work. Read [browser access](../shar
 From the project root, verify availability:
 
 ```bash
-node .aris/dist/tools/ensure-browser-act.js --check
+node .contrejour/dist/tools/ensure-browser-act.js --check
 ```
 
 If the CLI is missing, run the helper without `--check` to install it through `uv`. A failed check or install stops browser work; report the helper's `hint`.

@@ -108,7 +108,10 @@ function command(value: unknown, label: string): TesterCommand {
 }
 export function validateTesterFacilityConfig(value: unknown): TesterFacilityConfig {
   if (!isRecord(value) || value.schema_version !== 1 || value.mode !== "tester_facility")
-    failA1("INVALID_TESTER_FACILITY", "run /aris-setup to create a tester facility configuration");
+    failA1(
+      "INVALID_TESTER_FACILITY",
+      "run /validator-setup to create a tester facility configuration",
+    );
   assertNoUnknownFields(
     value,
     [
@@ -202,7 +205,7 @@ export function testerFacilityConfigSha256(value: TesterFacilityConfig): string 
   return canonicalJsonSha256(validateTesterFacilityConfig(value));
 }
 export const testerConfigPath = (root: string): string =>
-  path.join(path.resolve(root), ".aris", "tester-config.json");
+  path.join(path.resolve(root), ".contrejour", "tester-config.json");
 export function readTesterFacilityConfig(file: string): TesterFacilityConfig {
   return validateTesterFacilityConfig(readStateFile(file));
 }
@@ -241,11 +244,13 @@ export async function execute(
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const log = fs.openSync(logPath, "a");
   const [executable, ...argv] = cmd.argv as [string, ...string[]];
+  // A runner drives the deliverable under test; it has no use for the service token.
+  const { CONTREJOUR_TOKEN: _token, ...inherited } = process.env;
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(executable, argv, {
         cwd: execution.cwd,
-        env: { ...process.env, ...execution.env, ...env },
+        env: { ...inherited, ...execution.env, ...env },
         stdio: ["ignore", log, log],
         // A detached POSIX child leads its own process group, so killTree reaches its children.
         detached: process.platform !== "win32",
@@ -283,7 +288,7 @@ export async function execute(
 export function assertTesterSetupReady(configPath: string): TesterSetupReceipt {
   const config = readTesterFacilityConfig(configPath);
   if (!fs.existsSync(`${configPath}.setup.json`))
-    failA1("TESTER_SETUP_REQUIRED", "run /aris-setup to initialize tester facilities");
+    failA1("TESTER_SETUP_REQUIRED", "run /validator-setup to initialize tester facilities");
   const receipt = readStateFile<TesterSetupReceipt>(`${configPath}.setup.json`);
   if (
     receipt.schema_version !== 1 ||
@@ -292,7 +297,7 @@ export function assertTesterSetupReady(configPath: string): TesterSetupReceipt {
     !Array.isArray(receipt.evidence) ||
     receipt.evidence.length !== config.evidence_files.length
   )
-    failA1("TESTER_SETUP_REQUIRED", "run /aris-setup before testing");
+    failA1("TESTER_SETUP_REQUIRED", "run /validator-setup before testing");
   verifyEvidence(receipt.evidence);
   return receipt;
 }
@@ -331,7 +336,7 @@ async function setupTesterFacilityUnlocked(
   fs.rmSync(`${file}.setup.json`, { force: true });
   for (const cmd of config.setup) await execute(config.execution, cmd, {}, log);
   await execute(config.execution, config.healthcheck, {}, log);
-  await execute(config.execution, config.smoke, { ARIS_TEST_MODE: "smoke" }, log);
+  await execute(config.execution, config.smoke, { CONTREJOUR_TEST_MODE: "smoke" }, log);
   const evidence = config.evidence_files.map((source) =>
     evidenceFile(path.resolve(config.execution.cwd, source)),
   );
@@ -474,16 +479,16 @@ export async function executeTesterJob(dir: string): Promise<TesterTestResult> {
       log = path.join(dir, "test.log");
     fs.rmSync(output, { force: true });
     const env: Record<string, string> = {
-      ARIS_TEST_MODE: job.request.mode,
-      ARIS_TEST_ID: job.request.test_id,
-      ARIS_PROJECT_ID: job.config.project_id,
-      ARIS_TEST_OUTPUT: output,
-      ARIS_TEST_DIR: dir,
-      ARIS_ARTIFACT_REF: artifact.ref,
-      ARIS_ARTIFACT_SHA256: artifact.sha256,
+      CONTREJOUR_TEST_MODE: job.request.mode,
+      CONTREJOUR_TEST_ID: job.request.test_id,
+      CONTREJOUR_PROJECT_ID: job.config.project_id,
+      CONTREJOUR_TEST_OUTPUT: output,
+      CONTREJOUR_TEST_DIR: dir,
+      CONTREJOUR_ARTIFACT_REF: artifact.ref,
+      CONTREJOUR_ARTIFACT_SHA256: artifact.sha256,
       ...(job.request.adapter_dir === undefined
         ? {}
-        : { ARIS_ADAPTER_DIR: job.request.adapter_dir }),
+        : { CONTREJOUR_ADAPTER_DIR: job.request.adapter_dir }),
     };
     await execute(job.config.execution, job.config.healthcheck, env, log);
     await execute(

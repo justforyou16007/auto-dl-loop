@@ -14,7 +14,7 @@ const DEFAULT_CACHE_TTL_DAYS = 30;
 const DEFAULT_HALLUCINATION_WARN_THRESHOLD = 0.2;
 
 function arxivUserAgent(): string {
-  const contact = (process.env.ARIS_VERIFY_EMAIL ?? "").trim();
+  const contact = (process.env.CONTREJOUR_VERIFY_EMAIL ?? "").trim();
   const base =
     "verify-papers/1.0 (+https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep)";
   return contact ? `${base} (mailto:${contact})` : base;
@@ -98,9 +98,9 @@ function resolveCachePath(scope: string, cacheDir: string | null): string | null
   if (cacheDir) return path.join(cacheDir, "verify_papers.json");
   if (scope === "user") {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
-    return path.join(home, ".aris-cache", "verify_papers.json");
+    return path.join(home, ".contrejour-cache", "verify_papers.json");
   }
-  if (scope === "project") return ".aris/cache/verify_papers.json";
+  if (scope === "project") return ".contrejour/cache/verify_papers.json";
   return null;
 }
 
@@ -183,7 +183,7 @@ async function verifyArxivBatchOnce(batch: string[]): Promise<Record<string, str
 async function verifyDoi(doi: string, userEmail: string): Promise<string> {
   const encoded = encodeURIComponent(normalizeDoi(doi)).replace(/%2F/gi, "/");
   const url = `${CROSSREF_API}/${encoded}`;
-  const headers = { "User-Agent": `ARIS-verify-papers/1.0 (mailto:${userEmail})` };
+  const headers = { "User-Agent": `Contrejour-verify-papers/1.0 (mailto:${userEmail})` };
   const { status } = await httpGet(url, headers, 15000);
   if (status === 200) return "verified";
   if (status === 404) return "unverified";
@@ -481,7 +481,9 @@ program.action(
       return process.exit(2) as never;
     }
 
-    const userEmail = (process.env.ARIS_VERIFY_EMAIL ?? "aris-research@anonymous.local").trim();
+    const userEmail = (
+      process.env.CONTREJOUR_VERIFY_EMAIL ?? "contrejour-research@anonymous.local"
+    ).trim();
     const noCache = opts.cache === false;
     const cacheScope = opts.cacheScope;
     const cacheTtlDays = parseInt(opts.cacheTtlDays, 10);
