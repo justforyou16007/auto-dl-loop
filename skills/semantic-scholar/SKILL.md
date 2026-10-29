@@ -17,10 +17,10 @@ run inline Python, call `/arxiv`, or fill missing fields from another source.
 From the project root:
 
 ```bash
-S2_FETCHER=".aris/dist/tools/semantic-scholar-fetch.js"
+S2_FETCHER=".contrejour/dist/tools/semantic-scholar-fetch.js"
 [ -f "$S2_FETCHER" ] || S2_FETCHER="dist/tools/semantic-scholar-fetch.js"
 [ -f "$S2_FETCHER" ] || {
-  echo "ERROR: semantic-scholar-fetch.js is required. Build the ARL source and install this optional helper." >&2
+  echo "ERROR: semantic-scholar-fetch.js is required. Build the Contrejour source and install this optional helper." >&2
   exit 1
 }
 ```
@@ -56,7 +56,7 @@ skill does not retry or switch source. Missing fields remain `null`.
 
 ## Research Wiki
 
-If `research-wiki/` exists, use the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`). For papers with
+If `research-wiki/` exists, use the wiki helper (`WIKI_SCRIPT=.contrejour/dist/tools/research-wiki.js`). For papers with
 an arXiv ID, pass `--arxiv-id`; otherwise pass the paper's explicit title,
 authors, year, venue, and DOI:
 

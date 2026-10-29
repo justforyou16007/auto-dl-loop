@@ -39,7 +39,7 @@ one, run the scanner on it or rebuild it.
 ## Usage
 
 ```bash
-node .aris/dist/tools/threat-scan.js <file|-> --scope strict [--quarantine]   # exit 1 on any finding
+node .contrejour/dist/tools/threat-scan.js <file|-> --scope strict [--quarantine]   # exit 1 on any finding
 ```
 
 Anchor new patterns on attack-specific vocabulary, not bossy English: "you

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -106,7 +107,7 @@ const deliverable = (answers: Record<string, string>, prefix = "") =>
   ]);
 const PERFECT = { "sample-alpha": "the quick brown fox", "sample-bravo": "jumps over" };
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "aris-validation-"));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-validation-"));
 try {
   // --- unzip ---
   const limits = { max_files: 10, max_unpacked_bytes: 10_000 };
@@ -156,7 +157,7 @@ try {
   };
   const request = { root, submission_id: "s001", submission_dir: path.join(root, "s001") };
   const argv = paseoRunArgv(agent, reviewRun(request));
-  for (const flag of ["run", "-d", "--json", "--model", "aris.role=validator", "aris.submission=s001"])
+  for (const flag of ["run", "-d", "--json", "--model", "contrejour.role=validator", "contrejour.submission=s001"])
     assert.ok(argv.includes(flag), flag);
   assert.deepEqual(argv.slice(argv.indexOf("--provider"), argv.indexOf("--provider") + 4), [
     "--provider",
@@ -172,7 +173,7 @@ try {
       review_dir: path.join(root, "s001", "leak-review", "1"),
     }),
   );
-  assert.ok(leakArgv.includes("aris.role=leak-review"));
+  assert.ok(leakArgv.includes("contrejour.role=leak-review"));
   assert.match(leakArgv.at(-1)!, /\.agents\/skills\/validation-review\/leak-review\.md/);
 
   // A Claude Code validator: its own backend, max thinking, Claude's skills directory.
@@ -271,10 +272,26 @@ try {
     assert.equal((await fetch(`${service.url}/mcp`, { headers: { authorization: `Bearer ${token}` } })).status, 405);
     const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
     assert.equal(init.result.protocolVersion, "2025-06-18");
-    assert.equal(init.result.serverInfo.name, "aris-validation");
+    assert.equal(init.result.serverInfo.name, "contrejour");
     assert.equal((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
     const tools = await rpc("tools/list");
-    assert.deepEqual(tools.result.tools.map((tool: { name: string }) => tool.name), ["requirements", "submit", "query"]);
+    assert.deepEqual(tools.result.tools.map((tool: { name: string }) => tool.name), ["task", "requirements", "submit", "query"]);
+
+    // The task is published as it stands on this machine, byte for byte; an edit reaches the next call.
+    const taskFile = path.join(root, "task.md");
+    assert.match((await call("task")).text, /TASK_MISSING/);
+    fs.writeFileSync(taskFile, "\uFEFF# Task\r\nAnswer in one word: caf\u00e9.\r\n");
+    const served = JSON.parse((await call("task")).text);
+    assert.equal(served.text, fs.readFileSync(taskFile, "utf8"));
+    assert.equal(served.sha256, crypto.createHash("sha256").update(fs.readFileSync(taskFile)).digest("hex"));
+    fs.appendFileSync(taskFile, "Use lower case.\n");
+    const edited = JSON.parse((await call("task")).text);
+    assert.notEqual(edited.sha256, served.sha256);
+    assert.equal(JSON.parse((await call("query")).text).service.task_sha256, edited.sha256);
+    const task = fs.readFileSync(taskFile);
+    fs.writeFileSync(taskFile, Buffer.from([0x23, 0x20, 0xff, 0x0a]));
+    assert.match((await call("task")).text, /INVALID_TASK/);
+    fs.writeFileSync(taskFile, task);
 
     // The worker learns the deliverable's terms, never the benchmark behind them.
     const terms = await call("requirements");
@@ -338,9 +355,9 @@ try {
       'import path from "node:path";',
       'const labels = JSON.parse(fs.readFileSync(new URL("./labels.json", import.meta.url), "utf8"));',
       "let answers = {};",
-      'try { answers = JSON.parse(fs.readFileSync(path.join(process.env.ARIS_ARTIFACT_REF, "answers.json"), "utf8")); } catch {}',
+      'try { answers = JSON.parse(fs.readFileSync(path.join(process.env.CONTREJOUR_ARTIFACT_REF, "answers.json"), "utf8")); } catch {}',
       'const samples = Object.keys(labels).map((id) => ({ id, status: "ok", metrics: { score: answers[id] === labels[id] ? 1 : 0 } }));',
-      "fs.writeFileSync(process.env.ARIS_TEST_OUTPUT, JSON.stringify({ artifact_sha256: process.env.ARIS_ARTIFACT_SHA256, samples }));",
+      "fs.writeFileSync(process.env.CONTREJOUR_TEST_OUTPUT, JSON.stringify({ artifact_sha256: process.env.CONTREJOUR_ARTIFACT_SHA256, samples }));",
       // A runner may write into its own copy of the layer; the registered layer is untouched.
       'fs.writeFileSync("cache.json", "{}");',
     ].join("\n");
@@ -377,7 +394,7 @@ try {
     write("s002", "feedback.md", "Answers keep only the first words of a longer expected answer.");
     assert.throws(() => finalizeSubmission(root, "s002"), /LEAK_REVIEW_REQUIRED/);
     await requestLeakReview(root, "s002", leakStarter);
-    assert.deepEqual(leakRuns, ["ARIS leak review s002"]);
+    assert.deepEqual(leakRuns, ["Contrejour leak review s002"]);
     assert.throws(() => finalizeSubmission(root, "s002"), /LEAK_REVIEW_PENDING/);
     leakVerdict("s002", "leak", ["names the failing question's expected answer"]);
     assert.throws(() => finalizeSubmission(root, "s002"), /FEEDBACK_LEAKS_HIDDEN_DATA.*1 attempts left/);
@@ -447,7 +464,7 @@ try {
     assert.match((await call("submit")).text, /BENCHMARK_CHANGED: registered benchmark files were edited/);
     // Committing the edit is caught commit by commit, even with the head record moved along.
     const head = git("rev-parse", "HEAD");
-    const headRecord = path.join(root, ".aris", "validation", "benchmark-head");
+    const headRecord = path.join(root, ".contrejour", "validation", "benchmark-head");
     git("commit", "-q", "--no-verify", "-am", "edit a test");
     assert.match((await call("submit")).text, /history was rewritten/);
     fs.writeFileSync(headRecord, git("rev-parse", "HEAD"));

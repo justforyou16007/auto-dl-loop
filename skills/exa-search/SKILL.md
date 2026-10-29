@@ -16,7 +16,7 @@ and API key through that helper. It does not use WebSearch, another SDK, or an
 inline parser when Exa fails.
 
 ```bash
-EXA_FETCHER=".aris/dist/tools/exa-search.js"
+EXA_FETCHER=".contrejour/dist/tools/exa-search.js"
 [ -f "$EXA_FETCHER" ] || EXA_FETCHER="dist/tools/exa-search.js"
 [ -f "$EXA_FETCHER" ] || {
   echo "ERROR: exa-search.js is required." >&2
@@ -46,7 +46,7 @@ another search source.
 
 ## Research Wiki
 
-If `research-wiki/` exists, the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`)
+If `research-wiki/` exists, the wiki helper (`WIKI_SCRIPT=.contrejour/dist/tools/research-wiki.js`)
 is required. Ingest each result the run relies on (paper, repository,
 documentation or blog) as a survey. Use the arXiv ID when Exa returns one;
 otherwise pass the URL and title exactly as returned, plus authors and year when

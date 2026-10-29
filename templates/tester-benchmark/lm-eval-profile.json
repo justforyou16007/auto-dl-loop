@@ -5,7 +5,7 @@
   "dataset_split": "validation",
   "expected_samples": 10042,
   "base_task": "hellaswag",
-  "task": "aris_hellaswag",
+  "task": "contrejour_hellaswag",
   "model": "hf",
   "model_args": "pretrained={artifact_ref},dtype=float16",
   "smoke_model_args": "pretrained=REPLACE_WITH_PINNED_SMOKE_MODEL_PATH,dtype=float16",

@@ -3,13 +3,13 @@
 > 🇬🇧 English: [VAST_GPU_GUIDE.md](VAST_GPU_GUIDE.md)
 > 没有自己的 GPU 服务器时用这个。
 
-ARIS 支持从 [Vast.ai](https://vast.ai)（最便宜的 ML 硬件 spot 租赁市场）按需租 GPU。实验需要 GPU 时，`/vast-gpu` **分析你的训练任务**（模型大小、数据集、预估时间），搜索能放下这个负载的最便宜 GPU，然后按**总成本**（不是 $/hr）排序展示给你。你选一个，ARIS 全自动：租 → 配环境 → 跑 → 收结果 → 销毁。
+Contrejour 支持从 [Vast.ai](https://vast.ai)（最便宜的 ML 硬件 spot 租赁市场）按需租 GPU。实验需要 GPU 时，`/vast-gpu` **分析你的训练任务**（模型大小、数据集、预估时间），搜索能放下这个负载的最便宜 GPU，然后按**总成本**（不是 $/hr）排序展示给你。你选一个，Contrejour 全自动：租 → 配环境 → 跑 → 收结果 → 销毁。
 
 ## 什么时候用 vs. `gpu: remote` / `gpu: local`
 
 | 选项          | 适用场景                                             | 成本模型                     |
 | ------------- | ---------------------------------------------------- | ---------------------------- |
-| `gpu: remote` | 你自己有（或实验室提供）固定的 SSH 服务器            | 沉没成本，ARIS 当免费用      |
+| `gpu: remote` | 你自己有（或实验室提供）固定的 SSH 服务器            | 沉没成本，Contrejour 当免费用      |
 | `gpu: local`  | 你已经在 GPU 主机上                                  | 沉没成本，省 SSH             |
 | `gpu: vast`   | 没 GPU，或者偶尔需要比自己拥有的更大的硬件跑单次实验 | 按小时计费，Vast.ai 自动扣款 |
 
@@ -45,7 +45,7 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
    vastai search offers 'gpu_ram>=24 reliability>0.95' -o 'dph+' --limit 3
    ```
 
-## 告诉 ARIS 用 Vast.ai
+## 告诉 Contrejour 用 Vast.ai
 
 在项目 `CLAUDE.md` 加：
 
@@ -57,7 +57,7 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
 - max_budget: 5.00 # 可选：估算成本超过这个数会警告
 ```
 
-不需要指定 GPU 型号或硬件配置。ARIS 读你的实验脚本/计划，估算 VRAM 和训练时间，然后给你这样的选项：
+不需要指定 GPU 型号或硬件配置。Contrejour 读你的实验脚本/计划，估算 VRAM 和训练时间，然后给你这样的选项：
 
 ```
 | # | GPU       | VRAM  | $/hr  | 预估时长 | 预估总价 | Offer ID |
@@ -66,7 +66,7 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
 | 2 | A100 SXM  | 80 GB | $0.95 | ~2h      | ~$1.90   | 7023456  |  ← 速度最快
 ```
 
-选个数字，剩下的 ARIS 全包。
+选个数字，剩下的 Contrejour 全包。
 
 ## 手动控制
 
@@ -82,13 +82,13 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
 
 ## 大致花费
 
-ARIS + Vast.ai 的典型工作负载：
+Contrejour + Vast.ai 的典型工作负载：
 
 - 小型消融实验（单 GPU，1–4 小时）：**~$0.30 – $2 / 次**，RTX 3090/4090
 - 大点的 baseline 重跑（40–80 GB VRAM，多小时）：**~$2 – $10 / 次**，A100/H100
 - Spot 价波动较大；`vastai search offers` 反映实时市场价
 
-在 `CLAUDE.md` 设置 `max_budget`，ARIS 估算超过这个数会警告——不是硬阻断，而是租之前再确认。
+在 `CLAUDE.md` 设置 `max_budget`，Contrejour 估算超过这个数会警告——不是硬阻断，而是租之前再确认。
 
 项目设置了 `gpu: vast` 但租不到实例时，实验带着错误停止，不会换到别的环境继续。
 

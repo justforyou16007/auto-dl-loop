@@ -1,5 +1,5 @@
 {
-  "name": "auto-research-loop",
+  "name": "contrejour",
   "version": "0.1.0",
   "private": true,
   "description": "Independent worker and validation research tasks for Claude and Codex",
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx",
     "test:python": "python3 -m unittest",
-    "pack:arl": "npm run build && node tools/pack-arl.mjs",
+    "pack:contrejour": "npm run build && node tools/pack-contrejour.mjs",
     "lint": "oxlint src tools distribution tests",
     "format": "oxfmt .",
     "format:files": "oxfmt",

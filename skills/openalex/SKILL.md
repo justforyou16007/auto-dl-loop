@@ -15,7 +15,7 @@ This skill has one implementation: `openalex-fetch.js`. It does not call
 another literature source when OpenAlex fails.
 
 ```bash
-OPENALEX_FETCHER=".aris/dist/tools/openalex-fetch.js"
+OPENALEX_FETCHER=".contrejour/dist/tools/openalex-fetch.js"
 [ -f "$OPENALEX_FETCHER" ] || OPENALEX_FETCHER="dist/tools/openalex-fetch.js"
 [ -f "$OPENALEX_FETCHER" ] || {
   echo "ERROR: openalex-fetch.js is required." >&2
@@ -39,7 +39,7 @@ as returned. Missing metadata remains `null`.
 
 ## Research Wiki
 
-If `research-wiki/` exists, use the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`). Ingest only when
+If `research-wiki/` exists, use the wiki helper (`WIKI_SCRIPT=.contrejour/dist/tools/research-wiki.js`). Ingest only when
 the result contains the explicit metadata `ingest_survey` requires; a failed
 ingest fails the skill.
 

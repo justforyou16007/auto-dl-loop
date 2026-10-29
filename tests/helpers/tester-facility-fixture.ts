@@ -18,16 +18,16 @@ export function facilityConfig(root: string): TesterFacilityConfig {
     `import fs from "node:fs";
 import path from "node:path";
 const labels = JSON.parse(fs.readFileSync(new URL("./labels.json", import.meta.url), "utf8"));
-const out = process.env.ARIS_TEST_OUTPUT;
+const out = process.env.CONTREJOUR_TEST_OUTPUT;
 if (out) {
-  const ref = process.env.ARIS_ARTIFACT_REF;
+  const ref = process.env.CONTREJOUR_ARTIFACT_REF;
   const file = fs.existsSync(ref) && fs.statSync(ref).isDirectory() ? path.join(ref, "answers.json") : ref;
   let answers = {};
   try { answers = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  const ids = process.env.ARIS_TEST_MODE === "smoke" ? Object.keys(labels).slice(0, 1) : Object.keys(labels);
+  const ids = process.env.CONTREJOUR_TEST_MODE === "smoke" ? Object.keys(labels).slice(0, 1) : Object.keys(labels);
   const samples = ids.map((id) => ({ id, status: "ok", metrics: { score: answers[id] === labels[id] ? 1 : 0 } }));
   const score = samples.reduce((a, s) => a + s.metrics.score, 0) / samples.length;
-  fs.writeFileSync(out, JSON.stringify({ artifact_sha256: process.env.ARIS_ARTIFACT_SHA256, metrics: { score }, samples, evidence_files: [] }));
+  fs.writeFileSync(out, JSON.stringify({ artifact_sha256: process.env.CONTREJOUR_ARTIFACT_SHA256, metrics: { score }, samples, evidence_files: [] }));
 }
 `,
   );

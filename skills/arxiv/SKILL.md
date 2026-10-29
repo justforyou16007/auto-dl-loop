@@ -17,10 +17,10 @@ Python, use WebSearch, or replace an arXiv failure with another source.
 ```bash
 PROJECT_ROOT="$(_find_project_root)" || exit 1
 cd "$PROJECT_ROOT" || exit 1
-ARXIV_FETCHER=".aris/dist/tools/arxiv-fetch.js"
+ARXIV_FETCHER=".contrejour/dist/tools/arxiv-fetch.js"
 [ -f "$ARXIV_FETCHER" ] || ARXIV_FETCHER="dist/tools/arxiv-fetch.js"
 [ -f "$ARXIV_FETCHER" ] || {
-  echo "ERROR: arxiv-fetch.js is required. Build the ARL source and install this optional helper." >&2
+  echo "ERROR: arxiv-fetch.js is required. Build the Contrejour source and install this optional helper." >&2
   exit 1
 }
 ```
@@ -61,7 +61,7 @@ the skill or suggest another retrieval path as part of the same run.
 ## Research Wiki
 
 If `research-wiki/` exists, Wiki ingest is part of this run. Ingest every
-returned arXiv ID with the wiki helper (`WIKI_SCRIPT=.aris/dist/tools/research-wiki.js`,
+returned arXiv ID with the wiki helper (`WIKI_SCRIPT=.contrejour/dist/tools/research-wiki.js`,
 see [`/research-wiki`](../research-wiki/SKILL.md)):
 
 ```bash

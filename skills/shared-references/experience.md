@@ -1,10 +1,10 @@
 # Cross-project experience
 
-`Experience.md` sits at the root of the owner's local ARL source checkout. Reviewed lessons are on `main`. Each time the worker creates or updates a lesson, it commits to the local `experience` branch, creating that branch from `main` if it does not exist yet; the owner opens the pull request into `main`, so every lesson is reviewed before other projects rely on it. This is shared guidance across projects; it does not change `task.md` or replace project records in `research-wiki/`. The validator agent never writes this file.
+`Experience.md` sits at the root of the owner's local Contrejour source checkout. Reviewed lessons are on `main`. Each time the worker creates or updates a lesson, it commits to the local `experience` branch, creating that branch from `main` if it does not exist yet; the owner opens the pull request into `main`, so every lesson is reviewed before other projects rely on it. This is shared guidance across projects; it does not change `task.md` or replace project records in `research-wiki/`. The validator agent never writes this file.
 
 ## Location and reuse
 
-During worker setup, resolve the local ARL source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the path of its `experience` worktree (default: a sibling directory `<checkout>-experience`) in the worker's instruction file (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex), outside the setup-owned `ARIS ROLE` block. An installed `.aris/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
+During worker setup, resolve the local Contrejour source checkout from the owner's project instructions or an available source checkout. Record its absolute path and the path of its `experience` worktree (default: a sibling directory `<checkout>-experience`) in the worker's instruction file (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex), outside the setup-owned `CONTREJOUR ROLE` block. An installed `.contrejour/` directory is not the source checkout. Keep the source repository's `CLAUDE.md` linked to its root `Experience.md`.
 
 Before starting a task, read the relevant reviewed lessons: `git -C <checkout> show main:Experience.md`.
 
@@ -16,7 +16,7 @@ git -C <checkout> worktree add -b experience <worktree> main         # no: creat
 git -C <checkout> worktree add <worktree> experience                 # yes, but no worktree yet
 ```
 
-Reuse the worktree once it exists. Before editing, verify that it belongs to the ARL source repository and that `git -C <worktree> branch --show-current` reports `experience`. If the location is missing, ambiguous or unwritable, report that experience saving is pending and what is needed; never claim it was saved or silently write into another project or branch.
+Reuse the worktree once it exists. Before editing, verify that it belongs to the Contrejour source repository and that `git -C <worktree> branch --show-current` reports `experience`. If the location is missing, ambiguous or unwritable, report that experience saving is pending and what is needed; never claim it was saved or silently write into another project or branch.
 
 ## After each completed worker → validation cycle
 

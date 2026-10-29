@@ -1,32 +1,35 @@
-# Auto Research Loop（ARL）架构
+# Contrejour 架构
 
-ARL 是可独立安装、配合官方 Paseo 使用的两机研究任务包。保留 ARIS 技能名称和数据路径。安装包不包含 Paseo，也不向全局目录或 agents 目录复制定义。具体怎么用看各技能的 `SKILL.md`，路由索引见 [AGENT_GUIDE.md](AGENT_GUIDE.md)，两台机器的部署见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。
+Contrejour 是可独立安装、配合官方 Paseo 使用的两机研究任务包。安装包不包含 Paseo，也不向全局目录或 agents 目录复制定义。具体怎么用看各技能的 `SKILL.md`，路由索引见 [AGENT_GUIDE.md](AGENT_GUIDE.md)，两台机器的部署见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。
 
 ## 一、出发点
 
-前沿模型拿到任务和环境后，已经能自己规划、写代码、训练、调试、派子 agent。以前 ARIS 把一轮研究写死成"想法 → 实现 → 测试 → 审计 → 评审 → 停止门"的流水线，这层脚手架现在成了上限，所以删掉了。
+前沿模型拿到任务和环境后，已经能自己规划、写代码、训练、调试、派子 agent。Contrejour 的前身 ARIS 把一轮研究写死成"想法 → 实现 → 测试 → 审计 → 评审 → 停止门"的流水线，这层脚手架现在成了上限，所以删掉了。
 
-模型还做不好的一件事，是给自己的成果下结论：同一个 agent 写的评测，评出来的结果不可信。ARIS 现在只解决这一件事，做法是把"做"和"判"放到两台互相看不见的机器上：
+模型还做不好的一件事，是给自己的成果下结论：同一个 agent 写的评测，评出来的结果不可信。Contrejour 现在只解决这一件事，做法是把"做"和"判"放到两台互相看不见的机器上：
 
 - **worker** 只管做。它是 Paseo 中的一个 agent：Claude Code（thinking `ultracode`）或 Codex（thinking `ultra`），拿到 `task.md`，用自己的环境和 wiki 交付一个 zip。
 - **validator** 只管测，并且和 worker 对抗。它持有 worker 看不到、只增不改的 benchmark，为每次提交启动一个 thinking 为 `max` 的 agent（后端是验证端项目安装时选的 Claude Code 或 Codex），在 `task.md` 范围内尽可能多地找出交付物的真实问题，围绕已有测试项派生新的相似场景测试项，给出结论、测试项通过数和只讲问题、不讲用例的反馈。提交次数用完，任务结束。
 
-角色在安装时确定（`--role worker|validator`），同时固定 agent、技能目录和指令文件，更新时不能更换。
+角色在安装时确定（`--role worker|validator`），同时固定 agent、技能目录、指令文件和 setup 命令（worker 用 `worker-setup`，验证端用 `validator-setup`，每个项目只装本角色的那一个），更新时不能更换。
 
 ## 二、两台机器之间只有一条通道
 
 ```
 worker 机器                                   validator 机器
-┌───────────────────────┐                     ┌──────────────────────────────────┐
-│ Paseo                 │                     │ Paseo                            │
-│  └ worker agent       │  MCP: 三个工具      │  ├ aris-validation 服务脚本       │
-│     task.md           │ ──────────────────▶ │  │   .aris/validation/            │
-│     research-wiki/    │  curl.exe -T x.zip  │  └ 每次提交一个 validator agent  │
-│     MCP 配置          │ ──────────────────▶ │      .aris/tester-config.json     │
-└───────────────────────┘                     └──────────────────────────────────┘
+┌───────────────────────┐                     ┌──────────────────────────────────────┐
+│ Paseo                 │                     │ Paseo                                │
+│  └ worker agent       │  MCP: 四个工具      │  ├ contrejour 服务脚本               │
+│     task.md           │ ──────────────────▶ │  │   task.md                         │
+│     research-wiki/    │  curl.exe -T x.zip  │  │   .contrejour/validation/         │
+│     MCP 配置          │ ──────────────────▶ │  └ 每次提交一个 validator agent      │
+│                       │                     │      .contrejour/tester-config.json  │
+└───────────────────────┘                     └──────────────────────────────────────┘
 ```
 
-两边不共享磁盘、不共享仓库、不互发消息。worker 能拿到的只有服务的三个 MCP 工具返回的内容。`requirements` 返回提交要求：zip 格式和大小限制、`USAGE.md` 必须写清的内容、调用接口（`adapter_contract`）、owner 填写的运行环境说明（`runtime_environment`）、审查时限和各结论的含义，让 worker 一开始就按要求构建，减少因格式或环境不符造成的返工；它不含测试数据、隐藏路径、测试层和判分规则。`submit` 预约一次提交。`query` 返回服务状态、剩余次数，以及某次提交的状态、结论、测试项总数与通过数和反馈。这样防作弊就不靠规则约束 agent，而是靠物理隔离：worker 根本读不到 benchmark。
+两边不共享磁盘、不共享仓库、不互发消息。worker 能拿到的只有服务的四个 MCP 工具返回的内容。`task` 返回验证端 `task.md` 的原文和摘要（sha256）。worker 的 `task.md` 不靠人工复制，而是由 setup 的 `fetch-task` 用同一条连接逐字节取回，apply 时再核对一次；验证端之后修改 `task.md` 会立即对新的调用生效，`query` 的服务状态带着当前任务的摘要，worker 发现摘要变了就重新取回。这样两边做的和判的始终是同一份任务。`requirements` 返回提交要求：zip 格式和大小限制、`USAGE.md` 必须写清的内容、调用接口（`adapter_contract`）、owner 填写的运行环境说明（`runtime_environment`）、审查时限和各结论的含义，让 worker 一开始就按要求构建，减少因格式或环境不符造成的返工；它不含测试数据、隐藏路径、测试层和判分规则。`submit` 预约一次提交。`query` 返回服务状态、剩余次数，以及某次提交的状态、结论、测试项总数与通过数和反馈。这样防作弊就不靠规则约束 agent，而是靠物理隔离：worker 根本读不到 benchmark。
+
+这条通道的地址和 token 由验证端 setup 给出：验证机器已经提供 `CONTREJOUR_URL`（服务根地址）和 `CONTREJOUR_TOKEN` 时直接使用，不再另填地址或新建 token；否则由 owner 在配置表填写地址，setup 生成 token。
 
 验证机器不断网，因为有些任务的验证本身要联网（下载依赖、调用外部服务）。防作弊靠的是 validator agent 检查交付内容，而不是切断网络。
 
@@ -58,7 +61,7 @@ agent 的结论只决定"算不算数"，每个测试项通过与否由 helper �
 
 ## 四、只增不改与停止
 
-- **benchmark 只增不改。** setup 时由用户确认 base 层 benchmark 的来源、数据版本、切分、完整样本数和逐样本通过规则，算出摘要写进 `.aris/validation/config.json`，依赖的文件记下哈希。之后新增的层放在只由 helper 提交的 git 仓库 `.aris/validation/benchmark/` 里：空的根提交之后，每次 `extend` 是一个只新增文件的提交（`layers/<id>/` 加 `registry/<id>.json`），每次 `retire` 也只新增一个 `registry/<id>.retired.json`。helper 每次检查都逐个提交核对“只增不改”，并核对 head 和它自己记在 `.aris/validation/benchmark-head` 的一致、已登记文件没有被改；任何一条不满足，服务就停止。所以“增量”这个动作本身是机械可查的。每次运行都从提交里把该层取到这次运行自己的目录，runner 在副本里随便写都不影响已登记的层。错了的层只能 `retire`（注明原因，不再计数），不能修改；要改 base 层或通过规则只能开一个新的 validator 项目。
+- **benchmark 只增不改。** setup 时由用户确认 base 层 benchmark 的来源、数据版本、切分、完整样本数和逐样本通过规则，算出摘要写进 `.contrejour/validation/config.json`，依赖的文件记下哈希。之后新增的层放在只由 helper 提交的 git 仓库 `.contrejour/validation/benchmark/` 里：空的根提交之后，每次 `extend` 是一个只新增文件的提交（`layers/<id>/` 加 `registry/<id>.json`），每次 `retire` 也只新增一个 `registry/<id>.retired.json`。helper 每次检查都逐个提交核对“只增不改”，并核对 head 和它自己记在 `.contrejour/validation/benchmark-head` 的一致、已登记文件没有被改；任何一条不满足，服务就停止。所以“增量”这个动作本身是机械可查的。每次运行都从提交里把该层取到这次运行自己的目录，runner 在副本里随便写都不影响已登记的层。错了的层只能 `retire`（注明原因，不再计数），不能修改；要改 base 层或通过规则只能开一个新的 validator 项目。
 - **次数有上限。** 计次的只有真正走完审查的提交（已测试、作弊、无法运行）；上传超时、格式错误、本方故障都不计。
 - **唯一的停止条件是次数用完。** 计次提交用完、在审的也都结束后，服务进入 `closed`，不再接收新提交，worker 看到后就停。通过全部现有测试项不会结束任务，因为 validator 还会继续加测试项。
 
@@ -68,15 +71,16 @@ agent 的结论只决定"算不算数"，每个测试项通过与否由 helper �
 
 | 文件 | 唯一写入方 |
 | --- | --- |
-| `.aris/setup-*.json`、`.aris/tester-config.json`、`.aris/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、worker MCP 配置（`.mcp.json` 或 `.codex/config.toml`）和 `paseo.json` 里的 ARIS 条目 | `setup-cli.js` |
-| `.aris/validation/` 下的提交记录、发布结果、新增层的 git 仓库 `benchmark/` 及其 head 记录 `benchmark-head` | `validation-cli.js`（服务、`extend`、`retire`、`leak-review`、`finalize`） |
+| `.contrejour/setup-*.json`、`.contrejour/tester-config.json`、`.contrejour/environment.json`（环境脚本读取的密钥，唯一的环境配置文件）、worker MCP 配置（`.mcp.json` 或 `.codex/config.toml`）和 `paseo.json` 里的 Contrejour 条目 | `setup-cli.js` |
+| 项目根目录的 `task.md` | 验证端：owner；worker 端：`setup-cli.js fetch-task`（逐字节复制验证端的版本，不手改） |
+| `.contrejour/validation/` 下的提交记录、发布结果、新增层的 git 仓库 `benchmark/` 及其 head 记录 `benchmark-head` | `validation-cli.js`（服务、`extend`、`retire`、`leak-review`、`finalize`） |
 | 提交目录里的 `inspection.md`、`review.json`、`feedback.md`、适配器、新层草稿 | validator agent |
 | 提交目录里的 `leak-review/<n>/result.json` | 该次泄漏审查 agent |
 | `research-wiki/`（两端各自一份） | `research-wiki.js` |
-| 本地 ARL 源码仓库的 `Experience.md`（`main` 为已审核经验，新经验提交到 `experience` 分支） | worker agent 提交到 `experience`，用户经 PR 审核合并到 `main`（仅依据自身过程和已发布结果，精简、去重并保留跨项目经验） |
-| 技能目录中的 `<project>-environment/` | 本机角色的 agent，按 `aris-setup` 的环境步骤写入并验证；之后发现新的环境事实或重复流程时同样补充 |
+| 本地 Contrejour 源码仓库的 `Experience.md`（`main` 为已审核经验，新经验提交到 `experience` 分支） | worker agent 提交到 `experience`，用户经 PR 审核合并到 `main`（仅依据自身过程和已发布结果，精简、去重并保留跨项目经验） |
+| 技能目录中的 `<project>-environment/` | 本机角色的 agent，按 [environment-skill.md](skills/shared-references/environment-skill.md) 写入并验证；之后发现新的环境事实或重复流程时同样补充 |
 
-`CLAUDE.md`（worker）或 `AGENTS.md`（validation）里 `ARIS ROLE` 标记之间的角色段由 setup 写入，标记外的内容 setup 不碰。
+`CLAUDE.md`（worker）或 `AGENTS.md`（validation）里 `CONTREJOUR ROLE` 标记之间的角色段由 setup 写入，标记外的内容 setup 不碰。
 
 角色段把记忆分成两层，并要求带编号的流程逐步执行、每次提交前先 commit：
 
@@ -89,14 +93,14 @@ worker 每次获得 validation 已发布的最终结论后，按[经验保存约
 ## 六、Paseo 里能看到什么
 
 - 两台机器各自的 agent：worker agent，以及每次提交对应的一个 validator agent。
-- 验证机器工作区的 `aris-validation` 服务脚本，包括端口、运行状态和代理地址。
-官方 App 没有定制版 ARIS 知识图谱标签页。通过 `research-wiki` 技能、CLI 或本机 Markdown 查看记录。本仓库只提供研究技能和服务，不包含 Paseo 前端代码。
+- 验证机器工作区的 `contrejour` 服务脚本，包括端口、运行状态和代理地址。
+官方 App 没有定制的知识图谱标签页。通过 `research-wiki` 技能、CLI 或本机 Markdown 查看记录。本仓库只提供研究技能和服务，不包含 Paseo 前端代码。
 
 ## 七、保留了什么、删掉了什么
 
-判断标准只有一条：agent 自己能做的，ARIS 就不再提供流程。
+判断标准只有一条：agent 自己能做的，Contrejour 就不再提供流程。
 
-- **独立包包含**：setup、validation-review、research-wiki、browser-act 四个技能及其 helper 依赖闭包。setup 的环境输出是项目环境技能；安装和升级使用同一安装器。部署和技能重载见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。GPU 平台、文献检索、飞书和 Overleaf 等技能留在源码中，不进入安装包。
+- **独立包包含**：worker-setup、validator-setup（每个项目只装本角色的一个）、validation-review、research-wiki、browser-act 技能及其 helper 依赖闭包。setup 的环境输出是项目环境技能；安装和升级使用同一安装器。部署和技能重载见 [SETUP_GUIDE_CN.md](SETUP_GUIDE_CN.md)。GPU 平台、文献检索、飞书和 Overleaf 等技能留在源码中，不进入安装包。
 - **删除**：研究循环、各类审计和评审技能、子 agent 派发协议、worker manifest、Pipeline/Review 等前端视图，以及环境 PRD、环境配置技能和实验队列。规划、派发、自查和实验调度都是 agent 自己的工作。
 
 ## 八、加新功能前先问

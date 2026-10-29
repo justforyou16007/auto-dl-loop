@@ -106,17 +106,17 @@ def main():
     if args.action == "check":
         run([evaluator, "validate", "--tasks", cfg["task"], "--include_path", str(cwd / "tasks")])
         return
-    mode = os.environ.get("ARIS_TEST_MODE", "smoke")
-    target = Path(os.environ.get("ARIS_TEST_DIR", str(cwd / "setup-smoke")))
+    mode = os.environ.get("CONTREJOUR_TEST_MODE", "smoke")
+    target = Path(os.environ.get("CONTREJOUR_TEST_DIR", str(cwd / "setup-smoke")))
     # Each attempt gets a fresh native output directory; old final outputs cannot win a glob.
     import tempfile
     target.mkdir(parents=True, exist_ok=True)
     native_dir = Path(tempfile.mkdtemp(prefix="native-", dir=target))
-    model_args = cfg["smoke_model_args"] if mode == "smoke" else cfg["model_args"].replace("{artifact_ref}", os.environ["ARIS_ARTIFACT_REF"])
+    model_args = cfg["smoke_model_args"] if mode == "smoke" else cfg["model_args"].replace("{artifact_ref}", os.environ["CONTREJOUR_ARTIFACT_REF"])
     argv = [evaluator, "run", "--model", cfg["model"], "--model_args", model_args, "--tasks", cfg["task"], "--include_path", str(cwd / "tasks"), "--output_path", str(native_dir), "--log_samples", "--seed", str(cfg["seed"]), "--num_fewshot", str(cfg["num_fewshot"]), "--device", cfg["device"], "--batch_size", str(cfg["batch_size"])]
     if mode == "smoke":
         argv += ["--limit", str(cfg["smoke_samples"])]
-    # Enforce this timeout on the remote machine as well as in the ARIS controller.
+    # Enforce this timeout on the remote machine as well as in the Contrejour controller.
     run(argv, timeout=cfg["timeout_seconds"])
     results = list(native_dir.rglob("results*.json"))
     logs = list(native_dir.rglob("samples_*.jsonl"))
@@ -124,12 +124,12 @@ def main():
         raise ValueError("expected exactly one task result and sample log")
     aggregate = json.loads(results[0].read_text(encoding="utf-8"))["results"][cfg["task"]]
     samples = [json.loads(line) for line in logs[0].read_text(encoding="utf-8").splitlines() if line.strip()]
-    raw = convert(aggregate, samples, cfg["metric_map"], os.environ.get("ARIS_ARTIFACT_SHA256", "setup-smoke"))
+    raw = convert(aggregate, samples, cfg["metric_map"], os.environ.get("CONTREJOUR_ARTIFACT_SHA256", "setup-smoke"))
     expected = cfg["expected_samples"] if mode == "full" else cfg["smoke_samples"]
     if len(samples) != expected:
         raise ValueError("benchmark coverage differs from declared protocol")
     raw["evidence_files"] = [str(results[0]), str(logs[0]), str(profile_path), str(cwd / "tasks/task.yaml"), str(cwd / "data-manifest.json")]
-    Path(os.environ.get("ARIS_TEST_OUTPUT", str(target / "benchmark-output.json"))).write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+    Path(os.environ.get("CONTREJOUR_TEST_OUTPUT", str(target / "benchmark-output.json"))).write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -168,8 +168,8 @@ const PATTERNS: PatternEntry[] = [
     scope: "strict",
   },
   {
-    pattern: String.raw`(update|modify|edit|write|change|append|add\s+to)\s+.*\.aris/(installed-skills\.txt|skill-source\.txt)`,
-    id: "aris_config_mod",
+    pattern: String.raw`(update|modify|edit|write|change|append|add\s+to)\s+.*\.contrejour/(installed-skills\.txt|skill-source\.txt)`,
+    id: "contrejour_config_mod",
     scope: "strict",
   },
 
@@ -272,7 +272,7 @@ export function quarantine(
   return [placeholder, findings];
 }
 
-const program = createCli("threat-scan", "ARIS injection / exfiltration scanner.");
+const program = createCli("threat-scan", "Contrejour injection / exfiltration scanner.");
 program.argument("<path>", "file to scan, or - for stdin");
 program.option("--scope <scope>", "scan scope: all, context, strict", "strict");
 program.option("--quarantine", "print the quarantined text instead of the findings");

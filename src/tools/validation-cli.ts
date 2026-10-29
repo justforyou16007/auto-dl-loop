@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Validator machine helper. `serve` runs the service (Paseo starts it as the
- * `aris-validation` script); the other commands are what a validator agent and
+ * `contrejour` script); the other commands are what a validator agent and
  * the owner run against one project.
  */
 import path from "node:path";
@@ -26,7 +26,7 @@ import {
   serviceSummary,
 } from "./validation/store.js";
 
-const program = createCli("validation", "Serve and review ARIS validation submissions");
+const program = createCli("validation", "Serve and review Contrejour validation submissions");
 
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
@@ -55,9 +55,9 @@ program
     try {
       const port = Number(options.port ?? process.env.PASEO_PORT);
       if (!Number.isInteger(port) || port < 0)
-        failA1("PORT_REQUIRED", "pass --port or run as the Paseo aris-validation service script");
+        failA1("PORT_REQUIRED", "pass --port or run as the Paseo contrejour service script");
       const service = await startValidationService(options.project, { port });
-      console.log(`aris-validation listening on ${service.url}`);
+      console.log(`contrejour listening on ${service.url}`);
       const stop = () => void service.close().then(() => process.exit(0));
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);

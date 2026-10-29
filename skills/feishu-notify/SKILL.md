@@ -11,7 +11,7 @@ Send a notification: **$ARGUMENTS**
 
 ## Overview
 
-This skill provides Feishu/Lark integration for ARIS. It is designed as an **internal utility** — the worker calls it at key events (experiment done, submission scored, owner decision needed). It can also be invoked manually.
+This skill provides Feishu/Lark integration for Contrejour. It is designed as an **internal utility** — the worker calls it at key events (experiment done, submission scored, owner decision needed). It can also be invoked manually.
 
 **Zero-impact guarantee**: If no `feishu.json` config exists, this skill does nothing and returns silently. All existing workflows are completely unaffected.
 

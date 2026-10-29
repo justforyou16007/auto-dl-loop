@@ -116,7 +116,7 @@ function dispatchJson(command: string, opts: Record<string, unknown>): unknown {
   throw new Error(`Unsupported command: ${command}`);
 }
 
-const program = createCli("deepxiv-fetch", "ARIS wrapper around the installed deepxiv CLI.");
+const program = createCli("deepxiv-fetch", "Contrejour wrapper around the installed deepxiv CLI.");
 
 program
   .command("search")

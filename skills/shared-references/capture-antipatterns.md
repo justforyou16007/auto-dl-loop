@@ -19,12 +19,12 @@ Store how to fix it, never "X can't do Y".
 ## The helper
 
 `capture-filter.js` flags the mechanical classes: raw error output, transient
-errors, and phrasing that declares ARIS tooling broken. It does not flag
+errors, and phrasing that declares Contrejour tooling broken. It does not flag
 research findings about a model or method ("our method fails on long
 sequences").
 
 ```bash
-node .aris/dist/tools/capture-filter.js <file|->   # exit 1 and the reasons when flagged
+node .contrejour/dist/tools/capture-filter.js <file|->   # exit 1 and the reasons when flagged
 ```
 
 When a note is flagged, rewrite it as the fix or drop it. The single-instance

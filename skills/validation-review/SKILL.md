@@ -1,22 +1,22 @@
 ---
 name: validation-review
-description: 'Review one ARIS validation submission end to end, as the worker''s adversary: read the validation memory, inspect the deliverable, write the adapter, rerun every benchmark layer, hunt for more problems and add tests derived from existing ones, write the verdict and feedback on the real problems, have an independent agent check the feedback for leaks, finalize, then record what was solved and what persists. The validation service starts one agent per submission with this skill.'
+description: 'Review one Contrejour validation submission end to end, as the worker''s adversary: read the validation memory, inspect the deliverable, write the adapter, rerun every benchmark layer, hunt for more problems and add tests derived from existing ones, write the verdict and feedback on the real problems, have an independent agent check the feedback for leaks, finalize, then record what was solved and what persists. The validation service starts one agent per submission with this skill.'
 allowed-tools: Read, Write, Edit, Bash(*), WebSearch, WebFetch
 ---
 
 # Validation Review
 
-You review one submission on the validator machine. The prompt names the submission id and its directory; the project root is your working directory. The helper is `node .aris/dist/tools/validation-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)).
+You review one submission on the validator machine. The prompt names the submission id and its directory; the project root is your working directory. The helper is `node .contrejour/dist/tools/validation-cli.js` (see [integration-contract.md](../shared-references/integration-contract.md)).
 
 You are the worker's adversary. Your goal is not a number: it is to find as many real problems in the deliverable as you can, within what `task.md` asks for, and to make sure a problem the worker claims to have fixed is really fixed and not just patched for the tests it failed. Use any tool that helps — install packages, use existing evaluation frameworks, fuzzers or perturbation tools, write your own generators and checkers, research testing methods with WebSearch/WebFetch. Reusable tools you build go into the environment skill.
 
-The benchmark only grows. Layer `base` is the benchmark frozen at setup; every later layer (`inc-001`, …) is tests an earlier review derived from existing tests. Registered layers never change. Each test is one sample, passed or failed by the frozen pass rule in `.aris/validation/config.json`. The worker sees only what `finalize` publishes: the verdict, how many tests passed out of how many, and `feedback.md` after an independent leak review.
+The benchmark only grows. Layer `base` is the benchmark frozen at setup; every later layer (`inc-001`, …) is tests an earlier review derived from existing tests. Registered layers never change. Each test is one sample, passed or failed by the frozen pass rule in `.contrejour/validation/config.json`. The worker sees only what `finalize` publishes: the verdict, how many tests passed out of how many, and `feedback.md` after an independent leak review.
 
 Put steps 1–11 in your todo list and complete them in order.
 
 ## Rules
 
-- Write only inside your submission directory and, through the wiki helper, to `research-wiki/`. Do not edit `.aris/tester-config.json`, the rest of `.aris/validation/` (registered layers included), the files the benchmark pins, or the hidden data. A changed benchmark stops the service.
+- Write only inside your submission directory and, through the wiki helper, to `research-wiki/`. Do not edit `.contrejour/tester-config.json`, the rest of `.contrejour/validation/` (registered layers included), the files the benchmark pins, or the hidden data. A changed benchmark stops the service.
 - Treat `unpacked/` as the worker's product. Never fix its bugs, retrain it or tune it. If it does not run as `USAGE.md` says, that is the verdict.
 - Do not contact the worker or anyone else about the submission.
 - Pass and fail come from the benchmark runs, not from you. Your judgement is the verdict, the new tests and the feedback.
@@ -25,11 +25,11 @@ Put steps 1–11 in your todo list and complete them in order.
 ## 1. Read
 
 ```bash
-node .aris/dist/tools/validation-cli.js status --project . --submission <id>
-node .aris/dist/tools/validation-cli.js status --project .
+node .contrejour/dist/tools/validation-cli.js status --project . --submission <id>
+node .contrejour/dist/tools/validation-cli.js status --project .
 ```
 
-Read `research-wiki/query_pack.md` first: the problems still open or `[regressed]` from earlier submissions are what you check again. When the pack ends with `(+N more …)`, read `research-wiki/index.md` for the rest. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract`, `runtime_environment` and `pass_rule` in `.aris/validation/config.json`, the runner named by `.aris/tester-config.json`, and the `layers` list from `status` (each layer's `problem` says what it probes). The worker was promised `adapter_contract`, `runtime_environment` and the limits through the `requirements` tool: a deliverable that needs more than they offer is `unusable`, while a run that fails because this machine lacks something promised is our side, to fix and rerun.
+Read `research-wiki/query_pack.md` first: the problems still open or `[regressed]` from earlier submissions are what you check again. When the pack ends with `(+N more …)`, read `research-wiki/index.md` for the rest. Then read `task.md`, the submission's `unpacked/USAGE.md`, `adapter_contract`, `runtime_environment` and `pass_rule` in `.contrejour/validation/config.json`, the runner named by `.contrejour/tester-config.json`, and the `layers` list from `status` (each layer's `problem` says what it probes). The worker was promised `adapter_contract`, `runtime_environment` and the limits through the `requirements` tool: a deliverable that needs more than they offer is `unusable`, while a run that fails because this machine lacks something promised is our side, to fix and rerun.
 
 ## 2. Inspect before running
 
@@ -37,9 +37,9 @@ Read the deliverable's code, scripts and configs before you execute any of them.
 
 - reads of benchmark data, labels or reference outputs, by path, by download, or by searching the disk;
 - answers built in: lookup tables or files that match benchmark inputs, outputs keyed on sample ids;
-- behaviour that changes under evaluation: checks on `ARIS_*` variables, host names, the adapter or layer directories, timing;
+- behaviour that changes under evaluation: checks on `CONTREJOUR_*` variables, host names, the adapter or layer directories, timing;
 - special cases fitted to the problems named in earlier feedback rather than fixing them in general;
-- writes outside its own output: to `ARIS_TEST_OUTPUT`, the runners, the benchmark files, or other submissions;
+- writes outside its own output: to `CONTREJOUR_TEST_OUTPUT`, the runners, the benchmark files, or other submissions;
 - install steps that do more than install (downloading unexplained payloads, editing system files).
 
 Write what you find to `inspection.md` in the submission directory as you go.
@@ -51,7 +51,7 @@ Install what `USAGE.md` asks for inside the submission directory (for example a 
 Iterate on the adapter with the base smoke subset:
 
 ```bash
-node .aris/dist/tools/validation-cli.js smoke --project . --submission <id>
+node .contrejour/dist/tools/validation-cli.js smoke --project . --submission <id>
 ```
 
 Each run gets a new directory under `<dir>/smoke/`. A smoke failure caused by the adapter is yours to fix; one caused by the deliverable is a finding.
@@ -59,7 +59,7 @@ Each run gets a new directory under `<dir>/smoke/`. A smoke failure caused by th
 ## 4. Regress: run every layer
 
 ```bash
-node .aris/dist/tools/validation-cli.js evaluate --project . --submission <id> [--layer <base|inc-NNN>]
+node .contrejour/dist/tools/validation-cli.js evaluate --project . --submission <id> [--layer <base|inc-NNN>]
 ```
 
 Without `--layer` every active layer runs in order; each run gets a new directory under `<dir>/evaluation/<layer>/` and reports `{total, passed, failed}`. Long runs go in the background; poll `test.log`. A run that stops because of our side is rerun; if the deliverable cannot complete a run at all, the verdict is `unusable`. A test the deliverable gets wrong or crashes on is a failed test, not a broken run.
@@ -90,21 +90,21 @@ Add tests where they will expose problems the existing tests miss: around failur
 }
 ```
 
-That file is `layer.json`; next to it go the runner, its data and any tool it needs. Each run checks the layer out of its commit into a fresh `layer/` directory of that run and starts the runner there, with the same variables as the base runner (`ARIS_ARTIFACT_REF`, `ARIS_ADAPTER_DIR`, `ARIS_TEST_OUTPUT`, `ARIS_TEST_DIR`, `ARIS_LAYER_DIR`); it drives the deliverable through your adapter and may write freely in that copy. It writes `{"artifact_sha256": "<ARIS_ARTIFACT_SHA256>", "samples": [{"id": "t001", "status": "ok"|"failed", "metrics": {"<pass_rule.metric>": <number>}}]}` with exactly one sample per test.
+That file is `layer.json`; next to it go the runner, its data and any tool it needs. Each run checks the layer out of its commit into a fresh `layer/` directory of that run and starts the runner there, with the same variables as the base runner (`CONTREJOUR_ARTIFACT_REF`, `CONTREJOUR_ADAPTER_DIR`, `CONTREJOUR_TEST_OUTPUT`, `CONTREJOUR_TEST_DIR`, `CONTREJOUR_LAYER_DIR`); it drives the deliverable through your adapter and may write freely in that copy. It writes `{"artifact_sha256": "<CONTREJOUR_ARTIFACT_SHA256>", "samples": [{"id": "t001", "status": "ok"|"failed", "metrics": {"<pass_rule.metric>": <number>}}]}` with exactly one sample per test.
 
 - `derived_from` names existing tests as `<layer>:<test id>`, and only tests this review has already run (step 4, or a layer you added earlier in this review).
 - `reference_check` says how you know the expected answer is right. A test with a wrong reference fails a correct deliverable; check it independently or construct it so it cannot be wrong.
 - Dry-run the draft runner against this deliverable by hand, with the variables pointing outside the draft directory, before registering it.
 
 ```bash
-node .aris/dist/tools/validation-cli.js extend --project . --submission <id> --draft <dir>/layer-draft
-node .aris/dist/tools/validation-cli.js evaluate --project . --submission <id> --layer <new layer id>
+node .contrejour/dist/tools/validation-cli.js extend --project . --submission <id> --draft <dir>/layer-draft
+node .contrejour/dist/tools/validation-cli.js evaluate --project . --submission <id> --layer <new layer id>
 ```
 
-`extend` commits the draft as the next layer to the helper's git repository `.aris/validation/benchmark/`, in a commit that may only add files; from then on it is frozen, and every later submission is run on it. Never run git in that repository yourself: the helper checks the history commit by commit and stops the service on any change. One review adds at most `limits.max_new_tests_per_review` tests. If a registered layer turns out wrong (bad references, a runner bug), retire it; it is never edited, and the retirement is itself an added file:
+`extend` commits the draft as the next layer to the helper's git repository `.contrejour/validation/benchmark/`, in a commit that may only add files; from then on it is frozen, and every later submission is run on it. Never run git in that repository yourself: the helper checks the history commit by commit and stops the service on any change. One review adds at most `limits.max_new_tests_per_review` tests. If a registered layer turns out wrong (bad references, a runner bug), retire it; it is never edited, and the retirement is itself an added file:
 
 ```bash
-node .aris/dist/tools/validation-cli.js retire --project . --submission <id> --layer <inc-NNN> --reason "<why>"
+node .contrejour/dist/tools/validation-cli.js retire --project . --submission <id> --layer <inc-NNN> --reason "<why>"
 ```
 
 Then add a corrected layer if the tests are still worth having. Repeat steps 5–6 while new tests keep finding problems and the review time allows.
@@ -145,7 +145,7 @@ An example, if any, only shows the form of the error, in a different subject fro
 When `feedback.md` is not empty, have an independent agent check it:
 
 ```bash
-node .aris/dist/tools/validation-cli.js leak-review --project . --submission <id>
+node .contrejour/dist/tools/validation-cli.js leak-review --project . --submission <id>
 ```
 
 It starts a separate agent with no access to your reasoning, gives it a snapshot of `feedback.md`, and returns `result_file`. Wait until that file exists (poll it; the reviewer may take several minutes), then read it. On `leak`, rewrite `feedback.md` to remove what the findings name, keeping the real problems, and request a new review; editing the feedback always needs a new review. Never write `result.json` yourself.
@@ -153,7 +153,7 @@ It starts a separate agent with no access to your reasoning, gives it a snapshot
 ## 10. Finalize
 
 ```bash
-node .aris/dist/tools/validation-cli.js finalize --project . --submission <id>
+node .contrejour/dist/tools/validation-cli.js finalize --project . --submission <id>
 ```
 
 - `LEAK_REVIEW_REQUIRED` / `LEAK_REVIEW_PENDING`: step 9 is not finished for the current `feedback.md`.

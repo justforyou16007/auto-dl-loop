@@ -68,7 +68,7 @@ export function reasonDetail(reason: string): string {
       "looks like a transient error (rate limit / OOM / network) that " +
       "self-resolves — do not capture it as a durable rule.",
     negative_tool_claim:
-      "looks like a negative capability claim about ARIS's own tooling " +
+      "looks like a negative capability claim about Contrejour's own tooling " +
       "('X can't / is broken'). These harden into self-cited refusals long " +
       "after the real problem is fixed. Store the fix / the workaround, not " +
       "'X can't do Y'.",
@@ -76,7 +76,7 @@ export function reasonDetail(reason: string): string {
   return details[reason] ?? reason;
 }
 
-const program = createCli("capture-filter", "ARIS anti-self-poisoning capture filter.");
+const program = createCli("capture-filter", "Contrejour anti-self-poisoning capture filter.");
 
 program.argument("<path>", "file to screen, or - for stdin").action(async (filePath: string) => {
   let text: string;

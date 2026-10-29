@@ -3,7 +3,7 @@ dist/
 artifacts/
 coverage/
 *.tsbuildinfo
-.aris/
+.contrejour/
 .claude/
 .agents/
 .env

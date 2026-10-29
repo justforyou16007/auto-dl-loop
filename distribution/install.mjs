@@ -32,7 +32,7 @@ if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(values.project);
 const role = values.role;
-const manifestFile = path.join(root, ".aris/install.json");
+const manifestFile = path.join(root, ".contrejour/install.json");
 function digest(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
@@ -68,14 +68,19 @@ function destination(relative) {
   }
   return target;
 }
-destination(".aris/install.json");
+destination(".contrejour/install.json");
+// Releases named ARL kept their data under .aris/; they are not migrated.
+if (fs.existsSync(path.join(root, ".aris/install.json"))) {
+  throw new Error(
+    "This project was installed by an earlier release under .aris/ (ARL), which Contrejour does not migrate; install into a fresh project.",
+  );
+}
 const previous = fs.existsSync(manifestFile)
   ? JSON.parse(fs.readFileSync(manifestFile, "utf8"))
   : null;
-// Earlier releases recorded no role (or the old `validation` name); they are not migrated.
 if (previous && !["worker", "validator"].includes(previous.role)) {
   throw new Error(
-    "This project was installed by an earlier ARL release without a worker/validator role; install into a fresh project.",
+    "This project's installation record names no worker/validator role; install into a fresh project.",
   );
 }
 if (previous && previous.role !== role) {
@@ -90,9 +95,11 @@ if (previous?.provider && previous.provider !== provider) {
   );
 }
 const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
+// The archive carries both setup skills; a project gets only its own role's.
+const otherSetup = `skills/${role === "worker" ? "validator" : "worker"}-setup/`;
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))
-  throw new Error("Invalid ARL archive manifest");
+  throw new Error("Invalid Contrejour archive manifest");
 const planned = [];
 const hashes = {};
 for (const entry of manifest.files) {
@@ -102,12 +109,13 @@ for (const entry of manifest.files) {
     throw new Error(`Archive integrity check failed: ${entry.path}`);
   const isSkill = entry.path.startsWith("skills/");
   if (
-    !isSkill &&
-    !/^(dist|templates|node_modules)\//.test(entry.path) &&
-    entry.path !== "package.json"
+    (!isSkill &&
+      !/^(dist|templates|node_modules)\//.test(entry.path) &&
+      entry.path !== "package.json") ||
+    entry.path.startsWith(otherSetup)
   )
     continue;
-  const relative = isSkill ? `${skills}/${entry.path.slice(7)}` : `.aris/${entry.path}`;
+  const relative = isSkill ? `${skills}/${entry.path.slice(7)}` : `.contrejour/${entry.path}`;
   const contents =
     provider === "codex" && entry.path.endsWith(".md")
       ? Buffer.from(bytes.toString("utf8").replaceAll(".claude/skills", ".agents/skills"))
@@ -131,7 +139,7 @@ for (const [relative, oldHash] of Object.entries(previous?.files ?? {})) {
   if (Object.hasOwn(hashes, relative)) continue;
   if (
     !relative.startsWith(`${skills}/`) &&
-    !/^\.aris\/(dist|templates|node_modules)\//.test(relative)
+    !/^\.contrejour\/(dist|templates|node_modules)\//.test(relative)
   ) {
     throw new Error(`Invalid managed path: ${relative}`);
   }
@@ -147,7 +155,7 @@ for (const [relative, oldHash] of Object.entries(previous?.files ?? {})) {
 if (!values["dry-run"]) {
   for (const { target, contents } of planned) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    const temp = `${target}.arl-${process.pid}`;
+    const temp = `${target}.contrejour-${process.pid}`;
     fs.writeFileSync(temp, contents);
     fs.renameSync(temp, target);
   }
@@ -189,6 +197,6 @@ const client =
     : "Codex must trust the project to read its .codex/config.toml; open a fresh session after skills change.";
 console.log(
   role === "worker"
-    ? `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke aris-setup. ${client} A changed MCP configuration needs a fresh session.`
-    : `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke aris-setup; the service starts validator agents with the same backend. ${client}`,
+    ? `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke worker-setup. ${client} A changed MCP configuration needs a fresh session.`
+    : `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke validator-setup; the service starts validator agents with the same backend. ${client}`,
 );

@@ -29,8 +29,8 @@
 
 1. 打开你的飞书群（或新建一个测试群）
 2. 群设置 → 群机器人 → 添加机器人 → **自定义机器人**
-3. 起个名字（如 `ARIS Notifications`），复制 **Webhook 地址**
-4. 安全设置：添加自定义关键词 `ARIS`（所有通知都包含这个词），或不设限制
+3. 起个名字（如 `Contrejour Notifications`），复制 **Webhook 地址**
+4. 安全设置：添加自定义关键词 `Contrejour`（所有通知都包含这个词），或不设限制
 
 ### 第 2 步：创建配置文件
 
@@ -51,7 +51,7 @@ curl -s -X POST "YOUR_WEBHOOK_URL" \
   -d '{
     "msg_type": "interactive",
     "card": {
-      "header": {"title": {"tag": "plain_text", "content": "🧪 ARIS Test"}, "template": "blue"},
+      "header": {"title": {"tag": "plain_text", "content": "🧪 Contrejour Test"}, "template": "blue"},
       "elements": [{"tag": "markdown", "content": "Push mode working! 🎉"}]
     }
   }'
@@ -80,7 +80,7 @@ curl -s -X POST "YOUR_WEBHOOK_URL" \
 
 ### 第 2 步：在[飞书开放平台](https://open.feishu.cn/app)创建应用
 
-1. 点击 **创建企业自建应用** → 填名称（如 `ARIS Claude Bot`）→ 创建
+1. 点击 **创建企业自建应用** → 填名称（如 `Contrejour Claude Bot`）→ 创建
 2. 左侧菜单 → **添加应用能力** → 勾选 **机器人**
 3. 左侧 → **权限管理** → 搜索并开通以下 5 个权限：
 
@@ -122,7 +122,7 @@ DEFAULT_CWD=/path/to/your/project      # Claude Code 的工作目录
 PERMISSION_MODE=bypassPermissions      # 或 "default"（需手动确认敏感操作）
 ```
 
-> ⚠️ **模型很重要**：默认的 `claude-sonnet-4-6` 能用但可能无法理解复杂项目上下文。实测 `claude-opus-4-6` 首次即正确识别了 18 个 ARIS skills，而 sonnet 反复失败。
+> ⚠️ **模型很重要**：默认的 `claude-sonnet-4-6` 能用但可能无法理解复杂项目上下文。实测 `claude-opus-4-6` 首次即正确识别了全部 18 个 skills，而 sonnet 反复失败。
 
 启动桥接：
 
@@ -161,7 +161,7 @@ screen -dmS feishu-bridge bash -c 'cd /path/to/feishu-claude-code && source .ven
 | 旧 session 上下文过时      | 修改配置前的 session 被缓存             | 在聊天中发 `/new` 开始新 session  |
 | 保存事件时"未检测到连接"   | 桥接服务还没启动                        | 先启动桥接，再保存事件配置        |
 
-### 第 6 步：更新 ARIS 配置
+### 第 6 步：更新 Contrejour 配置
 
 ```bash
 cat > ~/.claude/feishu.json << 'EOF'

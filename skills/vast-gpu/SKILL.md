@@ -60,7 +60,7 @@ This file is the source of truth the project environment skill's scripts use to 
 # --- resolve the project environment skill ---
 PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
 SKILL_DIR=".claude/skills/${PROJECT}-environment"
-[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: environment skill not found at $SKILL_DIR. Run /aris-setup to write it." >&2; exit 1; }
+[ -d "$SKILL_DIR/scripts" ] || { echo "ERROR: environment skill not found at $SKILL_DIR. Run /worker-setup or /validator-setup to write it." >&2; exit 1; }
 ```
 
 ### Action: Provision (default)
