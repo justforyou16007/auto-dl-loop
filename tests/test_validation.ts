@@ -19,14 +19,20 @@ import {
   type ValidationConfig,
 } from "../src/tools/validation/config.js";
 import {
-  leakReviewRun,
-  paseoDispatcher,
-  paseoRunArgv,
-  reviewRun,
+  backgroundedId,
+  claudeDispatcher,
+  claudeSessionControl,
+  claudeStartArgv,
+  reviewPrompt,
+  sessionState,
+  standaloneEnvironment,
+  type SessionState,
 } from "../src/tools/validation/dispatch.js";
 import { benchmarkRepo, layerDir } from "../src/tools/validation/layers.js";
 import { requestLeakReview } from "../src/tools/validation/leak-review.js";
 import {
+  ABANDONED_REASON,
+  abandonReview,
   evaluate,
   extendBenchmark,
   finalizeSubmission,
@@ -35,8 +41,10 @@ import {
 } from "../src/tools/validation/review.js";
 import { startValidationService } from "../src/tools/validation/server.js";
 import {
+  createSubmission,
   readSubmission,
   serviceSummary,
+  stopMarkerFile,
   submissionDir,
   updateSubmission,
   withSubmissionsLock,
@@ -142,59 +150,100 @@ try {
     PERFECT,
   );
 
-  // --- dispatch ---
+  // --- dispatch: one Claude Code background session per submission ---
   const bench = path.join(root, "bench");
-  const fakePaseo = path.join(root, "fake-paseo.mjs");
+  // A stand-in for the claude CLI: `--bg` starts or continues a session, `agents --json` lists them, `stop` ends one.
+  const fakeClaude = path.join(root, "fake-claude.mjs");
+  const fakeState = path.join(root, "fake-claude-state.json");
   fs.writeFileSync(
-    fakePaseo,
-    "console.log(JSON.stringify({ agentId: process.env.PASEO_AGENT_ID ?? 'standalone', argv: process.argv.slice(2) }));",
+    fakeClaude,
+    [
+      'import fs from "node:fs";',
+      `const file = ${JSON.stringify(fakeState)};`,
+      "const state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { sessions: [], calls: [] };",
+      "const args = process.argv.slice(2);",
+      "const inherited = ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'PASEO_AGENT_ID'].filter((name) => process.env[name] !== undefined);",
+      "state.calls.push({ args, inherited });",
+      "const save = () => fs.writeFileSync(file, JSON.stringify(state));",
+      "const create = (name) => { const n = state.sessions.length + 1; const s = { id: (0xa0000000 + n).toString(16), sessionId: 'uuid-' + n, name, status: 'busy', state: 'working' }; state.sessions.push(s); return s; };",
+      "if (args[0] === 'agents') { save(); console.log(JSON.stringify(state.sessions)); process.exit(0); }",
+      "if (args[0] === 'stop') { const s = state.sessions.find((x) => x.id === args[1]); delete s.status; s.state = 'done'; save(); console.log('stopped ' + s.id); process.exit(0); }",
+      "if (args.includes('--resume')) {",
+      "  const s = state.sessions.find((x) => x.sessionId === args[args.indexOf('--resume') + 1]);",
+      "  const target = s.status === undefined && args.length === 4 ? s : create(s.name);",
+      "  target.status = 'busy'; target.state = 'working'; save();",
+      "  console.log('backgrounded · ' + target.id + ' · ' + target.name); process.exit(0);",
+      "}",
+      "const s = create(args[args.indexOf('--name') + 1]); save();",
+      "console.log('backgrounded · ' + s.id + ' · ' + s.name);",
+    ].join("\n"),
   );
+  const fake = () => JSON.parse(fs.readFileSync(fakeState, "utf8"));
+  const setFake = (id: string, status: string) => {
+    const state = fake();
+    state.sessions.find((entry: { id: string }) => entry.id === id).status = status;
+    fs.writeFileSync(fakeState, JSON.stringify(state));
+  };
   const agent = {
-    provider: "codex" as const,
-    thinking: "max" as const,
-    model: "gpt-5.6-terra",
-    paseo_command: [process.execPath, fakePaseo],
+    model: "opus",
+    permission_mode: "bypassPermissions" as const,
+    claude_command: [process.execPath, fakeClaude],
   };
   const request = { root, submission_id: "s001", submission_dir: path.join(root, "s001") };
-  const argv = paseoRunArgv(agent, reviewRun(request));
-  for (const flag of ["run", "-d", "--json", "--model", "contrejour.role=validator", "contrejour.submission=s001"])
-    assert.ok(argv.includes(flag), flag);
-  assert.deepEqual(argv.slice(argv.indexOf("--provider"), argv.indexOf("--provider") + 4), [
-    "--provider",
-    "codex",
-    "--thinking",
-    "max",
+  const argv = claudeStartArgv(agent, request);
+  assert.deepEqual(argv.slice(2, 11), [
+    "--bg",
+    "--name",
+    "contrejour-review-s001",
+    "--agent",
+    "validator-task-manager",
+    "--permission-mode",
+    "bypassPermissions",
+    "--model",
+    "opus",
   ]);
-  const leakArgv = paseoRunArgv(
-    agent,
-    leakReviewRun({
-      ...request,
-      provider: "codex",
-      review_dir: path.join(root, "s001", "leak-review", "1"),
-    }),
+  // A git checkout must not keep the session from editing files; the prompt names only the loop and its args.
+  assert.deepEqual(JSON.parse(argv.at(-2)!), { worktree: { bgIsolation: "none" } });
+  assert.equal(argv.at(-1), reviewPrompt(request));
+  assert.deepEqual(JSON.parse(/with args (\{.*\})\.$/.exec(argv.at(-1)!)![1]!), {
+    submission_id: "s001",
+    submission_dir: request.submission_dir,
+  });
+  // The session must not belong to the Claude Code session or Paseo agent the service runs in.
+  Object.assign(process.env, { CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "parent", PASEO_AGENT_ID: "parent-agent" });
+  const session = await claudeDispatcher(agent)(request);
+  for (const name of ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "PASEO_AGENT_ID"]) delete process.env[name];
+  assert.deepEqual(session, { id: "a0000001", session_id: "uuid-1", name: "contrejour-review-s001" });
+  assert.deepEqual(fake().calls.flatMap((call: { inherited: string[] }) => call.inherited), []);
+  assert.deepEqual(
+    standaloneEnvironment({ PATH: "/bin", CLAUDECODE: "1", PASEO_HOME: "/p", CLAUDE_CODE_USE_BEDROCK: "1" }),
+    { PATH: "/bin", CLAUDE_CODE_USE_BEDROCK: "1" },
   );
-  assert.ok(leakArgv.includes("contrejour.role=leak-review"));
-  assert.match(leakArgv.at(-1)!, /\.agents\/skills\/validation-review\/leak-review\.md/);
-
-  // A Claude Code validator: its own backend, max thinking, Claude's skills directory.
-  const claudeAgent = { ...agent, provider: "claude" as const, model: undefined };
-  const claudeArgv = paseoRunArgv(claudeAgent, reviewRun(request));
-  assert.deepEqual(claudeArgv.slice(claudeArgv.indexOf("--provider"), claudeArgv.indexOf("--provider") + 4), [
-    "--provider",
-    "claude",
-    "--thinking",
-    "max",
+  assert.equal(backgroundedId("note: …\nbackgrounded · a7ccc11d · contrejour-probe"), "a7ccc11d");
+  assert.equal(sessionState(undefined), "gone");
+  assert.equal(sessionState({ id: "x", status: "busy" }), "running");
+  assert.equal(sessionState({ id: "x", status: "idle", state: "blocked" }), "idle");
+  assert.equal(sessionState({ id: "x", state: "done" }), "stopped");
+  // A running session is never disturbed; an idle one is stopped, then continued in place with no other flag.
+  const control = claudeSessionControl(agent, root);
+  assert.equal(await control.state(session), "running");
+  await assert.rejects(control.resume(session, "hello"), /still running/);
+  setFake(session.id, "idle");
+  assert.equal(await control.state(session), "idle");
+  assert.deepEqual(await control.resume(session, "Contrejour validation service: continue."), session);
+  assert.deepEqual(fake().calls.slice(-3).map((call: { args: string[] }) => call.args.slice(0, 2)), [
+    ["agents", "--json"],
+    ["stop", session.id],
+    ["--bg", "--resume"],
   ]);
-  const claudeLeak = leakReviewRun({ ...request, provider: "claude", review_dir: path.join(root, "r") });
-  assert.match(claudeLeak.prompt, /\.claude\/skills\/validation-review\/leak-review\.md/);
-  process.env.PASEO_AGENT_ID = "parent-agent";
-  assert.deepEqual(await paseoDispatcher(agent)(request), { agent_id: "standalone" });
-  delete process.env.PASEO_AGENT_ID;
+  assert.deepEqual(fake().calls.at(-1).args, ["--bg", "--resume", "uuid-1", "Contrejour validation service: continue."]);
+  assert.equal(await control.state(session), "running");
+  assert.equal(await control.state({ ...session, id: "deadbeef" }), "gone");
 
   // --- service ---
   await setupTesterFacility(root, facilityConfig(root));
   const config: ValidationConfig = {
-    schema_version: 2,
+    schema_version: 3,
     pass_rule: { metric: "score", op: ">=", threshold: 1 },
     tester_config_sha256: testerFacilityConfigSha256(
       readTesterFacilityConfig(testerConfigPath(root)),
@@ -213,8 +262,8 @@ try {
       max_new_tests_per_review: 3,
     },
     hidden_paths: [bench],
-    agent: { provider: "codex", thinking: "max", paseo_command: ["paseo"] },
-    service: { host: "127.0.0.1", public_url: "https://validation.example" },
+    agent: { permission_mode: "bypassPermissions", claude_command: ["claude"] },
+    service: { host: "127.0.0.1", port: 8765, public_url: "https://validation.example" },
   };
   writeStateJsonAtomic(validationConfigPath(root), config);
   const token = ensureValidationToken(root);
@@ -225,16 +274,13 @@ try {
     tick_ms: 3_600_000,
     log: () => {},
     dispatcher: async ({ submission_id }) => {
-      if (failDispatch) throw new Error("paseo is down");
+      if (failDispatch) throw new Error("claude is not installed");
       dispatched.push(submission_id);
-      return { agent_id: `agent-${submission_id}` };
+      return { id: `id-${submission_id}`, session_id: `session-${submission_id}`, name: `contrejour-review-${submission_id}` };
     },
+    // These review sessions are always at work; supervision is tested on its own below.
+    sessions: { state: async () => "running", resume: async (session) => session },
   });
-  const leakRuns: string[] = [];
-  const leakStarter = async (run: { title: string }) => {
-    leakRuns.push(run.title);
-    return { agent_id: `leak-${leakRuns.length}` };
-  };
   try {
     let rpcId = 0;
     const post = (body: unknown, auth = true) =>
@@ -308,20 +354,23 @@ try {
       assert.equal(terms.text.includes(secret), false, secret);
     const { runtime_environment: _unset, ...older } = config;
     assert.equal(validateValidationConfig(older).runtime_environment, "");
-    // Either backend may validate, each at max and only in modes that need no approval.
-    const withAgent = (agent: Record<string, unknown>) =>
-      validateValidationConfig({ ...config, agent: { paseo_command: ["paseo"], ...agent } }).agent;
-    assert.deepEqual(withAgent({}), { provider: "codex", thinking: "max", paseo_command: ["paseo"] });
-    assert.deepEqual(withAgent({ provider: "claude", mode: "bypassPermissions" }), {
-      provider: "claude",
-      thinking: "max",
-      mode: "bypassPermissions",
-      paseo_command: ["paseo"],
+    // Review sessions run on Claude Code only, in a permission mode that needs no approval.
+    const withAgent = (agent: Record<string, unknown>) => validateValidationConfig({ ...config, agent }).agent;
+    assert.deepEqual(withAgent({}), { permission_mode: "bypassPermissions", claude_command: ["claude"] });
+    assert.deepEqual(withAgent({ model: "opus", permission_mode: "auto", claude_command: ["node", "cli.js"] }), {
+      model: "opus",
+      permission_mode: "auto",
+      claude_command: ["node", "cli.js"],
     });
-    assert.throws(() => withAgent({ provider: "claude", mode: "full-access" }), /bypassPermissions, auto/);
-    assert.throws(() => withAgent({ provider: "claude", mode: "default" }), /bypassPermissions, auto/);
-    assert.throws(() => withAgent({ provider: "claude", thinking: "ultracode" }), /use max/);
-    assert.throws(() => withAgent({ provider: "gemini" }), /claude or codex/);
+    assert.throws(() => withAgent({ permission_mode: "default" }), /bypassPermissions, auto/);
+    assert.throws(() => withAgent({ provider: "codex" }), /unknown field 'provider'/);
+    assert.throws(() => withAgent({ claude_command: [] }), /must not be empty/);
+    // A configuration from the Paseo/Codex releases is refused rather than migrated; the port is required.
+    assert.throws(() => validateValidationConfig({ ...config, schema_version: 2 }), /earlier Contrejour release/);
+    assert.throws(
+      () => validateValidationConfig({ ...config, service: { host: "127.0.0.1", public_url: "https://x" } }),
+      (error: { location?: string }) => error.location === "service.port",
+    );
 
     // A malformed deliverable is refused and does not count.
     const s1 = await submit();
@@ -333,16 +382,20 @@ try {
     assert.equal(serviceSummary(root, config).counted, 0);
     assert.equal((await upload(s1.upload_url, deliverable(PERFECT))).status, 404);
 
-    // A valid deliverable is queued, then one validator agent is started for it.
+    // A valid deliverable is queued, then one review session is started for it.
     const s2 = await submit();
     assert.equal((await upload(s2.upload_url, deliverable({ "sample-alpha": "the quick brown fox" }))).status, 200);
     await service.tick();
     assert.equal(status("s002"), "reviewing");
     assert.deepEqual(dispatched, ["s002"]);
-    assert.equal(readSubmission(root, "s002").agent_id, "agent-s002");
+    assert.deepEqual(readSubmission(root, "s002").session, {
+      id: "id-s002",
+      session_id: "session-s002",
+      name: "contrejour-review-s002",
+    });
     assert.equal((await upload(s2.upload_url, deliverable(PERFECT))).status, 404);
 
-    // The validator agent's side: smoke, then every layer; one sample is one test.
+    // The review roles' side: smoke, then every layer; one sample is one test.
     assert.equal((await runSmoke(root, "s002")).sample_count, 1);
     write("s002", "review.json", JSON.stringify({ verdict: "valid", reasons: ["ran as documented"] }));
     assert.throws(() => finalizeSubmission(root, "s002"), /EVALUATION_REQUIRED/);
@@ -393,17 +446,19 @@ try {
     // Feedback goes out only after an independent leak review of exactly this text.
     write("s002", "feedback.md", "Answers keep only the first words of a longer expected answer.");
     assert.throws(() => finalizeSubmission(root, "s002"), /LEAK_REVIEW_REQUIRED/);
-    await requestLeakReview(root, "s002", leakStarter);
-    assert.deepEqual(leakRuns, ["Contrejour leak review s002"]);
+    // The leak reviewer gets a snapshot of exactly this text.
+    const firstReview = requestLeakReview(root, "s002");
+    assert.equal(fs.readFileSync(firstReview.feedback_file, "utf8").trim(), "Answers keep only the first words of a longer expected answer.");
+    assert.equal(firstReview.result_file, path.join(submissionDir(root, "s002"), "leak-review", "1", "result.json"));
     assert.throws(() => finalizeSubmission(root, "s002"), /LEAK_REVIEW_PENDING/);
     leakVerdict("s002", "leak", ["names the failing question's expected answer"]);
     assert.throws(() => finalizeSubmission(root, "s002"), /FEEDBACK_LEAKS_HIDDEN_DATA.*1 attempts left/);
     write("s002", "feedback.md", "Multi-word answers are cut short.");
     assert.throws(() => finalizeSubmission(root, "s002"), /LEAK_REVIEW_REQUIRED/);
-    await requestLeakReview(root, "s002", leakStarter);
+    requestLeakReview(root, "s002");
     leakVerdict("s002", "leak", ["still describes one specific test"]);
     // The single permitted rewrite still leaked: the result goes out without feedback.
-    await assert.rejects(requestLeakReview(root, "s002", leakStarter), /LEAK_REVIEWS_EXHAUSTED/);
+    assert.throws(() => requestLeakReview(root, "s002"), /LEAK_REVIEWS_EXHAUSTED/);
     const published = finalizeSubmission(root, "s002");
     assert.deepEqual(published.tests, { total: 4, passed: 1, failed: 3 });
     assert.equal(published.feedback_withheld, true);
@@ -423,7 +478,7 @@ try {
     await service.tick();
     write("s003", "review.json", JSON.stringify({ verdict: "cheating", reasons: ["answers are hard-coded"] }));
     write("s003", "feedback.md", "The deliverable returns stored answers instead of computing them.");
-    await requestLeakReview(root, "s003", leakStarter);
+    requestLeakReview(root, "s003");
     leakVerdict("s003", "pass");
     const cheated = finalizeSubmission(root, "s003");
     assert.equal(cheated.status, "rejected_cheating");
@@ -442,7 +497,7 @@ try {
     await service.tick();
     assert.equal(status("s005"), "expired");
 
-    // Our own failure to start an agent does not cost the worker a submission.
+    // Our own failure to start a review session does not cost the worker a submission.
     const s6 = await submit();
     failDispatch = true;
     await upload(s6.upload_url, deliverable(PERFECT));
@@ -509,7 +564,137 @@ try {
   // A changed benchmark stops the service.
   fs.appendFileSync(path.join(bench, "labels.json"), " ");
   await assert.rejects(startValidationService(root, { port: 0 }), /BENCHMARK_CHANGED|TESTER_EVIDENCE_CHANGED/);
-  console.log("validation: unzip, dispatch, layers, leak review, service and stop rules passed");
+
+  // --- supervision: a review session that stops before finalize is continued, or its review fails ---
+  const watched = path.join(root, "watched");
+  fs.mkdirSync(watched);
+  await setupTesterFacility(watched, facilityConfig(watched));
+  const watchedConfig: ValidationConfig = {
+    ...config,
+    tester_config_sha256: testerFacilityConfigSha256(readTesterFacilityConfig(testerConfigPath(watched))),
+    limits: { ...config.limits, max_concurrent: 6 },
+    hidden_paths: [path.join(watched, "bench")],
+  };
+  writeStateJsonAtomic(validationConfigPath(watched), watchedConfig);
+  ensureValidationToken(watched);
+  // Sessions not listed are at work; null means Claude Code cannot answer.
+  const states = new Map<string, SessionState | null>();
+  const resumes: { session: string; text: string }[] = [];
+  let failResume = false;
+  let clock = Date.parse("2026-01-01T00:00:00Z");
+  const supervisor = await startValidationService(watched, {
+    port: 0,
+    tick_ms: 3_600_000,
+    log: () => {},
+    now: () => clock,
+    dispatcher: async ({ submission_id }) => ({
+      id: `id-${submission_id}`,
+      session_id: `session-${submission_id}`,
+      name: `contrejour-review-${submission_id}`,
+    }),
+    sessions: {
+      state: async (session) => {
+        const state = states.has(session.id) ? states.get(session.id) : "running";
+        if (!state) throw new Error("claude agents failed");
+        return state;
+      },
+      resume: async (session, text) => {
+        if (failResume) throw new Error("claude --resume failed");
+        resumes.push({ session: session.id, text });
+        states.set(session.id, "running");
+        return session;
+      },
+    },
+  });
+  // The service checks once as it starts; let that finish so each tick below is a fresh one.
+  await supervisor.tick();
+  try {
+    const review = async () => {
+      const { record } = createSubmission(watched, watchedConfig, undefined);
+      withSubmissionsLock(watched, () => updateSubmission(watched, record.submission_id, { status: "queued" }));
+      await supervisor.tick();
+      assert.equal(readSubmission(watched, record.submission_id).status, "reviewing");
+      return record.submission_id;
+    };
+    const later = async (minutes = 1) => {
+      clock += minutes * 60_000;
+      await supervisor.tick();
+    };
+    const reasons = (id: string) => (readSubmission(watched, id).nudges ?? []).map((nudge) => nudge.reason);
+
+    // A stopped session rests through a short grace, then is continued with a reminder naming the loop.
+    const a = await review();
+    states.set(`id-${a}`, "idle");
+    await later();
+    await later();
+    assert.deepEqual(resumes, []);
+    await later();
+    assert.equal(resumes.length, 1);
+    assert.equal(resumes[0]!.session, `id-${a}`);
+    assert.match(resumes[0]!.text, /Continue the submission-review loop with args \{"submission_id":"s001"/);
+    assert.deepEqual(reasons(a), ["reminder"]);
+    // Stopped again, it waits out the grace and the growing gap before the next reminder.
+    states.set(`id-${a}`, "stopped");
+    await later(5);
+    assert.equal(resumes.length, 1);
+    await later(6);
+    assert.equal(resumes.length, 2);
+
+    // A running session is never disturbed, nor one Claude Code cannot report on.
+    states.set(`id-${a}`, "running");
+    await later(120);
+    states.set(`id-${a}`, null);
+    await later(120);
+    assert.equal(resumes.length, 2);
+    assert.equal(readSubmission(watched, a).status, "reviewing");
+
+    // The Stop hook's marker is checked at once and skips the grace.
+    const m = await review();
+    states.set(`id-${m}`, "idle");
+    clock += 5_000;
+    fs.writeFileSync(stopMarkerFile(watched, m), "{}");
+    fs.utimesSync(stopMarkerFile(watched, m), clock / 1000, clock / 1000);
+    await supervisor.tick();
+    assert.equal(resumes.at(-1)!.session, `id-${m}`);
+
+    // A removed session ends its review at once.
+    const b = await review();
+    states.set(`id-${b}`, "gone");
+    await later();
+    assert.equal(readSubmission(watched, b).status, "failed");
+    assert.match(readSubmission(watched, b).reason!, /removed before it published/);
+
+    // A session that cannot be continued ends its review.
+    const c = await review();
+    states.set(`id-${c}`, "stopped");
+    failResume = true;
+    await later();
+    await later(3);
+    failResume = false;
+    assert.equal(readSubmission(watched, c).status, "failed");
+    assert.match(readSubmission(watched, c).reason!, /could not be continued/);
+
+    // Our side gives a review up: it fails uncounted; the worker reads no detail, the owner keeps the cause.
+    const e = await review();
+    const abandoned = abandonReview(watched, e, "the GPU runtime_environment promises is missing on this machine");
+    assert.deepEqual([abandoned.status, abandoned.reason], ["failed", ABANDONED_REASON]);
+    assert.equal(readSubmission(watched, e).abandoned!.reason, "the GPU runtime_environment promises is missing on this machine");
+    assert.throws(() => abandonReview(watched, e, "again"), /SUBMISSION_NOT_IN_REVIEW/);
+    assert.throws(() => abandonReview(watched, a, "  "), /say why/);
+
+    // Failed reviews cost the worker nothing, and a published one is left alone.
+    assert.equal(serviceSummary(watched, watchedConfig).counted, 2);
+    withSubmissionsLock(watched, () => updateSubmission(watched, a, { status: "tested" }));
+    states.set(`id-${a}`, "idle");
+    const sent = resumes.length;
+    await later(10);
+    await later(10);
+    assert.equal(resumes.filter((entry) => entry.session === `id-${a}`).length, 2);
+    assert.ok(resumes.length >= sent);
+  } finally {
+    await supervisor.close();
+  }
+  console.log("validation: unzip, dispatch, layers, leak review, service, supervision and stop rules passed");
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import {
   applySetup,
   confirmSetupReview,
+  environmentNotes,
   fetchTask,
   refreshSetupReview,
   SetupReviewIncompleteError,
@@ -25,16 +26,20 @@ delete process.env.CONTREJOUR_TOKEN;
 const read = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
 const sha256 = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const execFileAsync = promisify(execFile);
-// A command execFile can start on every platform; only its argv is checked here.
-const PASEO = [process.execPath, "paseo-cli.mjs"];
-const installAs = (
-  root: string,
-  role: "worker" | "validator",
-  provider: "claude" | "codex" = role === "worker" ? "claude" : "codex",
-) => {
+// A stand-in for the Claude Code CLI the service starts review sessions with; setup only runs its --version.
+const fakeClaude = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-setup-cli-")), "claude.mjs");
+fs.writeFileSync(fakeClaude, 'console.log("2.1.316 (Claude Code)");\n');
+process.once("exit", () => fs.rmSync(path.dirname(fakeClaude), { recursive: true, force: true }));
+const CLAUDE = [process.execPath, fakeClaude];
+// A CLI that does not run: its --version exits with an error.
+const brokenClaude = path.join(path.dirname(fakeClaude), "broken.mjs");
+fs.writeFileSync(brokenClaude, 'console.error("not signed in"); process.exit(3);\n');
+const installAs = (root: string, role: "worker" | "validator", extra: Record<string, unknown> = {}) => {
   fs.mkdirSync(path.join(root, ".contrejour"), { recursive: true });
-  fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify({ role, provider }));
+  fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify({ role, ...extra }));
 };
+const ROLE_BEGIN = "<!-- CONTREJOUR ROLE BEGIN -->";
+const ENVIRONMENT_BEGIN = "<!-- CONTREJOUR ENVIRONMENT BEGIN -->";
 const issueFields = (root: string) => refreshSetupReview(root).issues.map((issue) => issue.field);
 async function project(name: string, action: (root: string) => Promise<void>) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `contrejour-setup-${name}-`));
@@ -56,7 +61,7 @@ async function startValidator(task: string) {
       benchmark: facilityConfig(root),
       pass_rule: { metric: "score", op: ">=", threshold: 1 },
       hidden_paths: [path.join(root, "bench", "labels.json")],
-      agent: { paseo_command: PASEO },
+      agent: { claude_command: CLAUDE },
       service: { public_url: "https://validation.example" },
     },
   });
@@ -67,7 +72,8 @@ async function startValidator(task: string) {
     port: 0,
     tick_ms: 3_600_000,
     log: () => {},
-    dispatcher: async () => ({ agent_id: "unused" }),
+    dispatcher: async () => ({ id: "unused", session_id: "unused", name: "unused" }),
+    sessions: { state: async () => "running", resume: async (session) => session },
   });
   return { root, url: `${service.url}/mcp`, token: applied.worker_connection.token, close: () => service.close() };
 }
@@ -133,12 +139,19 @@ await project("worker", async (root) => {
     JSON.stringify({ mcpServers: { other: { command: "x" } } }),
   );
   fs.writeFileSync(path.join(root, "CLAUDE.md"), "# Owner notes\n");
+  // The owner's own settings and hooks survive; Contrejour owns only the entry role, its hooks and background editing.
+  fs.mkdirSync(path.join(root, ".claude"));
+  fs.writeFileSync(
+    path.join(root, ".claude/settings.json"),
+    JSON.stringify({ permissions: { allow: ["Bash(ls)"] }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo owner" }] }] } }),
+  );
   const applied = await applySetup(root);
-  assert.equal(applied.role, "worker");
-  assert.deepEqual(applied.agent, { provider: "claude", thinking: "ultracode" });
+  if (applied.role !== "worker") throw new Error("unreachable");
+  assert.equal(applied.entry_role, "worker-task-manager");
+  assert.equal(applied.mcp_config, path.join(root, ".mcp.json"));
   assert.equal(applied.environment_skill_dir, environmentSkillDir(root));
   assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
-  // Apply names the environment skill; setup's agent writes it.
+  // Apply names the environment skill; the setup role writes it.
   assert.equal(fs.existsSync(applied.environment_skill_dir), false);
   assert.deepEqual(read(applied.environment_secrets), { HF_TOKEN: "hf_secret" });
   assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".contrejour/\n.mcp.json\n");
@@ -149,95 +162,48 @@ await project("worker", async (root) => {
     url: validator.url,
     headers: { Authorization: `Bearer ${validator.token}` },
   });
-  // The role block is added once and replaced in place on re-apply.
+  // Re-applying replaces the blocks and hooks in place, once each.
   await applySetup(root);
+  const settings = read(applied.settings);
+  assert.equal(settings.agent, "worker-task-manager");
+  assert.deepEqual(settings.permissions, { allow: ["Bash(ls)"] });
+  assert.deepEqual(settings.worktree, { bgIsolation: "none" });
+  const hook = (event: string) => ({ type: "command", command: process.execPath, args: [path.join(root, ".contrejour/dist/tools/hook.js"), event] });
+  assert.deepEqual(settings.hooks.SubagentStop, [{ hooks: [hook("SubagentStop")] }]);
+  assert.deepEqual(settings.hooks.Stop, [{ hooks: [{ type: "command", command: "echo owner" }] }, { hooks: [hook("Stop")] }]);
+  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: "Write|Edit|NotebookEdit", hooks: [hook("PreToolUse")] }]);
   const claude = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
   assert.ok(claude.startsWith("# Owner notes\n"));
-  assert.equal(claude.split("<!-- CONTREJOUR ROLE BEGIN -->").length, 2);
-  assert.match(claude, /Contrejour role: worker/);
+  assert.equal(claude.split(ROLE_BEGIN).length, 2);
+  assert.equal(claude.split(ENVIRONMENT_BEGIN).length, 2);
+  assert.match(claude, /Contrejour: worker project/);
+  assert.match(claude, /## Environment\n\nNot recorded yet/);
   assert.ok(claude.includes(`.claude/skills/${projectSlug(root)}-environment/SKILL.md`));
   assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
-});
-
-// A Codex worker: AGENTS.md, .agents/skills, the delegating thinking level and a Codex MCP entry.
-await project("codex-worker", async (root) => {
-  installAs(root, "worker", "codex");
-  fs.mkdirSync(path.join(root, ".codex"));
-  const toml = path.join(root, ".codex", "config.toml");
-  fs.writeFileSync(
-    toml,
-    'model = "gpt"\n\n[mcp_servers.contrejour]\nurl = "http://old/mcp"\n\n[mcp_servers.contrejour.env]\nX = "1"\n\n[mcp_servers.other]\ncommand = "x"\n',
-  );
-  refreshSetupReview(root, { connection: { url: validator.url, token: validator.token } });
-  assert.equal((await fetchTask(root)).changed, true);
-  const review = refreshSetupReview(root);
-  assert.deepEqual(review.issues, []);
-  confirmSetupReview(root, review.configuration_sha256);
-  const applied = await applySetup(root);
-  assert.equal(applied.role, "worker");
-  if (applied.role !== "worker") throw new Error("unreachable");
-  assert.deepEqual(applied.agent, { provider: "codex", thinking: "ultra" });
-  assert.equal(applied.mcp_config, toml);
+  // The environment section is kept by the setup and memory roles; apply never overwrites it.
+  const notes = path.join(root, "notes.md");
+  fs.writeFileSync(notes, "## Environment\n\n- GPU: one A100 80 GB; batch 64 runs out of memory.\n");
+  assert.equal(environmentNotes(root, fs.readFileSync(notes, "utf8")).text, fs.readFileSync(notes, "utf8").trim());
   await applySetup(root);
-  // Only the contrejour table and its subtables are replaced, once.
-  assert.equal(
-    fs.readFileSync(toml, "utf8"),
-    `model = "gpt"\n\n[mcp_servers.contrejour]\nurl = "${validator.url}"\nhttp_headers = { Authorization = "Bearer ${validator.token}" }\n\n[mcp_servers.other]\ncommand = "x"\n`,
-  );
-  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".contrejour/\n.codex/config.toml\n");
-  assert.equal(fs.existsSync(path.join(root, ".mcp.json")), false);
-  assert.equal(fs.existsSync(path.join(root, "CLAUDE.md")), false);
-  const instructions = fs.readFileSync(path.join(root, "AGENTS.md"), "utf8");
-  assert.match(instructions, /Contrejour role: worker/);
-  assert.ok(instructions.includes(`.agents/skills/${projectSlug(root)}-environment/SKILL.md`));
-  assert.equal(instructions.includes(".claude/skills"), false);
+  assert.match(environmentNotes(root).text, /batch 64 runs out of memory/);
+  assert.match(fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"), /# Owner notes\n/);
+  assert.throws(() => environmentNotes(root, `${ROLE_BEGIN}\nx`), /markers/);
+  assert.throws(() => environmentNotes(root, "x".repeat(9000)), /under 8000 characters/);
 });
 
-// A Claude Code validator: max thinking, Claude's own full-access mode, CLAUDE.md.
-await project("claude-validator", async (root) => {
-  installAs(root, "validator", "claude");
-  fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
-  const validation = {
-    benchmark: facilityConfig(root),
-    pass_rule: { metric: "score", op: ">=", threshold: 1 },
-    hidden_paths: [path.join(root, "bench", "labels.json")],
-    service: { public_url: "https://validation.example" },
-  };
-  let review = refreshSetupReview(root, {
-    validation: { ...validation, agent: { mode: "full-access", paseo_command: PASEO } },
-  });
-  const field = (name: string) =>
-    review.modules.flatMap((module) => module.fields).find((row) => row.path === name);
-  assert.deepEqual(field("validation.agent.mode")?.options, ["bypassPermissions", "auto"]);
-  assert.deepEqual(field("validation.agent.provider")?.value, "claude");
-  assert.deepEqual(review.issues.map((issue) => issue.field), ["validation.agent.mode", "validation"]);
-  review = refreshSetupReview(root, { validation: { agent: { mode: "bypassPermissions" } } });
-  assert.deepEqual(review.issues, []);
-  confirmSetupReview(root, review.configuration_sha256);
-  const applied = await applySetup(root);
-  assert.deepEqual(applied.agent, { provider: "claude", thinking: "max" });
-  assert.deepEqual(readValidationConfig(root).agent, {
-    provider: "claude",
-    thinking: "max",
-    mode: "bypassPermissions",
-    paseo_command: PASEO,
-  });
-  // The role block names Claude Code's skills directory, not Codex's.
-  const claudeMd = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
-  assert.match(claudeMd, /Contrejour role: validator/);
-  assert.ok(claudeMd.includes(".claude/skills/validation-review/leak-review.md"));
-  assert.ok(claudeMd.includes(`.claude/skills/${projectSlug(root)}-environment/SKILL.md`));
-  assert.equal(claudeMd.includes(".agents/skills"), false);
-  assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
+// Projects installed for Codex by an earlier release are refused, not migrated.
+await project("codex-project", async (root) => {
+  installAs(root, "validator", { provider: "codex" });
+  assert.throws(() => refreshSetupReview(root), /no longer supports/);
 });
 
 assert.match(projectSlug(path.join(os.tmpdir(), "项目")), /^project-[0-9a-f]{8}$/);
 
-// Validator on the default backend (Codex at max): the benchmark is installed, the terms frozen, and the service registered.
+// Validator: the benchmark is installed, the terms frozen, and the review sessions' Claude Code command checked.
 await project("validator", async (root) => {
   installAs(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
-  fs.writeFileSync(path.join(root, "AGENTS.md"), "Owner instructions.\n");
+  fs.writeFileSync(path.join(root, "CLAUDE.md"), "Owner instructions.\n");
   const benchmark = facilityConfig(root);
   let review = refreshSetupReview(root, {
     validation: { benchmark, pass_rule: { metric: "missing", threshold: 1 } },
@@ -248,22 +214,20 @@ await project("validator", async (root) => {
     validation: {
       pass_rule: { metric: "score", op: ">=", threshold: 1 },
       hidden_paths: [path.join(root, "bench", "labels.json")],
-      agent: { provider: "claude", paseo_command: ["paseo"] },
+      agent: { permission_mode: "full-access", claude_command: [process.execPath, brokenClaude] },
       service: { host: "0.0.0.0", port: 70_000, public_url: "https://validation.example/" },
     },
   });
-  // The backend comes from the installation; the sheet only shows it.
+  const field = (name: string) => review.modules.flatMap((module) => module.fields).find((row) => row.path === name);
+  assert.deepEqual(field("validation.agent.permission_mode")?.options, ["bypassPermissions", "auto"]);
+  // A mode that waits for approval, a CLI that does not run and a port that does not exist are reported together.
   assert.deepEqual(
     review.issues.map((issue) => issue.field),
-    [
-      "validation.agent.provider",
-      ...(process.platform === "win32" ? ["validation.agent.paseo_command"] : []),
-      "validation.service.port",
-    ],
+    ["validation.agent.permission_mode", "validation.agent.claude_command", "validation.service.port", "validation"],
   );
-  assert.match(review.issues[0]!.message, /codex/);
+  assert.match(review.issues.find((issue) => issue.field === "validation.agent.claude_command")!.message, /--version failed/);
   review = refreshSetupReview(root, {
-    validation: { agent: { provider: null, paseo_command: PASEO }, service: { port: 8765 } },
+    validation: { agent: { permission_mode: "bypassPermissions", claude_command: CLAUDE }, service: { port: 8765 } },
   });
   assert.deepEqual(review.issues, []);
   assert.throws(
@@ -274,8 +238,9 @@ await project("validator", async (root) => {
   const applied = await applySetup(root);
   assert.equal(applied.role, "validator");
   if (applied.role !== "validator") throw new Error("unreachable");
-  assert.deepEqual(applied.agent, { provider: "codex", thinking: "max" });
-  assert.match(applied.environment_skill_dir, /\.agents[/\\]skills[/\\].+-environment$/);
+  assert.equal(applied.entry_role, "validator-task-manager");
+  assert.deepEqual(applied.service_command, ["node", ".contrejour/dist/tools/validation-cli.js", "serve", "--project", "."]);
+  assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
   assert.equal(applied.worker_connection.url, "https://validation.example/mcp");
   assert.deepEqual(applied.from_environment, []);
   assert.equal(
@@ -284,22 +249,19 @@ await project("validator", async (root) => {
   );
   const config = readValidationConfig(root);
   assert.deepEqual(config.pass_rule, { metric: "score", op: ">=", threshold: 1 });
-  assert.deepEqual(config.agent, { provider: "codex", thinking: "max", mode: "full-access", paseo_command: PASEO });
+  assert.deepEqual(config.agent, { permission_mode: "bypassPermissions", claude_command: CLAUDE });
   assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), ".contrejour/\n");
   assert.equal(config.limits.max_submissions, 20);
   assert.ok(fs.existsSync(path.join(root, ".contrejour", "tester-config.json")));
-  // The fixed port lives only in the Paseo service entry; the frozen config keeps the bind host.
-  assert.deepEqual(read(path.join(root, "paseo.json")).scripts["contrejour"], {
-    type: "service",
-    command: "node .contrejour/dist/tools/validation-cli.js serve --project .",
-    port: 8765,
-  });
-  assert.deepEqual(config.service, { host: "0.0.0.0", public_url: "https://validation.example" });
-  const instructions = fs.readFileSync(path.join(root, "AGENTS.md"), "utf8");
+  // The service binds where the sheet says; no Paseo service script exists any more.
+  assert.deepEqual(config.service, { host: "0.0.0.0", port: 8765, public_url: "https://validation.example" });
+  assert.equal(fs.existsSync(path.join(root, "paseo.json")), false);
+  assert.equal(read(applied.settings).agent, "validator-task-manager");
+  const instructions = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
   assert.ok(instructions.startsWith("Owner instructions.\n"));
-  assert.match(instructions, /Contrejour role: validator/);
-  assert.ok(instructions.includes(`.agents/skills/${projectSlug(root)}-environment/SKILL.md`));
-  assert.equal(fs.existsSync(path.join(root, "CLAUDE.md")), false);
+  assert.match(instructions, /Contrejour: validator project/);
+  assert.ok(instructions.includes(`.claude/skills/${projectSlug(root)}-environment/SKILL.md`));
+  assert.equal(fs.existsSync(path.join(root, "AGENTS.md")), false);
   assert.equal(fs.existsSync(path.join(root, ".mcp.json")), false);
 
   // Re-applying keeps the token the worker already holds.
@@ -350,7 +312,7 @@ await project("validator-environment", async (root) => {
     benchmark: facilityConfig(root),
     pass_rule: { metric: "score", op: ">=", threshold: 1 },
     hidden_paths: [path.join(root, "bench", "labels.json")],
-    agent: { paseo_command: PASEO },
+    agent: { claude_command: CLAUDE },
     service: { public_url: "https://typed.example" },
   };
   process.env.CONTREJOUR_URL = "https://contrejour.example/";
@@ -400,20 +362,32 @@ await project("distribution", async (sandbox) => {
   assert.equal(archiveManifest.files.some((file: { path: string }) => file.path.startsWith("src/") || file.path.startsWith("agents/") || file.path.includes("server/src/")), false);
   assert.equal(fs.existsSync(path.join(portable, "skills/arxiv")), false);
   assert.equal(fs.existsSync(path.join(portable, "dist/tools/arxiv-fetch.js")), false);
+  // Each side gets the framework roles and its own roles and loops, seeded from the library.
+  const libraryFiles = (dir: string) => fs.readdirSync(path.join(source, "library", dir)).sort();
   for (const role of ["worker", "validator"] as const) {
-    const provider = role === "worker" ? "claude" : "codex";
     const root = path.join(sandbox, `${role} project`);
-    const skillDir = role === "worker" ? ".claude/skills" : ".agents/skills";
+    const skillDir = ".claude/skills";
     const install = (...extra: string[]) => execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, ...extra], { cwd: sandbox, encoding: "utf8" });
     install("--dry-run");
     assert.equal(fs.existsSync(root), false);
-    assert.ok(install().includes(`invoke ${role}-setup`));
+    assert.ok(install().includes(`claude --agent ${role}-setup`));
     const manifest = read(path.join(root, ".contrejour/install.json"));
     assert.equal(manifest.role, role);
-    assert.equal(manifest.provider, provider);
-    // A project gets only its own role's setup skill.
-    assert.deepEqual(fs.readdirSync(path.join(root, skillDir)).sort(), ["browser-act", "research-wiki", "shared-references", "validation-review", `${role}-setup`]);
-    assert.equal(fs.existsSync(path.join(root, ".claude/agents")), false);
+    assert.equal(manifest.provider, "claude");
+    assert.deepEqual(fs.readdirSync(path.join(root, skillDir)).sort(), ["browser-act", "research-wiki", "shared-references"]);
+    assert.deepEqual(
+      fs.readdirSync(path.join(root, ".claude/agents")).sort(),
+      [...libraryFiles("roles/framework"), ...libraryFiles(`roles/${role}`)].sort(),
+    );
+    const loops = libraryFiles(`loops/${role}`);
+    assert.deepEqual(fs.readdirSync(path.join(root, ".claude/loops")).sort(), loops.filter((file) => file.endsWith(".md")));
+    assert.deepEqual(fs.readdirSync(path.join(root, ".claude/workflows")).sort(), loops.filter((file) => file.endsWith(".js")));
+    assert.ok(manifest.seeded.includes(`.claude/agents/${role}-task-manager.md`));
+    // The installed loops pass the compile check and the roles their check.
+    for (const command of ["check", "roles"]) {
+      const checked = spawnSync(process.execPath, [path.join(root, ".contrejour/dist/tools/loop-check.js"), command, "--project", root], { encoding: "utf8" });
+      assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    }
     // Asynchronous, so the validation service in this process can answer the installed helper.
     const setup = async (...args: string[]) => JSON.parse((await execFileAsync(process.execPath, [path.join(root, ".contrejour/dist/tools/setup-cli.js"), ...args, "--project", root], { cwd: sandbox, encoding: "utf8" })).stdout);
     const patch = path.join(root, "patch.json");
@@ -424,7 +398,7 @@ await project("distribution", async (sandbox) => {
     } else {
       fs.writeFileSync(path.join(root, "task.md"), "An isolated installed task.\n");
       const benchmark = facilityConfig(root);
-      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { paseo_command: PASEO }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
+      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { claude_command: CLAUDE }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
       await setup("review", "--input", patch);
     }
     const review = await setup("review");
@@ -432,23 +406,30 @@ await project("distribution", async (sandbox) => {
     await setup("confirm", "--digest", review.configuration_sha256);
     const applied = await setup("apply");
     assert.equal(applied.role, role);
+    assert.equal(applied.entry_role, `${role}-task-manager`);
     assert.equal(applied.environment_skill_dir, path.join(root, skillDir, `${projectSlug(root)}-environment`));
-    // Apply declares the expected skill output; it does not pretend agent generation has run.
+    // Apply declares the expected skill output; it does not pretend the setup role has written it.
     assert.equal(fs.existsSync(applied.environment_skill_dir), false);
-    const instructions = fs.readFileSync(path.join(root, role === "worker" ? "CLAUDE.md" : "AGENTS.md"), "utf8");
+    // The settings name an installed entry role and an installed hook helper.
+    const settings = read(path.join(root, ".claude/settings.json"));
+    assert.ok(fs.existsSync(path.join(root, ".claude/agents", `${settings.agent}.md`)));
+    assert.ok(fs.existsSync(settings.hooks.SubagentStop[0].hooks[0].args[0]));
+    const instructions = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
     assert.equal(instructions.includes("{{PROJECT_SLUG}}"), false);
     assert.ok(instructions.includes(`${skillDir}/${projectSlug(root)}-environment/SKILL.md`));
     // Every installed document the role block links to exists; the environment skill itself comes later.
     const links = [...instructions.matchAll(/\]\(([^)]+\.md)\)/g)].map((match) => match[1]!);
     for (const link of links.filter((link) => !link.includes("-environment/")))
       assert.equal(fs.existsSync(path.join(root, link)), true, `Installed ${role} reference is missing: ${link}`);
-    assert.ok(links.includes(`${skillDir}/shared-references/environment-skill.md`));
+    assert.ok(links.includes(`${skillDir}/shared-references/integration-contract.md`));
+    // The environment section is written through the installed helper.
+    const notes = path.join(root, "notes.md");
+    fs.writeFileSync(notes, "## Environment\n\n- Data in /data/task.\n");
+    assert.match((await setup("environment", "--input", notes)).text, /\/data\/task/);
     if (role === "worker") {
       assert.deepEqual(read(path.join(root, ".contrejour/environment.json")), { API_KEY: "k" });
-      for (const skill of ["research-wiki", "browser-act"])
-        assert.ok(links.includes(`${skillDir}/${skill}/SKILL.md`), `Worker role does not route to ${skill}`);
     } else {
-      assert.deepEqual(read(path.join(root, ".contrejour/validation/config.json")).agent, { provider: "codex", thinking: "max", mode: "full-access", paseo_command: PASEO });
+      assert.deepEqual(read(path.join(root, ".contrejour/validation/config.json")).agent, { permission_mode: "bypassPermissions", claude_command: CLAUDE });
       const status = JSON.parse(execFileSync(process.execPath, [path.join(root, ".contrejour/dist/tools/validation-cli.js"), "status", "--project", root], { cwd: sandbox, encoding: "utf8" }));
       assert.equal(status.service.state, "open");
     }
@@ -458,53 +439,49 @@ await project("distribution", async (sandbox) => {
     const generated = path.join(root, skillDir, `${projectSlug(root)}-environment/SKILL.md`);
     fs.mkdirSync(path.dirname(generated), { recursive: true });
     fs.writeFileSync(generated, "owner generated\n");
-    // Upgrading a previous archive removes the retired skill only when Contrejour owns it.
-    const retired = path.join(root, skillDir, "contrejour-update/SKILL.md");
+    // Roles belong to the project once seeded: an update keeps an optimized role as it is.
+    const optimized = path.join(root, ".claude/agents", `${role}-task-manager.md`);
+    fs.appendFileSync(optimized, "\n## Changes\n\n- 2026-11-02: fixed a recurring step.\n");
+    const optimizedText = fs.readFileSync(optimized, "utf8");
+    // Upgrading a previous archive removes a retired managed skill only when Contrejour owns it.
+    const retired = path.join(root, skillDir, "validation-review/SKILL.md");
     fs.mkdirSync(path.dirname(retired), { recursive: true });
-    fs.writeFileSync(retired, "old managed update skill\n");
-    manifest.files[`${skillDir}/contrejour-update/SKILL.md`] = crypto.createHash("sha256").update(fs.readFileSync(retired)).digest("hex");
+    fs.writeFileSync(retired, "old managed review skill\n");
+    manifest.files[`${skillDir}/validation-review/SKILL.md`] = crypto.createHash("sha256").update(fs.readFileSync(retired)).digest("hex");
     fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify(manifest));
     const helper = path.join(root, ".contrejour/dist/tools/setup-cli.js");
     fs.unlinkSync(helper);
-    install();
+    const updated = JSON.parse(install().split("\nNext:")[0]!);
+    assert.ok(updated.kept_project_versions.includes(`.claude/agents/${role}-task-manager.md`));
     assert.equal(fs.existsSync(helper), true);
     assert.equal(fs.existsSync(retired), false);
+    assert.equal(fs.readFileSync(optimized, "utf8"), optimizedText);
     assert.equal(fs.readFileSync(path.join(root, ".contrejour/setup-state.json"), "utf8"), state);
     assert.equal(fs.readFileSync(path.join(root, "research-wiki/index.md"), "utf8"), wiki);
     assert.equal(fs.readFileSync(generated, "utf8"), "owner generated\n");
-    const skill = path.join(root, skillDir, `${role}-setup/SKILL.md`);
+    const skill = path.join(root, skillDir, "research-wiki/SKILL.md");
     fs.appendFileSync(skill, "\nowner edit\n");
     const before = fs.readFileSync(path.join(root, ".contrejour/install.json"), "utf8");
     assert.throws(() => install(), /Local file differs/);
     assert.equal(fs.readFileSync(path.join(root, ".contrejour/install.json"), "utf8"), before);
     install("--force");
     assert.equal(fs.readFileSync(skill, "utf8").includes("owner edit"), false);
+    assert.equal(fs.readFileSync(optimized, "utf8"), optimizedText);
     const switched = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role === "worker" ? "validator" : "worker", "--project", root], { encoding: "utf8" });
     assert.equal(switched.status, 1);
     assert.match(switched.stderr, /keep its role/);
-    const otherBackend = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, "--provider", provider === "claude" ? "codex" : "claude"], { encoding: "utf8" });
-    assert.equal(otherBackend.status, 1);
-    assert.match(otherBackend.stderr, /keep its provider/);
+    const backend = spawnSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, "--provider", "codex"], { encoding: "utf8" });
+    assert.equal(backend.status, 1);
+    assert.match(backend.stderr, /Claude Code only; --provider was removed/);
   }
-  // Either backend runs either role: the swapped pair installs to the other skills directory.
-  for (const [role, provider, skillDir, thinking] of [
-    ["worker", "codex", ".agents/skills", "Codex at thinking ultra"],
-    ["validator", "claude", ".claude/skills", "Claude Code at thinking max"],
-  ] as const) {
-    const root = path.join(sandbox, `${provider} ${role}`);
-    const output = execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, "--provider", provider], { cwd: sandbox, encoding: "utf8" });
-    assert.ok(output.includes(thinking), output);
-    assert.equal(read(path.join(root, ".contrejour/install.json")).provider, provider);
-    const setupSkill = fs.readFileSync(path.join(root, skillDir, `${role}-setup/SKILL.md`), "utf8");
-    assert.equal(setupSkill.includes(provider === "codex" ? ".claude/skills" : ".agents/skills/"), false);
-    assert.equal(fs.existsSync(path.join(root, skillDir, `${role === "worker" ? "validator" : "worker"}-setup`)), false);
-    // An update without --provider keeps the installed backend.
-    execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root], { cwd: sandbox });
-    assert.equal(read(path.join(root, ".contrejour/install.json")).provider, provider);
-  }
-  const unknownBackend = spawnSync("bash", [path.join(portable, "install.sh"), "--role", "worker", "--project", path.join(sandbox, "gemini"), "--provider", "gemini"], { encoding: "utf8" });
-  assert.equal(unknownBackend.status, 1);
-  assert.match(unknownBackend.stderr, /--provider must be claude or codex/);
+  // A project an earlier release installed for Codex is refused, not migrated.
+  const codexProject = path.join(sandbox, "codex project");
+  fs.mkdirSync(path.join(codexProject, ".contrejour"), { recursive: true });
+  fs.writeFileSync(path.join(codexProject, ".contrejour/install.json"), JSON.stringify({ format: 1, role: "validator", provider: "codex", files: {} }));
+  const codex = spawnSync("bash", [path.join(portable, "install.sh"), "--role", "validator", "--project", codexProject], { encoding: "utf8" });
+  assert.equal(codex.status, 1);
+  assert.match(codex.stderr, /installed for codex, which Contrejour no longer supports/);
+  assert.equal(fs.existsSync(path.join(codexProject, ".claude")), false);
   // A project from the releases named ARL keeps its data under .aris/; it is refused, not installed next to.
   const arlProject = path.join(sandbox, "arl project");
   fs.mkdirSync(path.join(arlProject, ".aris"), { recursive: true });
@@ -513,11 +490,11 @@ await project("distribution", async (sandbox) => {
   assert.equal(arl.status, 1);
   assert.match(arl.stderr, /earlier release under \.aris\//);
   assert.equal(fs.existsSync(path.join(arlProject, ".contrejour")), false);
-  // Installation from a prepared local Git checkout needs no download or archive tools.
+  // Installation from a prepared local Git checkout needs no download or archive tools, and records the checkout as the library.
   const localRepo = path.join(sandbox, "local Contrejour checkout");
   fs.mkdirSync(localRepo);
   execFileSync("git", ["init", "--quiet", localRepo]);
-  for (const directory of ["dist", "skills", "templates"])
+  for (const directory of ["dist", "skills", "templates", "library"])
     fs.cpSync(path.join(portable, directory), path.join(localRepo, directory), { recursive: true });
   for (const directory of ["distribution", "tools"])
     fs.cpSync(path.join(source, directory), path.join(localRepo, directory), { recursive: true, filter: (file) => path.basename(file) !== "releases" });
@@ -556,24 +533,26 @@ await project("distribution", async (sandbox) => {
     const installed = localInstall("install-contrejour.sh", "--role", role, "--project", root);
     assert.equal(installed.status, 0, installed.stderr);
     assert.equal(read(path.join(root, ".contrejour/install.json")).role, role);
+    assert.equal(read(path.join(root, ".contrejour/install.json")).library, localRepo);
     execFileSync(process.execPath, [path.join(root, ".contrejour/dist/tools/setup-cli.js"), "--help"], { cwd: sandbox });
   }
-  const localSkill = path.join(localRepo, "skills/validator-setup/SKILL.md");
+  const localSkill = path.join(localRepo, "skills/research-wiki/SKILL.md");
   fs.appendFileSync(localSkill, "\nLocal checkout update.\n");
   const updated = localInstall("install-contrejour.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(updated.status, 0, updated.stderr);
-  assert.match(fs.readFileSync(path.join(bootstrapped, ".agents/skills/validator-setup/SKILL.md"), "utf8"), /Local checkout update/);
+  assert.match(fs.readFileSync(path.join(bootstrapped, ".claude/skills/research-wiki/SKILL.md"), "utf8"), /Local checkout update/);
   assert.equal(fs.existsSync(invoked), false, "Installer invoked a download, dependency installation or archive command");
-  assert.equal(read(path.join(bootstrapped, ".contrejour/install.json")).provider, "codex");
-  const changedSkill = path.join(portable, "skills/validator-setup/SKILL.md");
+  const changedSkill = path.join(portable, "skills/research-wiki/SKILL.md");
   fs.appendFileSync(changedSkill, "\nNew upstream instructions.\n");
   archiveManifest.version = "0.1.1";
-  const changedEntry = archiveManifest.files.find((file: { path: string }) => file.path === "skills/validator-setup/SKILL.md");
+  const changedEntry = archiveManifest.files.find((file: { path: string }) => file.path === "skills/research-wiki/SKILL.md");
   changedEntry.sha256 = crypto.createHash("sha256").update(fs.readFileSync(changedSkill)).digest("hex");
   fs.writeFileSync(path.join(portable, "manifest.json"), JSON.stringify(archiveManifest));
   execFileSync("bash", [path.join(portable, "install.sh"), "--role", "validator", "--project", bootstrapped], { cwd: sandbox });
   assert.equal(read(path.join(bootstrapped, ".contrejour/install.json")).version, "0.1.1");
-  assert.match(fs.readFileSync(path.join(bootstrapped, ".agents/skills/validator-setup/SKILL.md"), "utf8"), /New upstream instructions/);
+  // An update from the archive keeps the library the checkout recorded.
+  assert.equal(read(path.join(bootstrapped, ".contrejour/install.json")).library, localRepo);
+  assert.match(fs.readFileSync(path.join(bootstrapped, ".claude/skills/research-wiki/SKILL.md"), "utf8"), /New upstream instructions/);
   const damaged = path.join(portable, "dist/tools/setup-cli.js");
   fs.appendFileSync(damaged, "\n// changed\n");
   const rejectedRoot = path.join(sandbox, "rejected");

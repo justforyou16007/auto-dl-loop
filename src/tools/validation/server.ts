@@ -2,8 +2,10 @@
  * The validator machine's public face. Worker agents reach it as a remote MCP
  * server with four tools, `task`, `requirements`, `submit` and `query`; deliverables arrive as a plain
  * HTTP PUT to the one-time URL `submit` returns, so Windows' built-in curl.exe
- * is enough. A tick expires stale uploads and starts one validator agent per
- * queued submission. Everything else (scoring, publishing) happens in the CLI.
+ * is enough. A tick expires stale uploads, starts one Claude Code review
+ * session per queued submission and keeps each session going until its
+ * submission is finalized. Everything else (scoring, publishing) happens in the
+ * CLI, run by the roles of the submission-review loop.
  */
 import { isUtf8 } from "node:buffer";
 import crypto from "node:crypto";
@@ -20,7 +22,14 @@ import {
   tokenMatches,
   type ValidationConfig,
 } from "./config.js";
-import { paseoDispatcher, type Dispatcher } from "./dispatch.js";
+import {
+  REVIEW_LOOP,
+  claudeDispatcher,
+  claudeSessionControl,
+  type Dispatcher,
+  type SessionControl,
+  type SessionState,
+} from "./dispatch.js";
 import { assertBenchmarkIntact } from "./layers.js";
 import {
   createSubmission,
@@ -29,6 +38,7 @@ import {
   readPublished,
   readSubmission,
   serviceSummary,
+  stopMarkerFile,
   submissionDir,
   unpackedDir,
   updateSubmission,
@@ -39,11 +49,20 @@ import { DELIVERABLE_ZIP_RULES, unzipDeliverable } from "./zip.js";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_RPC_BYTES = 1024 * 1024;
+/** Each review session is looked at once a minute; a stopped one rests a little before its first reminder. */
+const CHECK_EVERY_MS = 60_000;
+const IDLE_GRACE_MS = 2 * 60_000;
+/** Minimum gaps after the first, second and every later reminder, so a long run is not disturbed often. */
+const REMINDER_GAPS_MS = [10, 30, 60].map((minutes) => minutes * 60_000);
 
 export interface ServiceOptions {
   port: number;
   host?: string;
   dispatcher?: Dispatcher;
+  /** How the service checks on and continues review sessions; Claude Code by default. */
+  sessions?: SessionControl;
+  /** The clock session supervision runs on. */
+  now?: () => number;
   tick_ms?: number;
   log?: (line: string) => void;
 }
@@ -245,11 +264,17 @@ export async function startValidationService(
   const config = readValidationConfig(root);
   assertBenchmarkIntact(root, config);
   const token = readValidationToken(root);
-  const dispatch = options.dispatcher ?? paseoDispatcher(config.agent);
+  const dispatch = options.dispatcher ?? claudeDispatcher(config.agent);
+  const sessions = options.sessions ?? claudeSessionControl(config.agent, root);
+  const clock = options.now ?? Date.now;
   const log = options.log ?? ((line: string) => console.log(line));
   const uploading = new Set<string>();
+  // When each review session was last looked at, and since when it has been seen stopped.
+  const lastCheck = new Map<string, number>();
+  const stoppedSince = new Map<string, number>();
   let blocked: string | null = null;
   let ticking: Promise<void> | null = null;
+  let supervising: Promise<void> | null = null;
 
   function rpc(message: unknown): object | null {
     if (!isRecord(message) || message.jsonrpc !== "2.0" || typeof message.method !== "string")
@@ -446,19 +471,19 @@ export async function startValidationService(
     if (!next) return;
     const id = next.submission_id;
     try {
-      const { agent_id } = await dispatch({
+      const session = await dispatch({
         root,
         submission_id: id,
         submission_dir: submissionDir(root, id),
       });
-      withSubmissionsLock(root, () => updateSubmission(root, id, { agent_id }));
-      log(`submission ${id}: validator agent ${agent_id}`);
+      withSubmissionsLock(root, () => updateSubmission(root, id, { session }));
+      log(`submission ${id}: review session ${session.id}`);
     } catch (error) {
       log(`submission ${id}: dispatch failed: ${String(error)}`);
       withSubmissionsLock(root, () =>
         updateSubmission(root, id, {
           status: "failed",
-          reason: "the validator agent could not start; this submission does not count",
+          reason: "the review session could not start; this submission does not count",
         }),
       );
     }
@@ -466,13 +491,112 @@ export async function startValidationService(
     await runTick();
   }
 
+  /** End a review whose session cannot finish it; our side's failure costs the worker nothing. */
+  function failReview(id: string, reason: string): void {
+    withSubmissionsLock(root, () => {
+      if (readSubmission(root, id).status === "reviewing")
+        updateSubmission(root, id, { status: "failed", reason });
+    });
+    lastCheck.delete(id);
+    stoppedSince.delete(id);
+    log(`submission ${id}: ${reason}`);
+  }
+
+  /**
+   * The message a stopped session continues with. Every role of the loop it
+   * restarts receives this text, so it carries the loop and its arguments only.
+   */
+  function reminder(id: string): string {
+    const args = JSON.stringify({ submission_id: id, submission_dir: submissionDir(root, id) });
+    return `Contrejour validation service: submission ${id} is still under review and nothing reaches the worker until it is finalized, but this session stopped. Continue the ${REVIEW_LOOP} loop with args ${args}: resume this session's last run of it if there is one, otherwise run it again.`;
+  }
+
+  /**
+   * A review session that stops before finalize would leave the worker without a
+   * result. Look at each one once a minute, or at once when its Stop hook left a
+   * marker: never disturb a running one; continue a stopped one with a reminder
+   * after a short grace (none when the hook reported it) and growing gaps; fail
+   * the review once the session is removed or cannot be continued.
+   */
+  async function supervise(): Promise<void> {
+    const now = clock();
+    for (const record of listSubmissions(root)) {
+      const id = record.submission_id;
+      if (record.status !== "reviewing" || !record.session) continue;
+      const marker = stopMarkerFile(root, id);
+      const marked = fs.existsSync(marker) ? fs.statSync(marker).mtimeMs : -Infinity;
+      const last = lastCheck.get(id) ?? -Infinity;
+      if (now - last < CHECK_EVERY_MS && marked <= last) continue;
+      lastCheck.set(id, now);
+      let state: SessionState;
+      try {
+        state = await sessions.state(record.session);
+      } catch (error) {
+        log(`submission ${id}: cannot check review session ${record.session.id}: ${String(error)}`);
+        continue;
+      }
+      if (state === "running") {
+        stoppedSince.delete(id);
+        continue;
+      }
+      if (state === "gone") {
+        failReview(
+          id,
+          "the review session was removed before it published a result; this submission does not count",
+        );
+        continue;
+      }
+      const since = stoppedSince.get(id) ?? now;
+      stoppedSince.set(id, since);
+      const nudges = record.nudges ?? [];
+      const lastNudge = nudges.at(-1);
+      const gap = REMINDER_GAPS_MS[Math.min(nudges.length, REMINDER_GAPS_MS.length) - 1] ?? 0;
+      const reported = marked >= since - CHECK_EVERY_MS;
+      if (
+        (!reported && now - since < IDLE_GRACE_MS) ||
+        (lastNudge && now - Date.parse(lastNudge.at) < gap)
+      )
+        continue;
+      let session = record.session;
+      try {
+        session = await sessions.resume(record.session, reminder(id));
+      } catch (error) {
+        log(`submission ${id}: could not continue review session: ${String(error)}`);
+        failReview(
+          id,
+          "the review session stopped and could not be continued; this submission does not count",
+        );
+        continue;
+      }
+      stoppedSince.delete(id);
+      log(`submission ${id}: reminded review session ${session.id}`);
+      withSubmissionsLock(root, () => {
+        const current = readSubmission(root, id);
+        if (current.status === "reviewing")
+          updateSubmission(root, id, {
+            session,
+            nudges: [
+              ...(current.nudges ?? []),
+              { at: new Date(now).toISOString(), reason: "reminder" },
+            ],
+          });
+      });
+    }
+  }
+
+  /** Dispatch never waits on supervision: a slow Claude Code answer must not hold up new reviews. */
   function tick(): Promise<void> {
     ticking ??= runTick()
       .catch((error) => log(`tick failed: ${String(error)}`))
       .finally(() => {
         ticking = null;
       });
-    return ticking;
+    supervising ??= supervise()
+      .catch((error) => log(`supervision failed: ${String(error)}`))
+      .finally(() => {
+        supervising = null;
+      });
+    return Promise.all([ticking, supervising]).then(() => {});
   }
 
   const server = http.createServer((request, response) => {
@@ -507,7 +631,7 @@ export async function startValidationService(
     tick,
     async close() {
       clearInterval(timer);
-      await ticking;
+      await Promise.all([ticking, supervising]);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };

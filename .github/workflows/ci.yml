@@ -33,7 +33,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        file: [test_a0.ts, test_tester_facility.ts, test_setup.ts, test_validation.ts]
+        file:
+          [
+            test_a0.ts,
+            test_tester_facility.ts,
+            test_setup.ts,
+            test_validation.ts,
+            test_framework.ts,
+          ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

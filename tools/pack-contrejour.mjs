@@ -13,8 +13,8 @@ const output = path.resolve(process.argv[directoryOnly ? 3 : 2] ?? path.join(roo
 const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
 const stage = path.join(temp, "contrejour");
-const skills = ["worker-setup", "validator-setup", "validation-review", "research-wiki", "browser-act", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act"];
+const skills = ["research-wiki", "browser-act", "shared-references"];
+const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli"];
 const visited = new Set();
 
 function copy(relative) {
@@ -35,6 +35,7 @@ function runtime(relative) {
 try {
   for (const entry of entries) runtime(`dist/${entry}.js`);
   for (const skill of skills) copy(`skills/${skill}`);
+  copy("library");
   copy("templates");
   copy("LICENSE");
   copy("SETUP_GUIDE_CN.md");

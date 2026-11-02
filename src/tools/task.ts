@@ -6,7 +6,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { failA1, isRecord } from "./validate.js";
+import { A1Error, failA1, isRecord } from "./validate.js";
 
 export const taskPath = (root: string): string => path.join(path.resolve(root), "task.md");
 
@@ -27,10 +27,16 @@ export interface PublishedTask {
 }
 
 /**
- * Call the `task` tool of the validation service at `url` (its /mcp endpoint).
- * The service answers each JSON-RPC request in one POST, so no MCP session is needed.
+ * Call one tool of the validation service at `url` (its /mcp endpoint) and
+ * return its JSON result. The service answers each JSON-RPC request in one
+ * POST, so no MCP session is needed.
  */
-export async function fetchValidatorTask(url: string, token: string): Promise<PublishedTask> {
+export async function callValidatorTool(
+  url: string,
+  token: string,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -44,7 +50,7 @@ export async function fetchValidatorTask(url: string, token: string): Promise<Pu
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "task", arguments: {} },
+        params: { name, arguments: args },
       }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -60,12 +66,23 @@ export async function fetchValidatorTask(url: string, token: string): Promise<Pu
   const text = isRecord(content) ? content.text : undefined;
   if (typeof text !== "string")
     failA1("VALIDATION_UNREACHABLE", `${url} is not a Contrejour validation service`);
-  if (result.isError === true) failA1("TASK_UNAVAILABLE", `the validation service says: ${text}`);
+  if (result.isError === true) failA1("TOOL_FAILED", `the validation service says: ${text}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    failA1("TOOL_FAILED", `the ${name} tool returned no JSON`);
+  }
+}
+
+/** Call the `task` tool: the validator's task.md, verified against its digest. */
+export async function fetchValidatorTask(url: string, token: string): Promise<PublishedTask> {
   let task: unknown;
   try {
-    task = JSON.parse(text);
-  } catch {
-    failA1("TASK_UNAVAILABLE", "the task tool returned no JSON");
+    task = await callValidatorTool(url, token, "task");
+  } catch (error) {
+    if (error instanceof A1Error && error.code === "TOOL_FAILED")
+      failA1("TASK_UNAVAILABLE", error.message);
+    throw error;
   }
   if (!isRecord(task) || typeof task.text !== "string" || typeof task.sha256 !== "string")
     failA1("TASK_UNAVAILABLE", "the task tool returned no text and sha256");

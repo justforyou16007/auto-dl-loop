@@ -2,7 +2,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { ROLE_THINKING, isProvider, type Provider } from "../provider.js";
 import { readStateFile, writeStateFileAtomic } from "../state-file.js";
 import {
   assertNoUnknownFields,
@@ -32,31 +31,41 @@ export interface ValidationLimits {
   max_files: number;
   upload_ttl_minutes: number;
   review_timeout_minutes: number;
-  /** Rewrites a validator agent gets when the leak review finds a leak in its feedback. */
+  /** Rewrites the verdict writer gets when the leak reviewer finds a leak in its feedback. */
   feedback_attempts: number;
   /** Tests one review may add across the layers it registers. */
   max_new_tests_per_review: number;
 }
 
+/**
+ * Claude Code permission modes a review session may run in, the default first.
+ * bypassPermissions lets the benchmark and the deliverable's documented install
+ * reach the network and write outside the project; auto has a classifier review
+ * each step and may refuse some. Modes that wait for an approval nobody gives
+ * are not offered.
+ */
+export const PERMISSION_MODES = ["bypassPermissions", "auto"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+/** How the service starts the Claude Code session that reviews one submission. */
 export interface ValidationAgentConfig {
-  /** The backend the validator project was installed with, at the role's thinking level. */
-  provider: Provider;
-  thinking: string;
+  /** Claude Code model of review sessions; the CLI's default when unset. */
   model?: string;
-  mode?: string;
+  permission_mode: PermissionMode;
   /**
-   * argv prefix that runs the Paseo CLI. On Windows `paseo` is a .cmd shim that
-   * cannot be spawned without a shell, so name node and the CLI script instead.
+   * argv prefix that runs the Claude Code CLI. On Windows an npm-installed
+   * `claude.cmd` cannot be spawned without a shell: use the native claude.exe,
+   * or node and the CLI script.
    */
-  paseo_command: string[];
+  claude_command: string[];
 }
 
 export interface ValidationConfig {
-  schema_version: 2;
+  schema_version: 3;
   pass_rule: PassRule;
   /** The base layer frozen at setup; a different installed config stops the service. */
   tester_config_sha256: string;
-  /** What a validator agent must write into a submission's adapter directory. */
+  /** What the adapter-writer role must write into a submission's adapter directory. */
   adapter_contract: string;
   /**
    * What the validator machine offers a deliverable (OS, runtimes, GPU, network,
@@ -67,19 +76,9 @@ export interface ValidationConfig {
   /** Hidden samples, labels and references of the base layer, for the leak reviewer. */
   hidden_paths: string[];
   agent: ValidationAgentConfig;
-  service: { host: string; public_url: string };
+  /** Where the service listens and the root address the worker reaches it at. */
+  service: { host: string; port: number; public_url: string };
 }
-
-/**
- * Paseo modes a validator may run in, per backend, the default first. Full access
- * lets the benchmark and the deliverable's documented install reach the network
- * and write outside the project; a sandboxed mode makes those steps fail. Modes
- * that wait for an approval nobody gives are not offered.
- */
-export const VALIDATOR_MODES: Record<Provider, readonly string[]> = {
-  claude: ["bypassPermissions", "auto"],
-  codex: ["full-access", "auto-review", "auto"],
-};
 
 export const DEFAULT_LIMITS: ValidationLimits = {
   max_submissions: 20,
@@ -106,10 +105,15 @@ function strings(value: unknown, location: string): string[] {
 }
 
 export function validateValidationConfig(value: unknown): ValidationConfig {
-  if (!isRecord(value) || value.schema_version !== 2)
+  if (isRecord(value) && value.schema_version === 2)
     failA1(
       "INVALID_VALIDATION_CONFIG",
-      "run /validator-setup on the validator machine to create it",
+      "this validator project was set up by an earlier Contrejour release (Paseo/Codex); install into a fresh project",
+    );
+  if (!isRecord(value) || value.schema_version !== 3)
+    failA1(
+      "INVALID_VALIDATION_CONFIG",
+      "run the validator-setup role on the validator machine to create it",
     );
   assertNoUnknownFields(
     value,
@@ -148,31 +152,31 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
     if (!path.isAbsolute(item))
       failA1("INVALID_VALUE", "hidden paths must be absolute", "hidden_paths");
   const agent = value.agent as Record<string, unknown>;
-  assertNoUnknownFields(agent, ["provider", "model", "mode", "thinking", "paseo_command"], "agent");
-  const command = strings(agent.paseo_command ?? ["paseo"], "agent.paseo_command");
-  if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.paseo_command");
-  // Configs written before the backend became a choice name none: they ran Codex.
-  const provider = agent.provider ?? "codex";
-  if (!isProvider(provider)) failA1("INVALID_VALUE", "choose claude or codex", "agent.provider");
-  const thinking = ROLE_THINKING.validator[provider];
-  if (agent.thinking !== undefined && agent.thinking !== null && agent.thinking !== thinking)
-    failA1("INVALID_VALUE", `${provider} validator agents use ${thinking}`, "agent.thinking");
-  const modes = VALIDATOR_MODES[provider];
-  if (agent.mode !== undefined && agent.mode !== null && !modes.includes(String(agent.mode)))
-    failA1("INVALID_VALUE", `choose one of ${modes.join(", ")}`, "agent.mode");
-  const optional = (key: string) =>
-    agent[key] === undefined || agent[key] === null
+  assertNoUnknownFields(agent, ["model", "permission_mode", "claude_command"], "agent");
+  const command = strings(agent.claude_command ?? ["claude"], "agent.claude_command");
+  if (!command.length) failA1("INVALID_VALUE", "must not be empty", "agent.claude_command");
+  const mode = agent.permission_mode ?? PERMISSION_MODES[0];
+  if (!PERMISSION_MODES.includes(mode as PermissionMode))
+    failA1(
+      "INVALID_VALUE",
+      `choose one of ${PERMISSION_MODES.join(", ")}`,
+      "agent.permission_mode",
+    );
+  const model =
+    agent.model === undefined || agent.model === null
       ? {}
-      : { [key]: requireString(agent[key], `agent.${key}`) };
+      : { model: requireString(agent.model, "agent.model") };
   const service = value.service as Record<string, unknown>;
-  assertNoUnknownFields(service, ["host", "public_url"], "service");
+  assertNoUnknownFields(service, ["host", "port", "public_url"], "service");
+  const port = requireInteger(service.port, "service.port", 1);
+  if (port > 65_535) failA1("INVALID_VALUE", "must be a TCP port number", "service.port");
   const publicUrl = requireString(service.public_url, "service.public_url");
   if (!/^https?:\/\/[^/]+/.test(publicUrl))
     failA1("INVALID_VALUE", "must be an http(s) URL", "service.public_url");
   if (!/^[0-9a-f]{64}$/.test(String(value.tester_config_sha256)))
     failA1("INVALID_VALUE", "must be a SHA-256 digest", "tester_config_sha256");
   return {
-    schema_version: 2,
+    schema_version: 3,
     pass_rule: {
       metric: requireString(rule.metric, "pass_rule.metric"),
       op: rule.op as PassOperator,
@@ -186,15 +190,10 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
         : requireString(value.runtime_environment, "runtime_environment"),
     limits,
     hidden_paths: hidden,
-    agent: {
-      provider,
-      thinking,
-      ...optional("model"),
-      ...optional("mode"),
-      paseo_command: command,
-    },
+    agent: { ...model, permission_mode: mode as PermissionMode, claude_command: command },
     service: {
       host: service.host === undefined ? "127.0.0.1" : requireString(service.host, "service.host"),
+      port,
       public_url: publicUrl.replace(/\/+$/, ""),
     },
   };
@@ -203,7 +202,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
 export function readValidationConfig(root: string): ValidationConfig {
   const file = validationConfigPath(root);
   if (!fs.existsSync(file))
-    failA1("VALIDATION_NOT_CONFIGURED", "run /validator-setup on this validator machine");
+    failA1("VALIDATION_NOT_CONFIGURED", "run the validator-setup role on this validator machine");
   return validateValidationConfig(readStateFile(file));
 }
 

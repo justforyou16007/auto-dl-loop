@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-/** `/worker-setup` and `/validator-setup` helper: review/refresh the sheet, fetch the worker's task, confirm one digest, apply it. */
+/**
+ * Helper of the worker-setup and validator-setup roles: review/refresh the
+ * sheet, fetch the worker's task, confirm one digest, apply it. The worker's
+ * task manager fetches task.md with it each round, and the setup and memory
+ * roles keep the environment section of CLAUDE.md with it.
+ */
 import fs from "node:fs";
 
 import { createCli, runCli } from "../lib/cli.js";
@@ -7,6 +12,7 @@ import { A1Error } from "./validate.js";
 import {
   applySetup,
   confirmSetupReview,
+  environmentNotes,
   fetchTask,
   refreshSetupReview,
   SetupReviewIncompleteError,
@@ -78,6 +84,22 @@ program
       console.log(JSON.stringify(await applySetup(options.project), null, 2));
     } catch (error) {
       reject("setup_apply_failed", error);
+    }
+  });
+
+program
+  .command("environment")
+  .description(
+    "Show the environment section of CLAUDE.md, or replace it with --input (facts and lessons about this machine only)",
+  )
+  .requiredOption("--project <dir>")
+  .option("--input <path>", "Markdown file holding the whole new section")
+  .action((options: { project: string; input?: string }) => {
+    try {
+      const text = options.input ? fs.readFileSync(options.input, "utf8") : undefined;
+      console.log(JSON.stringify(environmentNotes(options.project, text), null, 2));
+    } catch (error) {
+      reject("setup_environment_failed", error);
     }
   });
 

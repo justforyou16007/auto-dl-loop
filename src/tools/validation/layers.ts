@@ -1,6 +1,6 @@
 /**
  * The benchmark only grows. Layer `base` is the tester facility frozen at
- * setup; every later layer is a set of tests a validator agent derived from
+ * setup; every later layer is a set of tests the test-extender role derived from
  * tests already in the benchmark and registered with `extend`.
  *
  * Added layers live in a git repository the helper alone commits to. Every
@@ -45,7 +45,7 @@ import type { TestCounts } from "./store.js";
 export const BASE_LAYER = "base";
 const LAYER_ID = /^inc-\d{3,}$/;
 const TEST_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/** Written by the validator agent in its draft; committed with the rest of the layer. */
+/** Written by the test-extender role in its draft; committed with the rest of the layer. */
 export const LAYER_SPEC = "layer.json";
 /** Written by the helper next to a layer run's raw output. */
 const LAYER_RESULT = "layer-result.json";

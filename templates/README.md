@@ -1,11 +1,12 @@
 # Templates
 
-The setup skills (`/worker-setup`, `/validator-setup`) read these; you do not copy them by hand.
+The setup roles (`worker-setup`, `validator-setup`) and setup's apply read these; you do not copy them by hand.
 
 | Template | Used by |
 | --- | --- |
 | [TASK_TEMPLATE.md](TASK_TEMPLATE.md) | Validator role. Becomes `task.md`, the only statement of the task; the worker's setup fetches it through the `task` tool. |
-| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATOR.md](ROLE_VALIDATOR.md) | Setup writes the matching one between the `CONTREJOUR ROLE` markers in `CLAUDE.md` (worker) or `AGENTS.md` (validator). |
+| [ROLE_WORKER.md](ROLE_WORKER.md), [ROLE_VALIDATOR.md](ROLE_VALIDATOR.md) | Apply writes the matching one between the `CONTREJOUR ROLE` markers in `CLAUDE.md`: the rules every role of that side follows. |
+| [ENVIRONMENT.md](ENVIRONMENT.md) | Apply starts the `CONTREJOUR ENVIRONMENT` section of `CLAUDE.md` with it; the setup and memory roles replace it with the machine's facts. |
 | [TESTER_FACILITY_CONFIG_TEMPLATE.json](TESTER_FACILITY_CONFIG_TEMPLATE.json) | Validator role. Starting point for the benchmark's frozen base layer. |
 | [tester-benchmark/](tester-benchmark/) | Validator role. A worked lm-evaluation-harness deployment. |
 
@@ -38,4 +39,4 @@ The base layer's `setup`, `healthcheck`, `smoke` and `test` entries are argv arr
 - `dataset.expected_samples` is the full protocol count including repeats, never the smoke count.
 - Every `ok` sample carries a finite value of the metric named by `validation.pass_rule`; the helper applies the rule to it. Aggregate `metrics` are kept for the record and not published.
 - Files listed in the config's `evidence_files` are hashed at setup. Changing one stops the validation service until setup runs again.
-- Layers that validator agents add later use the same output format (without `metrics` and `evidence_files`); see the `validation-review` skill.
+- Layers the `test-extender` role adds later use the same output format (without `metrics` and `evidence_files`); see its role file.

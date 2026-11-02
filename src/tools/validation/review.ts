@@ -1,9 +1,9 @@
 /**
- * What a validator agent runs against its submission: the base smoke subset
- * while writing the adapter, full runs of every benchmark layer, new layers
- * derived from tests it has run, and finalize, which turns review.json and the
- * leak-reviewed feedback.md into the published result. Test counts are read
- * from the checked runs, never from the agent's text.
+ * What the roles of the submission-review loop run against a submission: the
+ * base smoke subset while writing the adapter, full runs of every benchmark
+ * layer, new layers derived from tests the review has run, and finalize, which
+ * turns review.json and the leak-reviewed feedback.md into the published
+ * result. Test counts are read from the checked runs, never from a role's text.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -189,6 +189,32 @@ function readReview(dir: string): Verdict {
       'review.json must be {"verdict": "valid"|"cheating"|"unusable", "reasons": ["..."]}',
     );
   return review.verdict as Verdict;
+}
+
+/** What the worker reads when our side gives a review up: no detail of the review behind it. */
+export const ABANDONED_REASON =
+  "the validator could not complete the review on its side; this submission does not count, so submit again";
+
+/**
+ * Our side cannot complete this review (the machine lacks what the worker was
+ * promised, a helper fails): end it as failed, which does not count, so the
+ * worker can submit again at once instead of waiting for the review timeout.
+ * The cause stays in the record on this machine.
+ */
+export function abandonReview(projectRoot: string, id: string, reason: string) {
+  const root = path.resolve(projectRoot);
+  const cause = reason.trim();
+  if (!cause) failA1("INVALID_VALUE", "say why our side cannot complete the review", "reason");
+  return withSubmissionsLock(root, () => {
+    const record = readSubmission(root, id);
+    if (record.status !== "reviewing")
+      failA1("SUBMISSION_NOT_IN_REVIEW", `submission ${id} is ${record.status}`);
+    return updateSubmission(root, id, {
+      status: "failed",
+      reason: ABANDONED_REASON,
+      abandoned: { at: new Date().toISOString(), reason: cause.slice(0, 4000) },
+    });
+  });
 }
 
 export function finalizeSubmission(projectRoot: string, id: string) {

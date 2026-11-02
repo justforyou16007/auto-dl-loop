@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Validator machine helper. `serve` runs the service (Paseo starts it as the
- * `contrejour` script); the other commands are what a validator agent and
- * the owner run against one project.
+ * Validator machine helper. `serve` runs the service, which the owner starts
+ * and keeps running; the other commands are what the validator's roles and the
+ * owner run against one project.
  */
 import path from "node:path";
 
@@ -12,6 +12,7 @@ import { readValidationConfig } from "./validation/config.js";
 import { readLayers } from "./validation/layers.js";
 import { requestLeakReview } from "./validation/leak-review.js";
 import {
+  abandonReview,
   evaluate,
   extendBenchmark,
   finalizeSubmission,
@@ -48,14 +49,14 @@ function fail(error: unknown): void {
 
 program
   .command("serve")
-  .description("Run the validation service (Paseo sets PASEO_PORT)")
+  .description("Run the validation service; keep it running while the task lasts")
   .requiredOption("--project <dir>", "validator project directory")
-  .option("--port <port>", "port to listen on; defaults to PASEO_PORT")
+  .option("--port <port>", "port to listen on; defaults to validation.service.port")
   .action(async (options: { project: string; port?: string }) => {
     try {
-      const port = Number(options.port ?? process.env.PASEO_PORT);
+      const port = Number(options.port ?? readValidationConfig(options.project).service.port);
       if (!Number.isInteger(port) || port < 0)
-        failA1("PORT_REQUIRED", "pass --port or run as the Paseo contrejour service script");
+        failA1("PORT_REQUIRED", "pass --port or set validation.service.port in setup");
       const service = await startValidationService(options.project, { port });
       console.log(`contrejour listening on ${service.url}`);
       const stop = () => void service.close().then(() => process.exit(0));
@@ -154,12 +155,29 @@ program
 
 program
   .command("leak-review")
-  .description("Start an independent agent that checks feedback.md for hidden test cases")
+  .description("Snapshot feedback.md for the leak reviewer and record the request")
   .requiredOption("--project <dir>")
   .requiredOption("--submission <id>")
-  .action(async (options: { project: string; submission: string }) => {
+  .action((options: { project: string; submission: string }) => {
     try {
-      print(await requestLeakReview(options.project, options.submission));
+      print(requestLeakReview(options.project, options.submission));
+    } catch (error) {
+      fail(error);
+    }
+  });
+
+program
+  .command("abandon")
+  .description(
+    "End a review our side cannot complete as failed, which does not count; the cause stays on this machine",
+  )
+  .requiredOption("--project <dir>")
+  .requiredOption("--submission <id>")
+  .requiredOption("--reason <text>", "what on our side stops the review")
+  .action((options: { project: string; submission: string; reason: string }) => {
+    try {
+      const record = abandonReview(options.project, options.submission, options.reason);
+      print({ submission_id: record.submission_id, status: record.status, reason: record.reason });
     } catch (error) {
       fail(error);
     }

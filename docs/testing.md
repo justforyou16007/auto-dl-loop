@@ -2,8 +2,8 @@
 
 Use real temporary directories, installed artifacts and the actual helper commands. Test the behavior visible to the worker or project owner. Avoid assertions that mirror implementation details.
 
-Run only the relevant file locally: `npm run test -- tests/test_setup.ts`. Never run the full suite locally or repeat a test another agent has already reported green without a new change or unresolved concern. CI runs the existing four TypeScript suites.
+Run only the relevant file locally: `npm run test -- tests/test_setup.ts`. Never run the full suite locally or repeat a test another agent has already reported green without a new change or unresolved concern. CI runs the five TypeScript suites.
 
-The setup suite exercises both prepared local Git checkouts and archives: Claude and Codex installation, configuration, repair, updates and integrity checks from isolated directories. Local installation tests forbid download, npm and tar commands, and verify that missing dependencies or build output cause errors without writing the target. Run `npm run build` first because installation consumes compiled helpers.
+The setup suite exercises both prepared local Git checkouts and archives: installation with the seeded loops and roles, configuration, the settings and CLAUDE.md blocks, repair, updates and integrity checks from isolated directories. Local installation tests forbid download, npm and tar commands, and verify that missing dependencies or build output cause errors without writing the target. The framework suite checks the library's loops and roles, the loop and role checks, the hook actions and the worker's ledger and waiting. Run `npm run build` first because both consume compiled helpers.
 
-Do not add provider authentication checks to tests. Report the difference between archive/helper verification and a real two-daemon deployment. Never restart the main Paseo daemon to recover from a test timeout.
+Review sessions are tested against a stand-in `claude` command. Do not add Claude Code authentication checks to tests. Report the difference between archive and helper verification and a real two-machine deployment with Claude Code. Never restart a running Claude Code background service or Paseo daemon to recover from a test timeout.
