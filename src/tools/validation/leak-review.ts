@@ -1,8 +1,9 @@
 /**
- * Feedback leaves this machine only after a second agent, which did not write
- * it, has read it against the hidden tests and found no test case in it. Each
- * request snapshots feedback.md into its own directory and binds the review to
- * that text's digest, so editing the feedback afterwards needs a new review.
+ * Feedback leaves this machine only after the leak-reviewer role, which did not
+ * write it and starts from a fresh context in the submission-review loop, has
+ * read it against the hidden tests and found no test case in it. Each request
+ * snapshots feedback.md into its own directory and binds the review to that
+ * text's digest, so editing the feedback afterwards needs a new review.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -10,7 +11,6 @@ import path from "node:path";
 import { readStateFile } from "../state-file.js";
 import { failA1, isRecord } from "../validate.js";
 import { readValidationConfig } from "./config.js";
-import { leakReviewRun, paseoStarter, type AgentStarter } from "./dispatch.js";
 import {
   readSubmission,
   submissionDir,
@@ -56,11 +56,11 @@ export function leaksFound(record: SubmissionRecord): number {
     .length;
 }
 
-export async function requestLeakReview(
+/** Snapshot the current feedback.md for the leak reviewer and record the request. */
+export function requestLeakReview(
   projectRoot: string,
   id: string,
-  start?: AgentStarter,
-): Promise<LeakReview & { result_file: string }> {
+): LeakReview & { feedback_file: string; result_file: string } {
   const root = path.resolve(projectRoot);
   const config = readValidationConfig(root);
   const record = readSubmission(root, id);
@@ -78,19 +78,9 @@ export async function requestLeakReview(
   const reviewDir = path.join(dir, "leak-review", String(attempt));
   fs.mkdirSync(reviewDir, { recursive: true });
   fs.writeFileSync(path.join(reviewDir, "feedback.md"), `${feedback}\n`);
-  const { agent_id } = await (start ?? paseoStarter(config.agent))(
-    leakReviewRun({
-      root,
-      provider: config.agent.provider,
-      submission_id: id,
-      submission_dir: dir,
-      review_dir: reviewDir,
-    }),
-  );
   const review: LeakReview = {
     attempt,
     feedback_sha256: textSha256(feedback),
-    agent_id,
     dir: reviewDir,
     requested_at: new Date().toISOString(),
   };
@@ -99,7 +89,11 @@ export async function requestLeakReview(
       leak_reviews: [...(readSubmission(root, id).leak_reviews ?? []), review],
     }),
   );
-  return { ...review, result_file: path.join(reviewDir, "result.json") };
+  return {
+    ...review,
+    feedback_file: path.join(reviewDir, "feedback.md"),
+    result_file: path.join(reviewDir, "result.json"),
+  };
 }
 
 /**

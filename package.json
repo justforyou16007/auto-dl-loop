@@ -2,8 +2,12 @@
   "name": "contrejour",
   "version": "0.1.0",
   "private": true,
-  "description": "Independent worker and validation research tasks for Claude and Codex",
+  "description": "An agent-loop framework on Claude Code, and the adversarial two-machine research task built on it",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/justforyou16007/auto-dl-loop"
+  },
   "type": "module",
   "scripts": {
     "build": "npm run build:clean",

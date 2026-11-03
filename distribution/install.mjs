@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -9,22 +10,21 @@ const { values } = parseArgs({
     role: { type: "string" },
     project: { type: "string" },
     provider: { type: "string" },
+    library: { type: "string" },
     force: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
 });
 if (values.help) {
-  console.log(
-    "bash install.sh --role worker|validator --project PATH [--provider claude|codex] [--dry-run] [--force]",
-  );
+  console.log("bash install.sh --role worker|validator --project PATH [--dry-run] [--force]");
   process.exit(0);
 }
 if (!values.project || !["worker", "validator"].includes(values.role)) {
   throw new Error("Specify --role worker|validator and --project PATH. See --help.");
 }
-if (values.provider !== undefined && !["claude", "codex"].includes(values.provider)) {
-  throw new Error("--provider must be claude or codex. See --help.");
+if (values.provider !== undefined) {
+  throw new Error("Contrejour runs on Claude Code only; --provider was removed. See --help.");
 }
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ required");
@@ -86,17 +86,33 @@ if (previous && !["worker", "validator"].includes(previous.role)) {
 if (previous && previous.role !== role) {
   throw new Error(`This project is installed for ${previous.role}; keep its role when updating.`);
 }
-// Either backend can run either role; without --provider an update keeps the installed one
-// and a new install takes the role's default: Claude Code for the worker, Codex for the validator.
-const provider = values.provider ?? previous?.provider ?? (role === "worker" ? "claude" : "codex");
-if (previous?.provider && previous.provider !== provider) {
+// Earlier releases could install Codex projects; Contrejour runs on Claude Code only and does not migrate them.
+if (previous?.provider !== undefined && previous.provider !== "claude") {
   throw new Error(
-    `This project is installed for ${previous.provider}; keep its provider when updating, or install into a fresh project.`,
+    `This project was installed for ${previous.provider}, which Contrejour no longer supports; install into a fresh project.`,
   );
 }
-const skills = provider === "codex" ? ".agents/skills" : ".claude/skills";
-// The archive carries both setup skills; a project gets only its own role's.
-const otherSetup = `skills/${role === "worker" ? "validator" : "worker"}-setup/`;
+const skills = ".claude/skills";
+/**
+ * Loops and roles from the library are seeded: written when the project has
+ * none of that name, then owned by the project (the optimizer fixes roles, the
+ * owner changes loops) and never replaced or removed by an update. A project
+ * gets the framework roles and its own side's roles and loops. A copy of what was
+ * seeded stays under .contrejour/seeded/: the baseline that later tells what this
+ * project changed from what the library changed, when it contributes back.
+ */
+function seededTarget(relative) {
+  const role_ = /^library\/roles\/(framework|worker|validator)\/([^/]+\.md)$/.exec(relative);
+  if (role_)
+    return role_[1] === "framework" || role_[1] === role ? `.claude/agents/${role_[2]}` : null;
+  const loop = /^library\/loops\/(framework|worker|validator)\/([^/]+)\.(md|js)$/.exec(relative);
+  if (loop && (loop[1] === "framework" || loop[1] === role))
+    return `.claude/${loop[3] === "md" ? "loops" : "workflows"}/${loop[2]}.${loop[3]}`;
+  return null;
+}
+const seeded = [];
+const kept = [];
+const baselines = [];
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))
   throw new Error("Invalid Contrejour archive manifest");
@@ -107,19 +123,32 @@ for (const entry of manifest.files) {
   const bytes = fs.readFileSync(path.join(source, entry.path));
   if (digest(bytes) !== entry.sha256)
     throw new Error(`Archive integrity check failed: ${entry.path}`);
+  if (entry.path.startsWith("library/")) {
+    const relative = seededTarget(entry.path);
+    if (!relative) continue;
+    const target = destination(relative);
+    const baseline = destination(`.contrejour/seeded/${relative.slice(".claude/".length)}`);
+    if (fs.existsSync(target)) {
+      kept.push(relative);
+      // From a release that kept no baseline, only an unedited copy has a known one.
+      if (!fs.existsSync(baseline) && digest(fs.readFileSync(target)) === digest(bytes))
+        baselines.push({ target: baseline, contents: bytes });
+    } else {
+      seeded.push(relative);
+      planned.push({ target, contents: bytes, relative });
+      baselines.push({ target: baseline, contents: bytes });
+    }
+    continue;
+  }
   const isSkill = entry.path.startsWith("skills/");
   if (
-    (!isSkill &&
-      !/^(dist|templates|node_modules)\//.test(entry.path) &&
-      entry.path !== "package.json") ||
-    entry.path.startsWith(otherSetup)
+    !isSkill &&
+    !/^(dist|templates|node_modules)\//.test(entry.path) &&
+    entry.path !== "package.json"
   )
     continue;
   const relative = isSkill ? `${skills}/${entry.path.slice(7)}` : `.contrejour/${entry.path}`;
-  const contents =
-    provider === "codex" && entry.path.endsWith(".md")
-      ? Buffer.from(bytes.toString("utf8").replaceAll(".claude/skills", ".agents/skills"))
-      : bytes;
+  const contents = bytes;
   const target = destination(relative);
   const nextHash = digest(contents);
   hashes[relative] = nextHash;
@@ -153,7 +182,7 @@ for (const [relative, oldHash] of Object.entries(previous?.files ?? {})) {
   removed.push(target);
 }
 if (!values["dry-run"]) {
-  for (const { target, contents } of planned) {
+  for (const { target, contents } of [...planned, ...baselines]) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const temp = `${target}.contrejour-${process.pid}`;
     fs.writeFileSync(temp, contents);
@@ -165,38 +194,55 @@ if (!values["dry-run"]) {
   fs.writeFileSync(
     temp,
     JSON.stringify(
-      { format: 1, version: manifest.version, role, provider, files: hashes },
+      {
+        format: 1,
+        version: manifest.version,
+        role,
+        provider: "claude",
+        ...(values.library
+          ? { library: path.resolve(values.library) }
+          : previous?.library
+            ? { library: previous.library }
+            : {}),
+        files: hashes,
+        seeded: [...new Set([...(previous?.seeded ?? []), ...seeded])].sort(),
+      },
       null,
       2,
     ) + "\n",
   );
   fs.renameSync(temp, manifestFile);
+  // The hooks check, among other things, that every answer a session passes to a loop is the owner's own.
+  const hooks = spawnSync(
+    process.execPath,
+    [path.join(root, ".contrejour/dist/tools/setup-cli.js"), "hooks", "--project", root],
+    { encoding: "utf8" },
+  );
+  if (hooks.status !== 0)
+    throw new Error(
+      `Could not register Contrejour's hooks in .claude/settings.json: ${hooks.stderr || hooks.stdout}`,
+    );
 }
 console.log(
   JSON.stringify(
     {
       project: root,
       role,
-      provider,
       version: manifest.version,
       dry_run: values["dry-run"],
       written: planned.map((entry) => entry.relative),
+      seeded,
+      kept_project_versions: kept,
       removed,
     },
     null,
     2,
   ),
 );
-const thinking = {
-  worker: { claude: "ultracode", codex: "ultra" },
-  validator: { claude: "max", codex: "max" },
-}[role][provider];
-const client =
-  provider === "claude"
-    ? "Run reload-skills after skills change, or open a fresh session."
-    : "Codex must trust the project to read its .codex/config.toml; open a fresh session after skills change.";
 console.log(
-  role === "worker"
-    ? `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke worker-setup. ${client} A changed MCP configuration needs a fresh session.`
-    : `Next: open this project in official Paseo with ${provider === "claude" ? "Claude Code" : "Codex"} at thinking ${thinking} and invoke validator-setup; the service starts validator agents with the same backend. ${client}`,
+  `Next: in ${root}, run \`claude --agent ${role}-setup "start"\` (or put your requirement in place of start) and accept the folder trust prompt the first time; ${
+    role === "worker"
+      ? "set up the validator machine first."
+      : "background review sessions need the trusted folder."
+  } Loops and roles already in the project were kept as they are.`,
 );

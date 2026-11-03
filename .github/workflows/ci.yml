@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [arl]
+    branches: [main]
   pull_request:
-    branches: [arl]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run pack:contrejour
+      - run: npm run build
+      - run: node tools/library-check.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: contrejour
@@ -33,7 +35,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        file: [test_a0.ts, test_tester_facility.ts, test_setup.ts, test_validation.ts]
+        file:
+          [
+            test_a0.ts,
+            test_tester_facility.ts,
+            test_setup.ts,
+            test_validation.ts,
+            test_framework.ts,
+            test_contribution.ts,
+          ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

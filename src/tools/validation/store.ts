@@ -20,7 +20,7 @@ export type SubmissionStatus =
   | "expired"
   /** Not counted: the deliverable was malformed (zip, size, USAGE.md). */
   | "invalid"
-  /** Not counted: our side failed (agent could not start, review timed out). */
+  /** Not counted: our side failed (the review session could not start or finish, the review timed out). */
   | "failed";
 
 export interface SubmissionRecord {
@@ -32,21 +32,40 @@ export interface SubmissionRecord {
   note?: string;
   upload?: { token_sha256: string; expires_at: string };
   deliverable?: { sha256: string; bytes: number; files: number };
-  agent_id?: string;
+  /** The Claude Code background session reviewing this submission. */
+  session?: ReviewSession;
+  /** The loop and parameter values this review started with, written with `session`. */
+  review_loop?: { loop: string; params: Record<string, unknown> };
   review_started_at?: string;
   /** Latest full run of each benchmark layer, by layer id; finalize counts these. */
   evaluations?: Record<string, string>;
   /** Independent cross-checks of feedback.md, oldest first. */
   leak_reviews?: LeakReview[];
+  /** Messages the service sent the review session after it stopped before finalize, oldest first. */
+  nudges?: Nudge[];
   /** Public reason for expired, invalid and failed. */
   reason?: string;
+  /** Why our side gave the review up; kept on this machine, never shown to the worker. */
+  abandoned?: { at: string; reason: string };
+}
+
+/** A background session as `claude --bg` started it: its short id, the session id to resume, its name. */
+export interface ReviewSession {
+  id: string;
+  session_id: string;
+  name: string;
+}
+
+export interface Nudge {
+  at: string;
+  /** `reminder`, or why the session could not take one. */
+  reason: string;
 }
 
 export interface LeakReview {
   attempt: number;
-  /** The feedback.md this reviewer was given; a later edit needs a new review. */
+  /** The feedback.md this review was given; a later edit needs a new review. */
   feedback_sha256: string;
-  agent_id: string;
   dir: string;
   requested_at: string;
 }
@@ -76,7 +95,8 @@ export const COUNTED: readonly SubmissionStatus[] = [
   "rejected_cheating",
   "unusable",
 ];
-const FINAL: readonly SubmissionStatus[] = [
+/** Statuses that never change again. */
+export const FINAL: readonly SubmissionStatus[] = [
   "tested",
   "rejected_cheating",
   "unusable",
@@ -84,6 +104,10 @@ const FINAL: readonly SubmissionStatus[] = [
   "invalid",
   "failed",
 ];
+/** The review ended and its result was published: the submission's task is finished. */
+export const FINISHED: readonly SubmissionStatus[] = FINAL.filter((status) =>
+  COUNTED.includes(status),
+);
 const SUBMISSION_ID = /^s\d{3,}$/;
 
 export const submissionsDir = (root: string): string =>
@@ -100,6 +124,9 @@ export const deliverableZip = (root: string, id: string): string =>
   path.join(submissionDir(root, id), "deliverable.zip");
 export const unpackedDir = (root: string, id: string): string =>
   path.join(submissionDir(root, id), "unpacked");
+/** A review session's Stop hook leaves this when it stops with its submission unfinished and no loop running. */
+export const stopMarkerFile = (root: string, id: string): string =>
+  path.join(submissionDir(root, id), "session-stopped.json");
 
 /** Every read-modify-write of submission records goes through this one lock. */
 export function withSubmissionsLock<T>(root: string, action: () => T): T {

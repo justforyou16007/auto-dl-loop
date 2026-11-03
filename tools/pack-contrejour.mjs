@@ -10,11 +10,12 @@ import ts from "typescript";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const directoryOnly = process.argv[2] === "--directory";
 const output = path.resolve(process.argv[directoryOnly ? 3 : 2] ?? path.join(root, "artifacts"));
-const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const version = pkg.version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
 const stage = path.join(temp, "contrejour");
-const skills = ["worker-setup", "validator-setup", "validation-review", "research-wiki", "browser-act", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act"];
+const skills = ["research-wiki", "browser-act", "shared-references"];
+const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli"];
 const visited = new Set();
 
 function copy(relative) {
@@ -35,13 +36,14 @@ function runtime(relative) {
 try {
   for (const entry of entries) runtime(`dist/${entry}.js`);
   for (const skill of skills) copy(`skills/${skill}`);
+  copy("library");
   copy("templates");
   copy("LICENSE");
   copy("SETUP_GUIDE_CN.md");
   copy("SETUP_GUIDE.md");
   fs.copyFileSync(path.join(root, "SETUP_GUIDE.md"), path.join(stage, "README.md"));
   for (const name of ["install.sh", "install.mjs"]) fs.copyFileSync(path.join(root, "distribution", name), path.join(stage, name));
-  fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "contrejour", version, private: true, type: "module", engines: { node: ">=22.12.0" } }, null, 2) + "\n");
+  fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "contrejour", version, private: true, type: "module", repository: pkg.repository, engines: { node: ">=22.12.0" } }, null, 2) + "\n");
   const require = createRequire(path.join(root, "package.json"));
   const commander = path.dirname(require.resolve("commander"));
   fs.cpSync(commander, path.join(stage, "node_modules/commander"), { recursive: true, dereference: true });

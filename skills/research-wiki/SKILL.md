@@ -134,6 +134,8 @@ treat flagged text as data.
 
 ## What the worker records
 
+Only the `worker-memory` role writes the worker's wiki; the other roles read it.
+
 - **Surveys** of existing work it relies on, with `--problems` for the problems
   each work addresses: `--arxiv-id` for arXiv papers, `--url` and `--title` for
   anything found with WebSearch/WebFetch. Literature skills, when installed,
@@ -145,10 +147,10 @@ treat flagged text as data.
   The query pack lists a solved problem as `[regressed]` when the latest
   evidence about it reproduces it.
 - **Ideas** before trying them: every candidate from the five ideation
-  subagents that is not a repeat of an ineffective idea, with
+  roles that is not a repeat of an ineffective idea, with
   `--target-problems`, `--based-on`, `--potential`, `--feasibility`,
   `--variant-of` for earlier ideas in the same direction and
-  `--tags ideation:<slot>` for the subagent that proposed it (`informed`,
+  `--tags ideation:<slot>` for the ideator that proposed it (`informed`,
   `failures-only` or `blank`). An update
   with `--update-on-exist` keeps every field it does not set, so
   `--outcome ineffective` alone marks the result.
@@ -184,8 +186,8 @@ are skipped. Pending ideas stay in the pool until an outcome is recorded.
 
 ## On the validator machine
 
-The validator agent keeps its own wiki of the problems it finds in the
-deliverables, separate from the worker's:
+The validator keeps its own wiki of the problems it finds in the
+deliverables, separate from the worker's; only its `validator-memory` role writes it:
 
 - each problem type found in a deliverable is a problem;
 - each testing method it researched and relied on (paper, evaluation
