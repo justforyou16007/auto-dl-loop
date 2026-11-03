@@ -1,9 +1,17 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { anyJsonSchema, canonicalJsonBytes, canonicalJsonSha256 } from "./canonical-json.js";
+import {
+  anyJsonSchema,
+  canonicalJsonBytes,
+  canonicalJsonSha256,
+} from "@studio/tools/canonical-json.js";
 import { computeWikiCommandId } from "./wiki-command-id.js";
-import { readStateFile, withStateFileLock, writeStateFileAtomic } from "./state-file.js";
+import {
+  readStateFile,
+  withStateFileLock,
+  writeStateFileAtomic,
+} from "@studio/tools/state-file.js";
 import { parseWikiPayload } from "./wiki-operations.js";
 import { validateWikiScope } from "./wiki-scope.js";
 

@@ -9,7 +9,7 @@ import {
   canonicalJsonSha256,
   canonicalJsonString,
   objectSchema,
-} from "../src/tools/canonical-json.js";
+} from "../agent-loop-studio/src/tools/canonical-json.js";
 import { computeWikiCommandId } from "../src/tools/wiki-command-id.js";
 import {
   appendWikiEvent,
@@ -29,7 +29,7 @@ import {
   stateLockPath,
   withStateFileLock,
   writeStateJsonAtomic,
-} from "../src/tools/state-file.js";
+} from "../agent-loop-studio/src/tools/state-file.js";
 
 const PACKAGE_ROOT = path.resolve(".");
 const TEST_FILE = path.resolve("tests/test_a0.ts");

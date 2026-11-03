@@ -1,8 +1,9 @@
 /**
- * Contributing a project's loops and roles to the shared library, as the owner
- * and the library-contributor role see it: real installed helpers, real git with
- * local bare repositories standing in for GitHub, a stand-in `gh`. Run `npm run
- * build` first.
+ * Contributing a project's loops and roles back to the libraries they came from,
+ * as the owner and the library-contributor role see it: real installed helpers,
+ * real git with local bare repositories standing in for GitHub (this package, with
+ * the framework's and the community's libraries as submodules), a stand-in `gh`.
+ * Run `npm run build` first.
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -43,9 +44,12 @@ else if (args[0] === "repo" && args[1] === "fork") {
 const env = {
   ...process.env,
   PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-  GIT_CONFIG_COUNT: "1",
+  GIT_CONFIG_COUNT: "2",
   GIT_CONFIG_KEY_0: `url.${github}/.insteadOf`,
   GIT_CONFIG_VALUE_0: "https://github.com/",
+  // The stand-in GitHub is local, and git clones submodules from local paths only when told to.
+  GIT_CONFIG_KEY_1: "protocol.file.allow",
+  GIT_CONFIG_VALUE_1: "always",
   GIT_AUTHOR_NAME: "Tester",
   GIT_AUTHOR_EMAIL: "tester@example.com",
   GIT_COMMITTER_NAME: "Tester",
@@ -66,6 +70,13 @@ const ghCalls = () =>
     ? read(ghLog).trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; body: string | null })
     : [];
 const prCalls = () => ghCalls().filter((call) => call.args[0] === "pr");
+/** The one pull request a contribution to one library opened. */
+const only = (result: Record<string, any>) => {
+  assert.equal(result.pull_requests.length, 1, JSON.stringify(result));
+  return result.pull_requests[0] as Record<string, any>;
+};
+/** A library's files, placeholders included, so an empty library still has its folders in git. */
+const copyLibrary = (from: string, to: string) => fs.cpSync(from, to, { recursive: true });
 
 /** A repository on the stand-in GitHub whose main branch holds the library. */
 function publishRepository(slug: string, files: (work: string) => void): string {
@@ -80,9 +91,18 @@ function publishRepository(slug: string, files: (work: string) => void): string 
   git(work, "push", "--quiet", "origin", "main");
   return work;
 }
-const maintainer = publishRepository("acme/contrejour", (work) =>
-  fs.cpSync(path.join(source, "library"), path.join(work, "library"), { recursive: true }),
+// The framework's library and the community's, each in its own repository, and this package with both as submodules.
+const frameworkMaintainer = publishRepository("acme/agent-loop-studio", (work) =>
+  copyLibrary(path.join(source, "agent-loop-studio", "library"), path.join(work, "library")),
 );
+publishRepository("acme/agent-loop-community", (work) =>
+  copyLibrary(path.join(source, "agent-loop-community", "library"), path.join(work, "library")),
+);
+const maintainer = publishRepository("acme/contrejour", (work) => {
+  fs.cpSync(path.join(source, "library"), path.join(work, "library"), { recursive: true });
+  for (const library of ["agent-loop-studio", "agent-loop-community"])
+    git(work, "submodule", "add", "--quiet", `https://github.com/acme/${library}.git`, library);
+});
 /** What maintainers merged meanwhile: projects must not undo it. */
 function libraryMoves(relative: string, change: (text: string) => string) {
   git(maintainer, "pull", "--quiet", "origin", "main");
@@ -97,7 +117,7 @@ function libraryMoves(relative: string, change: (text: string) => string) {
 execFileSync(process.execPath, [path.join(source, "tools/pack-contrejour.mjs"), "--directory", path.join(sandbox, "package")], { stdio: "ignore" });
 const installer = path.join(sandbox, "package/contrejour/install.mjs");
 const checkout = path.join(sandbox, "checkout");
-execFileSync("git", ["clone", "--quiet", "https://github.com/acme/contrejour.git", checkout], { env, stdio: "ignore" });
+execFileSync("git", ["clone", "--quiet", "--recurse-submodules", "https://github.com/acme/contrejour.git", checkout], { env, stdio: "ignore" });
 function install(name: string, role: "worker" | "validator", library: string | null = checkout): string {
   const root = path.join(sandbox, name);
   execFileSync(process.execPath, [installer, "--role", role, "--project", root, ...(library ? ["--library", library] : [])], { stdio: "ignore" });
@@ -151,7 +171,10 @@ try {
   assert.deepEqual(selected(planned), ["citation-checker"]);
   assert.equal(planned.selected[0].state, "new");
   assert.equal(planned.selected[0].files[0].target, "library/roles/worker/citation-checker.md");
+  // A role of this package's side goes to this package's library.
+  assert.equal(planned.selected[0].library, "contrejour");
   assert.equal(planned.library.base_branch, "main");
+  assert.deepEqual(planned.libraries.map((library: { name: string }) => library.name), ["contrejour", "agent-loop-studio", "agent-loop-community"]);
 
   // An owner's own agent is not in the form of a role, and stays here without anyone having to notice it.
   write(path.join(agents, "my-private-notes.md"), "---\nname: my-private-notes\ndescription: mine\n---\nLook in the private client data.\n");
@@ -234,8 +257,9 @@ try {
   assert.equal(run.status, 0, run.stdout + run.stderr);
   let result = reply(run);
   assert.equal(result.status, "pushed");
-  assert.equal(result.branch, firstBranch);
-  assert.equal(result.pull_request, "https://github.com/acme/contrejour/pull/7");
+  assert.equal(only(result).library, "contrejour");
+  assert.equal(only(result).branch, firstBranch);
+  assert.equal(only(result).pull_request, "https://github.com/acme/contrejour/pull/7");
   const upstream = path.join(github, "acme/contrejour.git");
   // The pull request carries the new role and the merged one, and undoes nothing the library changed.
   assert.deepEqual(changedFiles(upstream, "main", firstBranch), [
@@ -264,7 +288,7 @@ try {
   planned = plan(worker, "--exclude", "problem-selector");
   assert.deepEqual(selected(planned), ["citation-checker"]);
   result = reply(cli(worker, "contribute", "--digest", planned.digest, "--exclude", "problem-selector"));
-  assert.equal(result.branch, `${firstBranch}-2`);
+  assert.equal(only(result).branch, `${firstBranch}-2`);
 
   // Once merged, the project's later change goes as a change, without a false conflict against its own earlier text.
   git(maintainer, "pull", "--quiet", "origin", "main");
@@ -311,12 +335,13 @@ try {
   assert.equal(run.status, 0, run.stdout + run.stderr);
   result = reply(run);
   assert.equal(result.status, "pushed");
-  assert.equal(result.remote, "https://github.com/contributor/contrejour.git");
+  const forkedBranch = only(result).branch;
+  assert.equal(only(result).remote, "https://github.com/contributor/contrejour.git");
   const fork = path.join(github, "contributor/contrejour.git");
-  assert.deepEqual(changedFiles(fork, "main", result.branch).length, 3);
-  assert.equal(spawnSync("git", ["-C", upstream, "rev-parse", "--verify", "--quiet", `refs/heads/${result.branch}`]).status, 1);
+  assert.deepEqual(changedFiles(fork, "main", forkedBranch).length, 3);
+  assert.equal(spawnSync("git", ["-C", upstream, "rev-parse", "--verify", "--quiet", `refs/heads/${forkedBranch}`]).status, 1);
   const forked = prCalls()[0]!;
-  assert.deepEqual(forked.args.slice(0, 8), ["pr", "create", "--repo", "acme/contrejour", "--base", "main", "--head", `contributor:${result.branch}`]);
+  assert.deepEqual(forked.args.slice(0, 8), ["pr", "create", "--repo", "acme/contrejour", "--base", "main", "--head", `contributor:${forkedBranch}`]);
   assert.ok(ghCalls().some((call) => call.args.slice(0, 3).join(" ") === "repo fork acme/contrejour"));
 
   // Without write access and without gh, the branch stays local, says why, and is not counted as sent.
@@ -333,7 +358,7 @@ try {
   const local = reply(signedOut);
   assert.equal(local.status, "local-only");
   assert.match(local.reason, /not signed in/);
-  assert.match(git(checkout, "branch", "--list", local.branch), /stays-local|library\//);
+  assert.match(git(checkout, "branch", "--list", only(local).branch), /stays-local|library\//);
   assert.deepEqual(selected(plan(worker, "--exclude", "problem-selector,idea-assessor")), ["stays-local"]);
   fs.rmSync(denied);
 
@@ -344,9 +369,9 @@ try {
   const noGh = spawnSync(process.execPath, [path.join(worker, ".contrejour/dist/tools/library-cli.js"), "contribute", "--project", worker, "--digest", planned.digest, "--exclude", "problem-selector,idea-assessor"], { env: { ...env, PATH: bare }, encoding: "utf8" });
   assert.equal(noGh.status, 0, noGh.stdout + noGh.stderr);
   const pushedOnly = reply(noGh);
-  assert.equal(pushedOnly.pull_request, null);
+  assert.equal(only(pushedOnly).pull_request, null);
   assert.match(pushedOnly.reason, /not installed/);
-  assert.ok(pushedOnly.compare_url.startsWith("https://github.com/acme/contrejour/compare/main..."));
+  assert.ok(only(pushedOnly).compare_url.startsWith("https://github.com/acme/contrejour/compare/main..."));
   fs.rmSync(path.join(agents, "stays-local.md"));
 
   // --- the validator's files leave only after a leak check of exactly this list ---
@@ -402,8 +427,10 @@ try {
   assert.equal(cli(worker, "record-check", "--digest", "a".repeat(64), "--verdict", "pass").status, 1, "a worker's contributions need no check of their own");
 
   // --- a new role reaches every project only when it says so ---
+  // A project receives the framework's library, the community's and this package's, laid together.
   const shared = path.join(sandbox, "shared-role");
-  fs.cpSync(path.join(source, "library"), shared, { recursive: true });
+  for (const library of [path.join(source, "agent-loop-studio", "library"), path.join(source, "agent-loop-community", "library"), path.join(source, "library")])
+    copyLibrary(library, shared);
   const { checkLibrary } = await import(pathToFileURL(path.join(dist, "tools/library-cli.js")).href);
   // This package's library is checked with its manifest, which names the hook actions its loops add.
   const researchManifest = JSON.parse(fs.readFileSync(path.join(source, "project.json"), "utf8"));
@@ -417,7 +444,38 @@ try {
   const everyProject = install("framework-role", "worker");
   finish(everyProject, "s001");
   write(path.join(everyProject, ".claude/agents/general-helper.md"), role("general-helper", "framework"));
-  assert.equal(plan(everyProject).selected[0].files[0].target, "library/roles/framework/general-helper.md");
+  // A changed base role goes back to the framework; a new one any project can use goes to the community.
+  const baseRole = path.join(everyProject, ".claude/agents/owner-review.md");
+  write(baseRole, `${read(baseRole)}\nA project's improvement to a base role.\n`);
+  planned = plan(everyProject);
+  assert.deepEqual(
+    planned.selected.map((entry: Record<string, any>) => [entry.name, entry.library, entry.files[0].target]).sort(),
+    [
+      ["general-helper", "agent-loop-community", "library/roles/framework/general-helper.md"],
+      ["owner-review", "agent-loop-studio", "library/roles/framework/owner-review.md"],
+    ],
+  );
+  assert.equal(planned.library_check.ok, true, JSON.stringify(planned.library_check));
+  // One review, one pull request per library.
+  fs.rmSync(ghLog, { force: true });
+  run = cli(everyProject, "contribute", "--digest", planned.digest);
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  result = reply(run);
+  assert.equal(result.status, "pushed");
+  assert.deepEqual(result.pull_requests.map((entry: { library: string }) => entry.library), ["agent-loop-studio", "agent-loop-community"]);
+  assert.deepEqual(prCalls().map((call) => call.args[3]), ["acme/agent-loop-studio", "acme/agent-loop-community"]);
+  assert.deepEqual(changedFiles(path.join(github, "acme/agent-loop-studio.git"), "main", result.pull_requests[0].branch), ["M\tlibrary/roles/framework/owner-review.md"]);
+  assert.deepEqual(changedFiles(path.join(github, "acme/agent-loop-community.git"), "main", result.pull_requests[1].branch), ["A\tlibrary/roles/framework/general-helper.md"]);
+  // The submodules' checkouts are as they were.
+  for (const library of ["agent-loop-studio", "agent-loop-community"]) {
+    assert.equal(git(path.join(checkout, library), "status", "--short"), "");
+    assert.equal(git(path.join(checkout, library), "worktree", "list").split("\n").length, 1);
+  }
+  // The framework's maintainers merge it; another project's same base role, changed alike, has nothing left to send.
+  git(frameworkMaintainer, "fetch", "--quiet", "origin");
+  git(frameworkMaintainer, "merge", "--quiet", "--no-edit", `origin/${result.pull_requests[0].branch}`);
+  git(frameworkMaintainer, "push", "--quiet", "origin", "main");
+  assert.equal(unit(plan(everyProject), "owner-review").state, "in-library");
 
   // --- a project without a checkout fetches one ---
   const fromArchive = install("from-archive", "worker", null);

@@ -6,7 +6,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { A1Error, failA1, isRecord } from "./validate.js";
+import { A1Error, failA1, isRecord } from "@studio/tools/validate.js";
 
 export const taskPath = (root: string): string => path.join(path.resolve(root), "task.md");
 

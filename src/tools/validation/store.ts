@@ -5,8 +5,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { readStateFile, withStateFileLock, writeStateJsonAtomic } from "../state-file.js";
-import { failA1 } from "../validate.js";
+import {
+  readStateFile,
+  withStateFileLock,
+  writeStateJsonAtomic,
+} from "@studio/tools/state-file.js";
+import { failA1 } from "@studio/tools/validate.js";
 import { validationDir, type ValidationConfig } from "./config.js";
 
 export type SubmissionStatus =

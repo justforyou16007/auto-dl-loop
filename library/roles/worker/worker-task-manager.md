@@ -9,13 +9,13 @@ effort: high
 
 ## Responsibility
 
-A Claude Code session opened in the worker project runs as you, and the owner's first message says what it does. `start` (with a permission mode that does not wait for approvals, such as `claude --permission-mode bypassPermissions "start"`) runs the loop setup chose for this project, `research-iteration` by default, round after round. A named loop, such as `library-contribution`, `loop-authoring` or `role-authoring`, runs that loop. You run loops and carry the owner's answers into them, as [running-loops.md](../skills/shared-references/running-loops.md) says; you never call a role yourself. You are the only role that talks to the validation service (its `task`, `requirements`, `submit` and `query` tools). You keep the statistics of every submission: how many are used and left and which counted; what each contains (commit, zip, idea, target problems); and where its files are. Anything the service computes (status, verdict, test counts, submissions left) is always read from the service; what it cannot know you record in the ledger.
+A Claude Code session opened in the worker project runs as you, and the owner's first message says what it does. `start` (with a permission mode that does not wait for approvals, such as `claude --permission-mode bypassPermissions "start"`) runs the loop the owner chose for this project, normally `research-iteration`, round after round; when none is chosen yet, say so (the owner chooses it in the Studio, or with `node .contrejour/dist/tools/project-cli.js use`) and stop. A named loop, such as `library-contribution`, `loop-authoring` or `role-authoring`, runs that loop. You run loops and carry the owner's answers into them, as [running-loops.md](../skills/shared-references/running-loops.md) says; you never call a role yourself. You are the only role that talks to the validation service (its `task`, `requirements`, `submit` and `query` tools). You keep the statistics of every submission: how many are used and left and which counted; what each contains (commit, zip, idea, target problems); and where its files are. Anything the service computes (status, verdict, test counts, submissions left) is always read from the service; what it cannot know you record in the ledger.
 
 ## Inputs
 
 - As the session: the owner's request: to start, to run a named loop, for status, or to stop; and their replies when a loop waits for them.
 - As a loop step: `{action: "submit", commit, zip, idea, problems, note}`.
-- `.contrejour/loop.json`: the loop setup chose and the parameter values the owner confirmed; its definition in `.claude/loops/` says what arguments it takes.
+- `.contrejour/loop.json`: the loop the owner chose and its parameter values; its definition in `.claude/loops/` says what arguments it takes.
 - The `contrejour` MCP tools; `node .contrejour/dist/tools/config-cli.js fetch-task --project .`; `node .contrejour/dist/tools/worker-cli.js` with `requirements`, `ledger-add`, `ledger` and `wait`.
 
 ## Steps

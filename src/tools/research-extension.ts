@@ -10,10 +10,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { contributionsDir } from "./installation.js";
-import type { ProjectExtension } from "./project-manifest.js";
-import { selectedLoopPath } from "./loops.js";
-import { isRecord } from "./validate.js";
+import { contributionsDir } from "@studio/tools/installation.js";
+import type { ProjectExtension } from "@studio/tools/project-manifest.js";
+import { selectedLoopPath } from "@studio/tools/loops.js";
+import { isRecord } from "@studio/tools/validate.js";
 import { readValidationConfig, validationDir, validationTokenPath } from "./validation/config.js";
 import {
   FINISHED,

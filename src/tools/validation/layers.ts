@@ -21,7 +21,7 @@ import {
   withStateFileLock,
   writeStateFileAtomic,
   writeStateJsonAtomic,
-} from "../state-file.js";
+} from "@studio/tools/state-file.js";
 import {
   assertTesterSetupReady,
   checkTesterResult,
@@ -38,7 +38,7 @@ import {
   isRecord,
   requireInteger,
   requireString,
-} from "../validate.js";
+} from "@studio/tools/validate.js";
 import { passes, validationDir, type PassRule, type ValidationConfig } from "./config.js";
 import type { TestCounts } from "./store.js";
 

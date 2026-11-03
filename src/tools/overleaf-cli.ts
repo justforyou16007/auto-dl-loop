@@ -12,7 +12,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const TOKEN = /olp_[A-Za-z0-9]{20,}/;
 const TOKEN_ALL = new RegExp(TOKEN.source, "g");

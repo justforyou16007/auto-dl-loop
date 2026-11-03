@@ -1,4 +1,8 @@
-import { canonicalJsonSha256, objectSchema, type CanonicalSchema } from "./canonical-json.js";
+import {
+  canonicalJsonSha256,
+  objectSchema,
+  type CanonicalSchema,
+} from "@studio/tools/canonical-json.js";
 
 export interface WikiCommandIdentity {
   producer_kind: string;

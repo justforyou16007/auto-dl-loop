@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { scanForThreats } from "./threat-scan.js";
-import { writeStateFileAtomic, writeStateJsonAtomic } from "./state-file.js";
+import { scanForThreats } from "@studio/tools/threat-scan.js";
+import { writeStateFileAtomic, writeStateJsonAtomic } from "@studio/tools/state-file.js";
 import {
   DEFAULT_QUERY_CHARS,
   parseWikiPayload,

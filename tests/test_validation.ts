@@ -5,8 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { selectedLoopPath } from "../src/tools/loops.js";
-import { writeStateJsonAtomic } from "../src/tools/state-file.js";
+import { selectedLoopPath } from "../agent-loop-studio/src/tools/loops.js";
+import { writeStateJsonAtomic } from "../agent-loop-studio/src/tools/state-file.js";
 import {
   readTesterFacilityConfig,
   setupTesterFacility,

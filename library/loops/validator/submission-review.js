@@ -225,4 +225,4 @@ const optimized = await agent(
 );
 return { ...submission, published: true, verdict: published.verdict, optimized: optimized.summary };
 
-// contrejour-loop-definition-sha256: e5ae4e4565f6d39b8240ab078d6e61ac41127247f1ee5b36b9815dacfc4ec756
+// contrejour-loop-definition-sha256: af3519a7c42f9d7005f6916d17bf9341e2a18c2382c1618feae25f3c821eb202

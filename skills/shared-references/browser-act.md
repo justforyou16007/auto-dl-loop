@@ -11,7 +11,7 @@ reports an empty result as a real one.
 
 A browser is in scope when the worker needs rendered pages for research or an experiment needs a page to do its work: data that only exists on a rendered page, an evaluation that drives a web app, a metric dashboard with no API, a download behind a login. Use the installed `browser-act` skill for interactive research. A procedure that only reads local files or an HTTP API does not touch a browser.
 
-When an environment-skill script needs a browser, setup records the browser id and session prefix (the project slug) as facts in that skill's `SKILL.md`; scripts read them from there, never by re-asking.
+When an environment-skill script needs a browser, the configuration role (in the environment step of the `machine-config` loop) records the browser id and session prefix (the project slug) as facts in the environment section of `CLAUDE.md`, as [environment-skill.md](environment-skill.md) describes; scripts get them from there, never by re-asking.
 
 ## The helper
 
@@ -29,7 +29,7 @@ a browser is needed, a non-zero exit stops the step with the helper's
 `hint`. Run it while writing an environment-skill script that needs a browser (see [environment-skill.md](environment-skill.md)), or from the `browser-act` skill before interactive browser work. Both runs are idempotent.
 
 The helper installs the CLI with `uv tool install browser-act-cli --python
-3.12`. The Contrejour archive includes an agent-facing `browser-act` skill in the provider's project skill directory. If it is missing, the helper can fetch the upstream skill stub into that directory. The CLI serves its current workflow content through `browser-act get-skills core`; environment scripts call the CLI directly. Browser runtimes and `uv` are external dependencies, installed only when needed.
+3.12`. The Contrejour package installs an agent-facing `browser-act` skill in the project's `.claude/skills/`. If it is missing, the helper can fetch the upstream skill stub into that directory. The CLI serves its current workflow content through `browser-act get-skills core`; environment scripts call the CLI directly. Browser runtimes and `uv` are external dependencies, installed only when needed.
 
 ## Calling it from an environment script
 
@@ -45,8 +45,9 @@ list`.
 browser-act's Confirmation Gate requires explicit user approval to create a
 browser, and for logins, form submissions, and uploads. So:
 
-- **Browser creation happens once, during setup**, with the user present. The
-  resulting browser id is a fact in the environment skill. A script that creates
+- **Browser creation happens once, while the machine is configured** (the
+  environment step of `machine-config`), with the owner present. The
+  resulting browser id is a fact in the environment section. A script that creates
   a browser would block on an approval prompt with nobody there to answer it.
 - **Logins are established once**, interactively, into the frozen browser's
   profile. Later runs reuse the profile; they do not re-authenticate.

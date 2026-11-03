@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const EXA_API_BASE = "https://api.exa.ai";
 

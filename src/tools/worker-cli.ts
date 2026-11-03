@@ -13,11 +13,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCli, runCli } from "../lib/cli.js";
-import { installedRole } from "./installation.js";
-import { readStateFile, withStateFileLock, writeStateJsonAtomic } from "./state-file.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
+import { installedRole } from "@studio/tools/installation.js";
+import {
+  readStateFile,
+  withStateFileLock,
+  writeStateJsonAtomic,
+} from "@studio/tools/state-file.js";
 import { callValidatorTool } from "./task.js";
-import { A1Error, failA1, isRecord } from "./validate.js";
+import { A1Error, failA1, isRecord } from "@studio/tools/validate.js";
 import { FINAL } from "./validation/store.js";
 
 export interface LedgerEntry {

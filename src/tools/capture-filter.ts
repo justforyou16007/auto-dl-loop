@@ -1,5 +1,5 @@
 import fs from "fs";
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const TOOL =
   "(?:" +

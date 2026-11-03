@@ -2,7 +2,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const ARXIV_API = "https://export.arxiv.org/api/query";
 const CROSSREF_API = "https://api.crossref.org/works";

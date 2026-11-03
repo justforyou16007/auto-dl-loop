@@ -1,0 +1,6 @@
+[submodule "agent-loop-studio"]
+	path = agent-loop-studio
+	url = https://github.com/justforyou16007/agent-loop-studio.git
+[submodule "agent-loop-community"]
+	path = agent-loop-community
+	url = https://github.com/justforyou16007/agent-loop-community.git

@@ -45,6 +45,8 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
    vastai search offers 'gpu_ram>=24 reliability>0.95' -o 'dph+' --limit 3
    ```
 
+6. **把 skill 放进项目。** Contrejour 安装包不带 `vast-gpu`：把本仓库的 `skills/vast-gpu/` 复制到项目的 `.claude/skills/` 下。
+
 ## 告诉 Contrejour 用 Vast.ai
 
 在项目 `CLAUDE.md` 加：
@@ -78,7 +80,7 @@ Vast.ai 适合一次性消融实验、跑 baseline、或者为某个单独实验
 /vast-gpu destroy <instance-id>    # 手动销毁
 ```
 
-`auto_destroy: true` 在 `collect-outputs.sh` 拉回结果后销毁实例；`false` 让实例保留，方便你 SSH 进去看结果。每次用完之后 `vastai show instances`（或 `/vast-gpu list`）确认一下没有静默扣费的实例。
+`auto_destroy: true` 在结果收回之后销毁实例（项目的环境技能有取回脚本时，就用它收回）；`false` 让实例保留，方便你 SSH 进去看结果。每次用完之后 `vastai show instances`（或 `/vast-gpu list`）确认一下没有静默扣费的实例。
 
 ## 大致花费
 
@@ -95,4 +97,4 @@ Contrejour + Vast.ai 的典型工作负载：
 ## 相关 skill
 
 - [`/vast-gpu`](../../skills/vast-gpu/SKILL.md) —— 直接租用控制
-- 生成的实验 skill 的 `ops/collect-outputs.sh` —— 从租用中的实例收集结果
+- 项目的环境技能 `.claude/skills/<project>-environment/` —— 它的脚本在配置本机时（`machine-config` 流程）写好，负责同步代码、启动实验、取回结果，租来的实例也一样

@@ -19,8 +19,8 @@ import { startValidationService } from "../src/tools/validation/server.js";
 import { createSubmission, updateSubmission, withSubmissionsLock } from "../src/tools/validation/store.js";
 import { facilityConfig } from "./helpers/tester-facility-fixture.js";
 import { environmentSkillDir, projectSlug } from "../src/tools/setup.js";
-import { readSelectedLoop } from "../src/tools/loops.js";
-import { useLoop } from "../src/tools/project-loop.js";
+import { readSelectedLoop } from "../agent-loop-studio/src/tools/loops.js";
+import { useLoop } from "../agent-loop-studio/src/tools/project-loop.js";
 
 // The service address and token a machine may provide are set only where they are tested.
 delete process.env.CONTREJOUR_URL;
@@ -422,8 +422,16 @@ await project("distribution", async (sandbox) => {
   assert.equal(archiveManifest.files.some((file: { path: string }) => file.path.startsWith("src/") || file.path.startsWith("agents/") || file.path.includes("server/src/")), false);
   assert.equal(fs.existsSync(path.join(portable, "skills/arxiv")), false);
   assert.equal(fs.existsSync(path.join(portable, "dist/tools/arxiv-fetch.js")), false);
-  // Each side gets the framework roles and its own roles and loops, seeded from the library.
-  const libraryFiles = (dir: string) => fs.readdirSync(path.join(source, "library", dir)).sort();
+  // Each side gets the framework roles and its own roles and loops, seeded from the libraries: the framework's, the community's and this package's.
+  const libraryFiles = (dir: string) =>
+    [
+      ...new Set(
+        [path.join(source, "agent-loop-studio"), path.join(source, "agent-loop-community"), source].flatMap((base) => {
+          const folder = path.join(base, "library", dir);
+          return fs.existsSync(folder) ? fs.readdirSync(folder).filter((file) => file !== ".gitkeep") : [];
+        }),
+      ),
+    ].sort();
   for (const role of ["worker", "validator"] as const) {
     const root = path.join(sandbox, `${role} project`);
     const skillDir = ".claude/skills";
@@ -432,9 +440,9 @@ await project("distribution", async (sandbox) => {
     assert.equal(fs.existsSync(root), false);
     assert.ok(install().includes("studio.js --project"), "the next step is the Studio");
     const manifest = read(path.join(root, ".contrejour/install.json"));
-    // The hooks are registered at installation, so they already guard setup's own loop; the entry role comes with setup.
+    // The hooks and the entry role are written at installation: every session, the first included, runs as the task manager.
     const installedSettings = read(path.join(root, ".claude/settings.json"));
-    assert.equal(installedSettings.agent, undefined);
+    assert.equal(installedSettings.agent, `${role}-task-manager`);
     assert.equal(installedSettings.hooks.PreToolUse[0].matcher, "Write|Edit|NotebookEdit|Workflow");
     assert.ok(fs.existsSync(installedSettings.hooks.PreToolUse[0].hooks[0].args[0]));
     assert.equal(manifest.role, role);
@@ -442,7 +450,7 @@ await project("distribution", async (sandbox) => {
     assert.deepEqual(fs.readdirSync(path.join(root, skillDir)).sort(), ["browser-act", "research-wiki", "shared-references"]);
     assert.deepEqual(
       fs.readdirSync(path.join(root, ".claude/agents")).sort(),
-      [...libraryFiles("roles/framework"), ...libraryFiles(`roles/${role}`)].sort(),
+      [...new Set([...libraryFiles("roles/framework"), ...libraryFiles(`roles/${role}`)])].sort(),
     );
     // A side's loop of the same name as the framework's takes its place.
     const loops = [...new Set([...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)])].sort();
@@ -578,6 +586,13 @@ await project("distribution", async (sandbox) => {
     fs.cpSync(path.join(portable, directory), path.join(localRepo, directory), { recursive: true });
   for (const directory of ["distribution", "tools"])
     fs.cpSync(path.join(source, directory), path.join(localRepo, directory), { recursive: true, filter: (file) => path.basename(file) !== "releases" });
+  // The framework's and the community's checkouts, as `git submodule update --init` leaves them.
+  for (const [library, parts] of [
+    ["agent-loop-studio", ["library", "skills", "distribution", "references", "project.json"]],
+    ["agent-loop-community", ["library"]],
+  ] as const)
+    for (const part of parts)
+      fs.cpSync(path.join(source, library, part), path.join(localRepo, library, part), { recursive: true });
   fs.copyFileSync(path.join(source, "package.json"), path.join(localRepo, "package.json"));
   for (const file of ["LICENSE", "SETUP_GUIDE.md", "SETUP_GUIDE_CN.md", "project.json"])
     fs.copyFileSync(path.join(source, file), path.join(localRepo, file));
@@ -595,14 +610,14 @@ await project("distribution", async (sandbox) => {
   const bootstrapped = path.join(sandbox, "bootstrap project");
   const missing = localInstall("install-contrejour.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(missing.status, 1);
-  assert.match(missing.stderr, /npm ci and npm run build/);
+  assert.match(missing.stderr, /git submodule update --init, npm ci, .*npm run build/);
   assert.equal(fs.existsSync(bootstrapped), false);
   for (const dependency of ["commander", "typescript"])
     fs.cpSync(path.join(source, "node_modules", dependency), path.join(localRepo, "node_modules", dependency), { recursive: true });
   fs.renameSync(path.join(localRepo, "dist"), path.join(localRepo, "unbuilt-dist"));
   const unbuilt = localInstall("install-contrejour.sh", "--role", "validator", "--project", bootstrapped);
   assert.equal(unbuilt.status, 1);
-  assert.match(unbuilt.stderr, /npm ci and npm run build/);
+  assert.match(unbuilt.stderr, /git submodule update --init, npm ci, .*npm run build/);
   assert.equal(fs.existsSync(bootstrapped), false);
   fs.renameSync(path.join(localRepo, "unbuilt-dist"), path.join(localRepo, "dist"));
   for (const role of ["worker", "validator"]) {

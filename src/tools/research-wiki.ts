@@ -4,9 +4,9 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createCli, runCli } from "../lib/cli.js";
-import { quarantine } from "./threat-scan.js";
-import { anyJsonSchema, canonicalJsonSha256 } from "./canonical-json.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
+import { quarantine } from "@studio/tools/threat-scan.js";
+import { anyJsonSchema, canonicalJsonSha256 } from "@studio/tools/canonical-json.js";
 import {
   assertWikiSchemaSupported,
   commitWikiChange,

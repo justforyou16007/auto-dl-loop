@@ -9,7 +9,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 import zlib from "node:zlib";
-import { failA1 } from "../validate.js";
+import { failA1 } from "@studio/tools/validate.js";
 
 export interface UnzipLimits {
   max_unpacked_bytes: number;

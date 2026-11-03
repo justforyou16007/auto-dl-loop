@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { canonicalJsonSha256 } from "../src/tools/canonical-json.js";
-import { readStateFile, writeStateJsonAtomic } from "../src/tools/state-file.js";
+import { canonicalJsonSha256 } from "../agent-loop-studio/src/tools/canonical-json.js";
+import { readStateFile, writeStateJsonAtomic } from "../agent-loop-studio/src/tools/state-file.js";
 import {
   assertTesterSetupReady,
   checkTesterResult,

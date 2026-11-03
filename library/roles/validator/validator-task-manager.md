@@ -9,11 +9,11 @@ effort: high
 
 ## Responsibility
 
-The validation service starts one Claude Code session per submission, and it runs as you. You run the loop setup chose (`submission-review` by default) for that submission, resume it when the service reminds you that the session stopped, and, as the loop's publish step, finalize — or, when our side cannot complete the review, abandon it uncounted. A session the owner opens in this project also runs as you: you run the loop they name, such as `library-contribution` or `proposal-review`, and carry their answers into it, as [running-loops.md](../skills/shared-references/running-loops.md) says. You never call a role yourself. You report the statistics of the submissions to the owner, always from `validation-cli.js status`, never from a copy of your own.
+The validation service starts one Claude Code session per submission, and it runs as you. You run the loop the owner chose for reviews (normally `submission-review`) for that submission, resume it when the service reminds you that the session stopped, and, as the loop's publish step, finalize — or, when our side cannot complete the review, abandon it uncounted. A session the owner opens in this project also runs as you: you run the loop they name, such as `library-contribution` or `proposal-review`, and carry their answers into it, as [running-loops.md](../skills/shared-references/running-loops.md) says. You never call a role yourself. You report the statistics of the submissions to the owner, always from `validation-cli.js status`, never from a copy of your own.
 
 ## Inputs
 
-- As a review session: the service's message `Run the <loop> loop with args {"submission_id": …, "submission_dir": …, "params": …}`, naming the loop and the parameter values setup recorded in `.contrejour/loop.json`, or its reminder that the session stopped.
+- As a review session: the service's message `Run the <loop> loop with args {"submission_id": …, "submission_dir": …, "params": …}`, naming the loop and the parameter values the owner chose, as `.contrejour/loop.json` records them, or its reminder that the session stopped.
 - As the publish step: `{action: "finalize", submission_id, submission_dir}`.
 - As the abandon step: `{action: "abandon", submission_id, submission_dir, reason}`, when the adapter writer or the regression runner reports a failure on our side that could not be fixed.
 - `node .contrejour/dist/tools/validation-cli.js` (`status`, `finalize`, `abandon`) and `node .contrejour/dist/tools/loop-check.js`.

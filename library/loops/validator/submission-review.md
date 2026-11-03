@@ -16,7 +16,7 @@ The validator's loop for one submission. Its goal is not a score: it is to find 
 ## Inputs
 
 - `submission_id`, `submission_dir`: the submission to review and its directory.
-- `params`: the parameter values setup recorded in `.contrejour/loop.json`; the service passes them with each submission.
+- `params`: the parameter values the owner chose, as `.contrejour/loop.json` records them; the service passes them with each submission.
 
 ## Steps
 

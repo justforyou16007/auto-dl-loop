@@ -74,7 +74,7 @@ Return in `stale` every loop that is stale or has defects, for the loop to regen
 
 ### handoff
 
-Write the report for the owner: what apply wrote, the loop the project runs and its parameter values as `.contrejour/loop.json` records them (or that none is chosen yet: the owner chooses it in the Studio, `node .contrejour/dist/tools/studio.js --project .`), each environment script with whether its real run passed, the environment section, the checks, and anything incomplete with its real error. Then how to start work: run the loop from the Studio, or open a new session in the project with `claude --permission-mode bypassPermissions "start"`. The loop runs unattended, so the session needs a mode that does not wait for approvals; `auto` instead has a classifier review each step, which may refuse some. The session runs as `worker-task-manager` and loads `.mcp.json` (approve the `contrejour` server if Claude Code asks). Once a submission has finished, the owner can send this project's new and changed loops and roles to the shared library with `claude "Run the library-contribution loop"`.
+Write the report for the owner: what apply wrote, the loop the project runs and its parameter values as `.contrejour/loop.json` records them (or that none is chosen yet: the owner chooses it in the Studio, `node .contrejour/dist/tools/studio.js --project .`), each environment script with whether its real run passed, the environment section, the checks, and anything incomplete with its real error. Then how to start work: run the loop from the Studio, or open a new session in the project with `claude --permission-mode bypassPermissions "start"`. The loop runs unattended, so the session needs a mode that does not wait for approvals; `auto` instead has a classifier review each step, which may refuse some. The session runs as `worker-task-manager` and loads `.mcp.json` (approve the `contrejour` server if Claude Code asks). Once a submission has finished, the owner can send this project's new and changed loops and roles back to the libraries they came from with `claude "Run the library-contribution loop"`.
 
 ## Output
 
@@ -94,7 +94,7 @@ Write the report for the owner: what apply wrote, the loop the project runs and 
 
 - **One sheet**: each review showed the whole sheet; the owner confirmed in few rounds; no value the owner did not give.
 - **Approval**: `confirm` only with the digest the loop passed; `TASK_CHANGED` sent the sheet back for review.
-- **Ownership**: nothing a helper owns written by hand (`task.md`, the setup state, `.contrejour/loop.json`, `.mcp.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
+- **Ownership**: nothing a helper owns written by hand (`task.md`, the configuration state, `.contrejour/loop.json`, `.mcp.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
 - **Environment facts**: verified, environment only, within the limit. Later rounds show what was missed: implementer runs lost to a fact the configuration could have recorded, and `worker-memory` correcting its facts.
 - **Scripts**: each ran once for real; a script that fails on its first later use, or a procedure the implementer keeps doing by hand, counts against the configuration.
 - **Hand-off**: the first `worker-task-manager` session starts and reaches the validation service without a configuration error.

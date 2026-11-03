@@ -18,11 +18,21 @@ const skills = ["research-wiki", "browser-act", "shared-references"];
 const entries = ["tools/config-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view", "tools/studio", "tools/project-cli", "tools/research-extension"];
 const visited = new Set();
 
+const keep = (file) => !file.split(path.sep).some((part) => ["__pycache__", "node_modules", ".git", ".gitkeep"].includes(part));
 function copy(relative) {
-  const target = path.join(stage, relative);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.cpSync(path.join(root, relative), target, { recursive: true, dereference: true, filter: (file) => !file.split(path.sep).some((part) => ["__pycache__", "node_modules", ".git"].includes(part)) });
+  copyFrom(root, relative, relative);
 }
+/** Copy from another checkout (the framework's, the community library's), merging into what is staged. */
+function copyFrom(base, relative, target) {
+  const destination = path.join(stage, target);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.cpSync(path.join(base, relative), destination, { recursive: true, dereference: true, filter: keep });
+}
+const studio = path.join(root, "agent-loop-studio");
+const community = path.join(root, "agent-loop-community");
+for (const checkout of [studio, community])
+  if (!fs.existsSync(path.join(checkout, "library")))
+    throw new Error(`${checkout} is missing: run git submodule update --init`);
 function runtime(relative) {
   if (visited.has(relative)) return;
   if (!relative.startsWith("dist/")) throw new Error(`Runtime escaped dist: ${relative}`);
@@ -37,7 +47,12 @@ try {
   for (const entry of entries) runtime(`dist/${entry}.js`);
   // The Studio's page: static files its server sends, built by Vite, not traced through imports.
   copy("dist/studio");
+  // The framework's shared references (running loops), then this package's skills and references.
+  copyFrom(studio, "skills/shared-references", "skills/shared-references");
   for (const skill of skills) copy(`skills/${skill}`);
+  // The library: the framework's base loops and roles, the community's shared ones, then this package's sides.
+  copyFrom(studio, "library", "library");
+  copyFrom(community, "library", "library");
   copy("library");
   copy("templates");
   // What the package tells the installer and the framework about itself: its profiles and extension.
@@ -46,7 +61,8 @@ try {
   copy("SETUP_GUIDE_CN.md");
   copy("SETUP_GUIDE.md");
   fs.copyFileSync(path.join(root, "SETUP_GUIDE.md"), path.join(stage, "README.md"));
-  for (const name of ["install.sh", "install.mjs"]) fs.copyFileSync(path.join(root, "distribution", name), path.join(stage, name));
+  // The framework's installer installs this package.
+  for (const name of ["install.sh", "install.mjs"]) fs.copyFileSync(path.join(studio, "distribution", name), path.join(stage, name));
   fs.writeFileSync(path.join(stage, "package.json"), JSON.stringify({ name: "contrejour", version, private: true, type: "module", repository: pkg.repository, engines: { node: ">=22.12.0" } }, null, 2) + "\n");
   const require = createRequire(path.join(root, "package.json"));
   const commander = path.dirname(require.resolve("commander"));

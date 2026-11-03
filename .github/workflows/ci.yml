@@ -14,17 +14,24 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
+      # The framework (agent-loop-studio) and the community library (agent-loop-community) are submodules.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            agent-loop-studio/package-lock.json
       - run: npm ci
+      - run: npm --prefix agent-loop-studio ci
+      - run: npm run build:framework
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
       - run: npm run pack:contrejour
-      - run: npm run build
       - run: node tools/library-check.mjs
       - uses: actions/upload-artifact@v4
         with:
@@ -49,10 +56,17 @@ jobs:
           ]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            agent-loop-studio/package-lock.json
       - run: npm ci
+      - run: npm --prefix agent-loop-studio ci
+      - run: npm run build:framework
       - run: npm run build
       - run: npm run test -- tests/${{ matrix.file }}

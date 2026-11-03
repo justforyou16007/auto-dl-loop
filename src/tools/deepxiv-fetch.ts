@@ -1,5 +1,5 @@
-import { createCli, runCli } from "../lib/cli.js";
-import { findExecutable, run } from "../lib/run.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
+import { findExecutable, run } from "@studio/lib/run.js";
 
 const INSTALL_MESSAGE = "deepxiv CLI not found. Install it with: pip install deepxiv-sdk";
 

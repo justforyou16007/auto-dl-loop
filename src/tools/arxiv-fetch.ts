@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const API_BASE = "https://export.arxiv.org/api/query";
 const MIN_PDF_BYTES = 10_240;

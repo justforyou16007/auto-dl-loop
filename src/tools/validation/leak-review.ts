@@ -8,8 +8,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { readStateFile } from "../state-file.js";
-import { failA1, isRecord } from "../validate.js";
+import { readStateFile } from "@studio/tools/state-file.js";
+import { failA1, isRecord } from "@studio/tools/validate.js";
 import { readValidationConfig } from "./config.js";
 import {
   readSubmission,

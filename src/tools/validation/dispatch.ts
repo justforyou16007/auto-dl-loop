@@ -20,7 +20,7 @@ import {
   stopArgv,
   type SessionControl as BackgroundControl,
   type SessionState,
-} from "../sessions.js";
+} from "@studio/tools/sessions.js";
 import type { ValidationAgentConfig } from "./config.js";
 import type { ReviewSession } from "./store.js";
 
@@ -30,7 +30,7 @@ export interface DispatchRequest {
   root: string;
   submission_id: string;
   submission_dir: string;
-  /** The loop setup chose for this project and the parameter values the owner confirmed. */
+  /** The loop the owner chose for this project and its parameter values. */
   loop: string;
   params: Record<string, unknown>;
 }

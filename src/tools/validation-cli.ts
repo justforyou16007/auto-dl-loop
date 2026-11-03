@@ -6,8 +6,8 @@
  */
 import path from "node:path";
 
-import { createCli, runCli } from "../lib/cli.js";
-import { A1Error, failA1 } from "./validate.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
+import { A1Error, failA1 } from "@studio/tools/validate.js";
 import { readValidationConfig } from "./validation/config.js";
 import { readLayers } from "./validation/layers.js";
 import { requestLeakReview } from "./validation/leak-review.js";
@@ -56,7 +56,10 @@ program
     try {
       const port = Number(options.port ?? readValidationConfig(options.project).service.port);
       if (!Number.isInteger(port) || port < 0)
-        failA1("PORT_REQUIRED", "pass --port or set validation.service.port in setup");
+        failA1(
+          "PORT_REQUIRED",
+          "pass --port or set validation.service.port in the machine configuration",
+        );
       const service = await startValidationService(options.project, { port });
       console.log(`contrejour listening on ${service.url}`);
       const stop = () => void service.close().then(() => process.exit(0));

@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { readStateFile, writeStateFileAtomic } from "../state-file.js";
+import { readStateFile, writeStateFileAtomic } from "@studio/tools/state-file.js";
 import {
   assertNoUnknownFields,
   failA1,
@@ -10,7 +10,7 @@ import {
   requireFiniteNumber,
   requireInteger,
   requireString,
-} from "../validate.js";
+} from "@studio/tools/validate.js";
 
 export type PassOperator = ">=" | ">" | "<=" | "<" | "==";
 export const PASS_OPERATORS: readonly PassOperator[] = [">=", ">", "<=", "<", "=="];

@@ -266,4 +266,4 @@ const handoff = await agent(
 );
 return { done: true, report: handoff.report };
 
-// contrejour-loop-definition-sha256: ca658328d0c085bf3427dcf2002358f5783a51c4db531f109e1a703dc1648f88
+// contrejour-loop-definition-sha256: 747f4c81c07f2622c2931984a2cb597b45753d25dccc11af6c20e5be465e77f4

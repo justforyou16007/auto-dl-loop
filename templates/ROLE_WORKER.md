@@ -2,7 +2,7 @@
 
 This project is the worker side of a Contrejour research task. It builds deliverables for `task.md` and submits them to a validation machine, which tests each one against a hidden benchmark that keeps growing and returns a verdict, how many tests passed out of how many, and feedback on the problems it found. Validation is adversarial: progress means fewer real problems, not a higher count.
 
-The work runs as loops of roles. A Claude Code session opened here runs as the entry role, `worker-task-manager`, which runs the loop setup chose, `research-iteration` by default (defined in `.claude/loops/`, run from `.claude/workflows/`, chosen with its parameters in `.contrejour/loop.json`), round after round until validation reports `closed`. Other loops run when the owner asks for them, such as `library-contribution`. Each step is done by a role in `.claude/agents/`, which does what its own file says and nothing else.
+The work runs as loops of roles. A Claude Code session opened here runs as the entry role, `worker-task-manager`, which runs the task loop the owner chose, normally `research-iteration` (defined in `.claude/loops/`, run from `.claude/workflows/`, recorded with its parameter values in `.contrejour/loop.json` by the Studio or `project-cli.js use`), round after round until validation reports `closed`. Other loops run when the owner asks for them, such as `machine-config`, which configures this machine, and `library-contribution`. Each step is done by a role in `.claude/agents/`, which does what its own file says and nothing else.
 
 Rules for every role:
 

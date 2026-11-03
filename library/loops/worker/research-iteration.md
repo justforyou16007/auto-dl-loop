@@ -18,7 +18,7 @@ The worker's loop: one round turns the open problems into one submitted delivera
 - `stage`: `build` for the part up to the submission, `record` once that submission's result is published.
 - `task`: with `build`, the full text of `task.md`, which the task manager has just fetched.
 - `submission_id`: with `record`, the submission whose result was published.
-- `params`: the parameter values setup recorded in `.contrejour/loop.json`.
+- `params`: the parameter values the owner chose, as `.contrejour/loop.json` records them.
 
 ## Steps
 

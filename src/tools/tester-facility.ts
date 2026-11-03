@@ -3,14 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { canonicalJsonSha256 } from "./canonical-json.js";
+import { canonicalJsonSha256 } from "@studio/tools/canonical-json.js";
 import {
   acquireStateFileLock,
   releaseStateFileLock,
   readStateFile,
   withStateFileLock,
   writeStateJsonAtomic,
-} from "./state-file.js";
+} from "@studio/tools/state-file.js";
 import {
   assertIdentifier,
   assertSha256,
@@ -19,7 +19,7 @@ import {
   requireInteger,
   requireString,
   failA1,
-} from "./validate.js";
+} from "@studio/tools/validate.js";
 
 export interface TesterCommand {
   argv: string[];

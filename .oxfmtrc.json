@@ -9,6 +9,8 @@
     "templates/**",
     "tests/**",
     "tools/**",
-    "distribution/releases/**"
+    "distribution/releases/**",
+    "agent-loop-studio/**",
+    "agent-loop-community/**"
   ]
 }

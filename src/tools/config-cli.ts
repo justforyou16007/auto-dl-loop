@@ -7,8 +7,8 @@
  */
 import fs from "node:fs";
 
-import { createCli, runCli } from "../lib/cli.js";
-import { A1Error } from "./validate.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
+import { A1Error } from "@studio/tools/validate.js";
 import {
   applySetup,
   confirmSetupReview,

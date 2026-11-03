@@ -1,4 +1,4 @@
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const BASE_URL = "https://api.openalex.org";
 

@@ -204,8 +204,11 @@ try {
   );
   assert.ok(!JSON.stringify(view).includes(transcriptMarker), "the page never reads a transcript");
 
-  write(path.join(worker, ".contrejour/setup-draft.json"), JSON.stringify({ configuration: { project: { language: "en" } } }));
+  // The page opens in the language the task is written in.
+  write(path.join(worker, "task.md"), "# Task\n\nClassify the images in data/ into ten classes.\n");
   assert.equal((await viewer.collectView(worker)).project.language, "en");
+  write(path.join(worker, "task.md"), "# 任务\n\n把 data/ 里的图片分成十类。\n");
+  assert.equal((await viewer.collectView(worker)).project.language, "zh");
 
   // --- the page written as one file: its data intact, nothing loaded from elsewhere ---
   const hostile = "ends early </script><script>alert(1)</script>";

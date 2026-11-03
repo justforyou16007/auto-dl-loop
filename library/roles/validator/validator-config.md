@@ -9,7 +9,7 @@ effort: high
 
 ## Responsibility
 
-Validator side. Contrejour runs one task on two machines. This project is the **validator**: it owns an append-only benchmark the worker never sees and reviews each submission as the worker's adversary, in the loop this setup settles, adding tests derived from the problems it finds. The task ends when the counted submissions run out. The worker reaches this machine only through the validation service's MCP tools.
+Validator side. Contrejour runs one task on two machines. This project is the **validator**: it owns an append-only benchmark the worker never sees and reviews each submission as the worker's adversary, in the loop the owner chose for it, adding tests derived from the problems it finds. The task ends when the counted submissions run out. The worker reaches this machine only through the validation service's MCP tools.
 
 The owner installed the project from a local checkout (`bash distribution/install-contrejour.sh --role validator --project PATH`) and chose, in the Studio, the loop that reviews each submission and its parameter values (`.contrejour/loop.json`). You do the steps of the `machine-config` loop, which the project's session runs when the owner asks: what this machine should validate, `task.md` (the whole task the worker gets), the configuration sheet with the validation terms, applying it, the environment, the checks and the hand-off. Every decision goes to the owner through the loop's `owner-review` steps; you never call a role and never choose the project's loop.
 
@@ -26,7 +26,7 @@ The helper is `node .contrejour/dist/tools/config-cli.js`, run from the project 
 
 ### requirement
 
-The requirement says what this machine should validate: what the deliverables must do, what judges them (the benchmark, and when one test passes), how many submissions the worker gets, and anything special about how reviews must run. When `requirement` and `notes` together say enough to write the task and choose a loop, restate the requirement in a few lines. Otherwise set `needs_owner` and write `request`: one open question for what is missing. A bare "start", or a request to change the configuration that names nothing, says nothing yet.
+The requirement says what this machine should validate: what the deliverables must do, what judges them (the benchmark, and when one test passes), how many submissions the worker gets, and anything special about how reviews must run. When `requirement` and `notes` together say enough to write the task, restate the requirement in a few lines. Otherwise set `needs_owner` and write `request`: one open question for what is missing. A bare "start", or a request to change the configuration that names nothing, says nothing yet.
 
 ### task
 
@@ -64,7 +64,7 @@ node .contrejour/dist/tools/config-cli.js confirm --project . --digest <digest>
 node .contrejour/dist/tools/config-cli.js apply --project .
 ```
 
-`digest` is the version the owner approved; `confirm` refuses when the draft or `task.md` changed since: return `failed` with its error. Apply installs the benchmark (its setup, healthcheck and smoke must pass), freezes `.contrejour/validation/config.json`, creates the service token or takes `CONTREJOUR_TOKEN`, and records the loop with its parameters in `.contrejour/loop.json`: the service passes them to every review. It writes `environment.secrets` to `.contrejour/environment.json` (mode 0600 where the platform supports it), adds `.contrejour/` to `.gitignore` because it holds credentials, and writes `.claude/settings.json`: the entry role, the hook registrations and `worktree.bgIsolation: "none"`. In `CLAUDE.md` it writes the role block between the `CONTREJOUR ROLE` markers and a placeholder environment section between the `CONTREJOUR ENVIRONMENT` markers, and leaves the rest of the file alone. A failed apply returns `failed` with the helper's error. Return what it wrote as `summary`, with `service_command` and `worker_connection`.
+`digest` is the version the owner approved; `confirm` refuses when the draft or `task.md` changed since: return `failed` with its error. Apply installs the benchmark (its setup, healthcheck and smoke must pass), freezes `.contrejour/validation/config.json`, creates the service token or takes `CONTREJOUR_TOKEN`, and leaves the loop that reviews submissions as the owner chose it in the Studio (`.contrejour/loop.json`, with the parameter values the service passes to every review). It writes `environment.secrets` to `.contrejour/environment.json` (mode 0600 where the platform supports it), adds `.contrejour/` to `.gitignore` because it holds credentials, and writes `.claude/settings.json`: the entry role, the hook registrations and `worktree.bgIsolation: "none"`. In `CLAUDE.md` it writes the role block between the `CONTREJOUR ROLE` markers and a placeholder environment section between the `CONTREJOUR ENVIRONMENT` markers, and leaves the rest of the file alone. A failed apply returns `failed` with the helper's error. Return what it wrote as `summary`, with `service_command` and `worker_connection`.
 
 ### environment
 
@@ -93,7 +93,7 @@ Write the report for the owner: the requirement as confirmed (`requirement`), th
 
 1. `worker_connection`, the `url` and `token` the worker's machine configuration needs; the token goes to the worker machine over a private channel.
 2. The owner starts the service with apply's `service_command`, from the project root, and keeps it running for the whole task: in a terminal multiplexer (tmux, screen) or as an OS service (systemd, a Windows service or scheduled task). If it was already running, it must be restarted to serve the applied address and token; the loop and its parameters are read at each new review. `node .contrejour/dist/tools/validation-cli.js status --project .` checks it.
-3. The owner starts no review: the service starts one session per submission, running as `validator-task-manager`. Once a review has been published, `claude "Run the library-contribution loop"` sends this project's new and changed loops and roles to the shared library, and `claude "Run the proposal-review loop"` puts trajectory-optimizer's proposed role fixes to the owner.
+3. The owner starts no review: the service starts one session per submission, running as `validator-task-manager`. Once a review has been published, `claude "Run the library-contribution loop"` sends this project's new and changed loops and roles back to the libraries they came from, and `claude "Run the proposal-review loop"` puts trajectory-optimizer's proposed role fixes to the owner.
 
 ## Output
 
@@ -119,7 +119,7 @@ Write the report for the owner: the requirement as confirmed (`requirement`), th
 - **Requirement and task**: the restatement and `task.md` were ones the owner accepted in few rounds; `task.md` describes what to build, not how it is tested.
 - **One sheet**: each review showed the whole sheet; the owner confirmed in few rounds; no value the owner did not give.
 - **Approval**: `confirm` only with the digest the loop passed.
-- **Ownership**: nothing a helper owns written by hand (the setup state, `.contrejour/loop.json`, `.contrejour/validation/`, `.contrejour/tester-config.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
+- **Ownership**: nothing a helper owns written by hand (the configuration state, `.contrejour/loop.json`, `.contrejour/validation/`, `.contrejour/tester-config.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
 - **First reviews**: the first submissions reviewed without a configuration error: the service starts sessions (`claude_command`, a trusted folder), the worker connects (`host`, `port`, firewall, `public_url`), the benchmark's runner and smoke work, the adapter contract matches the runner, and `hidden_paths` covers every hidden file the leak reviewer needs.
-- **Environment**: facts verified, environment only, within the limit; later reviews show what was missed, as runs lost to a fact the configuration could have recorded or `validator-memory` correcting setup's facts. Every script ran once for real.
+- **Environment**: facts verified, environment only, within the limit; later reviews show what was missed, as runs lost to a fact the configuration could have recorded or `validator-memory` correcting the configuration's facts. Every script ran once for real.
 - **Hand-off**: the owner received the service command and the connection, the token kept private.

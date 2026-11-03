@@ -45,6 +45,8 @@ Vast.ai works for one-off ablations, baseline reruns, or scaling up to A100/H100
    vastai search offers 'gpu_ram>=24 reliability>0.95' -o 'dph+' --limit 3
    ```
 
+6. **Add the skill to the project.** The Contrejour package does not install `vast-gpu`: copy `skills/vast-gpu/` from this repository into the project's `.claude/skills/`.
+
 ## Tell Contrejour to use Vast.ai
 
 Add to your project's `CLAUDE.md`:
@@ -78,7 +80,7 @@ For one-off rentals outside an experiment, call the skill directly:
 /vast-gpu destroy <instance-id>    # tear down manually
 ```
 
-`auto_destroy: true` tears the instance down after `collect-outputs.sh` has pulled the results; `false` leaves them up so you can SSH in and inspect. Always run `vastai show instances` (or `/vast-gpu list`) after a session to confirm nothing is silently billing you.
+`auto_destroy: true` tears the instance down once its results are collected (with the fetch script of the project's environment skill, when it has one); `false` leaves them up so you can SSH in and inspect. Always run `vastai show instances` (or `/vast-gpu list`) after a session to confirm nothing is silently billing you.
 
 ## Cost expectations
 
@@ -96,4 +98,4 @@ error. It never falls back to another environment.
 ## Related skills
 
 - [`/vast-gpu`](../../skills/vast-gpu/SKILL.md) — direct rental control
-- the generated experiment skill's `ops/collect-outputs.sh` — collect results from running rentals
+- the project's environment skill, `.claude/skills/<project>-environment/` — its scripts, written when the machine is configured (the `machine-config` loop), sync code, launch runs and fetch results, on a rented instance too

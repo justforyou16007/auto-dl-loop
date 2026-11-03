@@ -22,7 +22,12 @@ const files = (dir, extension) =>
 // The package's manifest names the hook actions its loops may declare; the shared library has none.
 const manifestFile = path.join(root, "project.json");
 const manifest = fs.existsSync(manifestFile) ? JSON.parse(fs.readFileSync(manifestFile, "utf8")) : undefined;
-const sides = fs.existsSync(path.join(library, "loops")) ? fs.readdirSync(path.join(library, "loops")) : [];
+const sides = fs.existsSync(path.join(library, "loops"))
+  ? fs
+      .readdirSync(path.join(library, "loops"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  : [];
 
 if (stamp)
   for (const side of sides) {
@@ -38,6 +43,22 @@ if (stamp)
 
 if (!fs.existsSync(checker)) throw new Error("Run npm run build first: dist/tools/library-cli.js is missing.");
 const { checkLibrary } = await import(pathToFileURL(checker).href);
-const { ok, reports } = await checkLibrary(library, manifest);
+// This package's loops use the framework's roles and may use the community's: check them as a project gets
+// them, the framework's library and the community's laid under this package's own.
+const merged = fs.mkdtempSync(path.join((await import("node:os")).tmpdir(), "library-check-"));
+let result;
+try {
+  for (const source of [
+    path.join(root, "agent-loop-studio", "library"),
+    path.join(root, "agent-loop-community", "library"),
+    library,
+  ])
+    if (fs.existsSync(source))
+      fs.cpSync(source, merged, { recursive: true, filter: (file) => !file.endsWith(".gitkeep") });
+  result = await checkLibrary(merged, manifest);
+} finally {
+  fs.rmSync(merged, { recursive: true, force: true });
+}
+const { ok, reports } = result;
 console.log(JSON.stringify(reports, null, 2));
 process.exitCode = ok ? 0 : 1;

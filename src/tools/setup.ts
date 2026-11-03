@@ -4,15 +4,19 @@
  * its review, confirm records the owner's approval of one digest, and apply is
  * the only step that changes the project, apart from the worker's fetch-task,
  * which copies the validator's task.md, and the environment section of
- * CLAUDE.md, which the setup and memory roles keep.
+ * CLAUDE.md, which the configuration and memory roles keep.
  */
 import { isUtf8 } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalJsonSha256 } from "./canonical-json.js";
-import { readStateFile, withStateFileLock, writeStateJsonAtomic } from "./state-file.js";
+import { canonicalJsonSha256 } from "@studio/tools/canonical-json.js";
+import {
+  readStateFile,
+  withStateFileLock,
+  writeStateJsonAtomic,
+} from "@studio/tools/state-file.js";
 import { fetchValidatorTask, readTask, taskPath, writeTask } from "./task.js";
 import {
   setupTesterFacility,
@@ -20,7 +24,7 @@ import {
   validateTesterFacilityConfig,
   type TesterFacilityConfig,
 } from "./tester-facility.js";
-import { failA1, isRecord, type JsonObject } from "./validate.js";
+import { failA1, isRecord, type JsonObject } from "@studio/tools/validate.js";
 import {
   DEFAULT_LIMITS,
   PASS_OPERATORS,
@@ -31,15 +35,20 @@ import {
   validationConfigPath,
   type ValidationConfig,
 } from "./validation/config.js";
-import { standaloneEnvironment } from "./sessions.js";
-import { hookHelperPath, projectSlug, registerHooks, writeEntryRole } from "./project-settings.js";
+import { standaloneEnvironment } from "@studio/tools/sessions.js";
+import {
+  hookHelperPath,
+  projectSlug,
+  registerHooks,
+  writeEntryRole,
+} from "@studio/tools/project-settings.js";
 
 export { hookHelperPath, projectSlug, registerHooks };
 import { assertBenchmarkIntact } from "./validation/layers.js";
 import { countedSubmissions } from "./validation/store.js";
-import { installedRole as installedProfile, skillsDir } from "./installation.js";
+import { installedRole as installedProfile, skillsDir } from "@studio/tools/installation.js";
 import { TASK_MANAGER, researchSide, type ResearchSide } from "./research-profiles.js";
-import { readSelectedLoop } from "./loops.js";
+import { readSelectedLoop } from "@studio/tools/loops.js";
 
 export type SetupRole = ResearchSide;
 /** The research side this project was installed as. */
@@ -119,7 +128,7 @@ const CHOICES: Record<string, readonly unknown[]> = {
 };
 /**
  * The validation service's public address and bearer token, when the validator
- * machine provides them: setup then uses them instead of asking for an address
+ * machine provides them: the configuration then uses them instead of asking for an address
  * or creating a token.
  */
 function serviceEnvironment(): { url?: string; token?: string } {
@@ -134,7 +143,7 @@ function choicesFor(): Record<string, readonly unknown[]> {
 }
 const ADAPTER_CONTRACT =
   'The runner calls `python <CONTREJOUR_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in CONTREJOUR_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes CONTREJOUR_TEST_OUTPUT.';
-/** CLAUDE.md blocks: the side's rules, written by apply; the environment, kept by the setup and memory roles. */
+/** CLAUDE.md blocks: the side's rules, written by apply; the environment, kept by the configuration and memory roles. */
 const ROLE_MARKERS = ["<!-- CONTREJOUR ROLE BEGIN -->", "<!-- CONTREJOUR ROLE END -->"] as const;
 const ENVIRONMENT_MARKERS = [
   "<!-- CONTREJOUR ENVIRONMENT BEGIN -->",
@@ -183,7 +192,7 @@ function readJson(file: string): JsonObject {
 }
 
 /** A folder name with no ASCII letters or digits (`项目`) still needs a usable skill name. */
-/** Where setup's environment step publishes the project's environment skill. */
+/** Where machine-config's environment step publishes the project's environment skill. */
 export function environmentSkillDir(projectRoot: string): string {
   return path.join(skillsDir(projectRoot), `${projectSlug(projectRoot)}-environment`);
 }
@@ -235,7 +244,7 @@ function loadDraft(root: string): SetupDraft {
     return { schema_version: 1, project_root: root, configuration: completeModules(root, {}) };
   const draft = readStateFile<SetupDraft>(file);
   if (draft.schema_version !== 1 || draft.project_root !== root || !isRecord(draft.configuration))
-    failA1("IDENTITY_MISMATCH", "setup draft must identify this project and schema");
+    failA1("IDENTITY_MISMATCH", "the configuration draft must identify this project and schema");
   return draft;
 }
 /** The task text is part of what the owner approves, so editing task.md needs a new confirmation. */
@@ -403,13 +412,13 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
 
   if (role === "worker") {
     const url = get(configuration, "connection.url");
-    // Validation setup prints `<public_url>/mcp`; a proxy may serve it under a sub-path.
+    // The validator's hand-off prints `<public_url>/mcp`; a proxy may serve it under a sub-path.
     const parsed = typeof url === "string" && URL.canParse(url) ? new URL(url) : null;
     if (!parsed || !/^https?:$/.test(parsed.protocol) || !parsed.pathname.endsWith("/mcp"))
       add("connection.url", "must be the validation service's http(s)://…/mcp URL");
     const token = get(configuration, "connection.token");
     if (typeof token !== "string" || token.length < 32)
-      add("connection.token", "paste the token printed by the validation setup");
+      add("connection.token", "paste the token the validator's machine configuration handed off");
   }
   if (role === "validator" && isRecord(configuration.validation)) {
     const validation = configuration.validation;
@@ -417,7 +426,7 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
     if (provided !== undefined && provided.length < 32)
       add(
         "CONTREJOUR_TOKEN",
-        "must be at least 32 characters; the worker's setup takes no shorter token",
+        "must be at least 32 characters; the worker's configuration takes no shorter token",
       );
     const command = get(validation, "agent.claude_command");
     const problem = claudeCommandProblem(command);
@@ -635,7 +644,7 @@ function writeRoleBlock(root: string, role: SetupRole): void {
 
 /**
  * The environment section of CLAUDE.md: facts and lessons about this project's
- * machines that every role needs. The setup role writes it first and the memory
+ * machines that every role needs. The configuration role writes it first and the memory
  * role keeps it; with no text this only reads it. Apply creates it empty.
  */
 export function environmentNotes(
@@ -719,7 +728,7 @@ function claudeCommandProblem(command: unknown): string | null {
 type SetupEnvironmentResult = {
   /** The loop the owner chose for this project in the Studio, if they have: .contrejour/loop.json. */
   loop: string | null;
-  /** Where the setup role writes the environment skill's scripts; apply does not create it. */
+  /** Where the configuration role writes the environment skill's scripts; apply does not create it. */
   environment_skill_dir: string;
   environment_secrets: string;
   /** Project settings: the entry role, the hook registrations, background-session editing. */

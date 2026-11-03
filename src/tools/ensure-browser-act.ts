@@ -9,8 +9,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { findExecutable, run } from "../lib/run.js";
-import { skillsDir } from "./installation.js";
+import { findExecutable, run } from "@studio/lib/run.js";
+import { skillsDir } from "@studio/tools/installation.js";
 
 const PACKAGE = "browser-act-cli";
 const PYTHON_VERSION = "3.12";

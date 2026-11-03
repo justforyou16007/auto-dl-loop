@@ -1,4 +1,4 @@
-import { createCli, runCli } from "../lib/cli.js";
+import { createCli, runCli } from "@studio/lib/cli.js";
 
 const API_BASE = "https://api.semanticscholar.org/graph/v1";
 const USER_AGENT = "s2-fetch/1.1";

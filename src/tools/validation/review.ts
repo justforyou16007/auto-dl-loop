@@ -7,9 +7,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { readStateFile } from "../state-file.js";
+import { readStateFile } from "@studio/tools/state-file.js";
 import { executeTesterJob, prepareTesterJob, testerConfigPath } from "../tester-facility.js";
-import { failA1, isRecord } from "../validate.js";
+import { failA1, isRecord } from "@studio/tools/validate.js";
 import { readValidationConfig, type ValidationConfig } from "./config.js";
 import {
   activeLayers,

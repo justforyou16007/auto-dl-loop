@@ -15,14 +15,14 @@ import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { readTask } from "../task.js";
-import { A1Error, failA1, isRecord } from "../validate.js";
+import { A1Error, failA1, isRecord } from "@studio/tools/validate.js";
 import {
   readValidationConfig,
   readValidationToken,
   tokenMatches,
   type ValidationConfig,
 } from "./config.js";
-import { readSelectedLoop, type SelectedLoop } from "../loops.js";
+import { readSelectedLoop, type SelectedLoop } from "@studio/tools/loops.js";
 import {
   claudeDispatcher,
   reviewArgs,
@@ -78,7 +78,7 @@ const TOOLS = [
   {
     name: "task",
     description:
-      "The task statement (task.md) every deliverable is judged against, with its sha256. The worker's task.md must be this text byte for byte: setup's fetch-task copies it, and it is fetched again whenever `query` reports another task_sha256.",
+      "The task statement (task.md) every deliverable is judged against, with its sha256. The worker's task.md must be this text byte for byte: the worker's machine configuration copies it (`config-cli.js fetch-task`), and it is fetched again whenever `query` reports another task_sha256.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -264,7 +264,7 @@ export async function startValidationService(
   const root = path.resolve(projectRoot);
   const config = readValidationConfig(root);
   assertBenchmarkIntact(root, config);
-  // Reviews run the loop setup chose; without one there is nothing to start.
+  // Reviews run the loop the owner chose; without one there is nothing to start.
   readSelectedLoop(root);
   const token = readValidationToken(root);
   const dispatch = options.dispatcher ?? claudeDispatcher(config.agent);
@@ -293,7 +293,7 @@ export async function startValidationService(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "contrejour", version: "1.0.0" },
         instructions:
-          "`task` is the task: your task.md must match it byte for byte (setup's fetch-task copies it); fetch it again whenever `query` reports another task_sha256. Read `requirements` before the first submission and after any invalid or unusable one, and check the zip and USAGE.md against it. Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
+          "`task` is the task: your task.md must match it byte for byte (the machine configuration's `config-cli.js fetch-task` copies it); fetch it again whenever `query` reports another task_sha256. Read `requirements` before the first submission and after any invalid or unusable one, and check the zip and USAGE.md against it. Submit deliverables with `submit` (put the commit hash in `note`), upload the zip with the returned curl.exe command, then poll `query` until the submission's status is final. tested, rejected_cheating and unusable carry a verdict; invalid, expired and failed do not count: read `reason`, fix it and submit again. The validator keeps adding hidden tests derived from the problems it finds, so the test total grows; fix the problems the feedback describes rather than chasing a number. Stop only when the state is closed; while reviews are in flight with no submissions remaining, keep polling.",
       });
     }
     if (method === "ping") return ok({});
@@ -474,7 +474,7 @@ export async function startValidationService(
     if (!next) return;
     const id = next.submission_id;
     try {
-      // Read at each dispatch: setup applied again changes the next review, not one under way.
+      // Read at each dispatch: another loop chosen, or the configuration applied again, changes the next review, not one under way.
       const selected = readSelectedLoop(root);
       const session = await dispatch({
         root,
