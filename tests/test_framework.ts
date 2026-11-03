@@ -162,7 +162,7 @@ try {
   assert.match(nestReport("parent").defects.join("\n"), /nesting is one level only/);
   // A loop says what it is for; setup offers only task loops.
   loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: sometimes\n");
-  assert.match(nestReport("child").defects.join("\n"), /kind must be one of task, on-request/);
+  assert.match(nestReport("child").defects.join("\n"), /kind must be one of task, setup, on-request/);
   loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: on-request\n");
   assert.equal(nestReport("child").ok, true);
 

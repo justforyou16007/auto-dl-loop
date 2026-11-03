@@ -8,7 +8,7 @@
       "entry_role": "worker-task-manager",
       "sides": ["worker"],
       "next": [
-        "Configure the validator machine first. Then configure this one: in the Studio's chat, or in a session here, run the machine-config loop; it connects to the validator and fetches task.md."
+        "Set up the validator machine first. Its setup's configure step on this machine connects to the validator and fetches task.md; then setup has you choose the loop this project runs (normally research-iteration) and its values."
       ]
     },
     "validator": {
@@ -16,7 +16,7 @@
       "entry_role": "validator-task-manager",
       "sides": ["validator"],
       "next": [
-        "Configure this machine: in the Studio's chat, or in a session here, run the machine-config loop (task.md, the benchmark, the terms, the service), then start the service it names."
+        "Its setup's configure step on this machine settles task.md, the benchmark, the validation terms and the service; then setup has you choose the loop that reviews each submission (normally submission-review). Start the service the hand-off names afterwards."
       ]
     }
   },

@@ -1,17 +1,16 @@
 export const meta = {
-  name: "machine-config",
+  name: "configure",
   description:
-    "Configure this machine as the validator from the owner's requirement: task.md, the sheet with the validation terms, apply, environment, checks, hand-off",
+    "Setup's first step on the validator: the requirement, task.md, the sheet with the validation terms, apply, environment, report",
   whenToUse:
-    'Validator machine configuration, when the owner asks for it. Run it with {"requirement": "<what to validate, or start>"}, then again with the owner\'s replies in answers.',
+    'As the first step of setup on the validator, or when the owner asks to configure the machine again. Run it with {"requirement": "<what to validate, or start>"}, then again with the owner\'s replies in answers.',
   phases: [
     { title: "Requirement" },
     { title: "Task" },
     { title: "Sheet" },
     { title: "Apply" },
     { title: "Environment" },
-    { title: "Check" },
-    { title: "Hand off" },
+    { title: "Report" },
   ],
 };
 
@@ -76,12 +75,7 @@ const ENVIRONMENT = {
   },
   required: ["needs_owner", "request", "summary", "incomplete"],
 };
-const CHECKED = {
-  type: "object",
-  properties: { stale: STRINGS, defects: STRINGS },
-  required: ["stale", "defects"],
-};
-const HANDOFF = {
+const REPORT = {
   type: "object",
   properties: { report: { type: "string" } },
   required: ["report"],
@@ -234,36 +228,17 @@ for (let round = 1; round <= 3; round += 1) {
 }
 
 // Step 6
-phase("Check");
-let checked = await agent(JSON.stringify({ action: "check" }), {
-  agentType: "validator-config",
-  schema: CHECKED,
-  phase: "Check",
-});
-if (checked.stale.length) {
-  if (checked.stale.length > 4) log(`${checked.stale.length - 4} stale loops were not regenerated`);
-  for (const stale of checked.stale.slice(0, 4))
-    await workflow("loop-authoring", { regenerate: stale });
-  checked = await agent(JSON.stringify({ action: "check" }), {
-    agentType: "validator-config",
-    schema: CHECKED,
-    phase: "Check",
-  });
-}
-
-// Step 7
-phase("Hand off");
-const handoff = await agent(
+phase("Report");
+const report = await agent(
   JSON.stringify({
-    action: "handoff",
+    action: "report",
     requirement,
     applied: applied.summary,
     environment: environment.summary,
     incomplete: environment.incomplete,
-    check: checked,
   }),
-  { agentType: "validator-config", schema: HANDOFF, phase: "Hand off" },
+  { agentType: "validator-config", schema: REPORT, phase: "Report" },
 );
-return { done: true, report: handoff.report };
+return { done: true, requirement, report: report.report };
 
-// contrejour-loop-definition-sha256: 747f4c81c07f2622c2931984a2cb597b45753d25dccc11af6c20e5be465e77f4
+// contrejour-loop-definition-sha256: a67170bbd94b22e6cc572fbf39fd55a93519fcc1972ebed50e7f87bbb5f76b56

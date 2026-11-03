@@ -192,7 +192,7 @@ function readJson(file: string): JsonObject {
 }
 
 /** A folder name with no ASCII letters or digits (`项目`) still needs a usable skill name. */
-/** Where machine-config's environment step publishes the project's environment skill. */
+/** Where configure's environment step publishes the project's environment skill. */
 export function environmentSkillDir(projectRoot: string): string {
   return path.join(skillsDir(projectRoot), `${projectSlug(projectRoot)}-environment`);
 }

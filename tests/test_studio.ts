@@ -111,7 +111,8 @@ try {
   assert.equal(loops.get("research-iteration")?.kind, "task");
   assert.equal(loops.get("research-iteration")?.chosen, true);
   assert.equal(loops.get("research-iteration")?.check, "ok");
-  assert.equal(loops.get("machine-config")?.kind, "on-request", "configuring the machine is run when asked; there is no setup");
+  assert.equal(loops.get("setup")?.kind, "setup", "every project has the framework's setup");
+  assert.equal(loops.get("configure")?.kind, "on-request", "the side's configure, setup's first step, also runs when asked");
 
   const flow = async (name: string) => JSON.parse((await request(at(`api/flow?name=${name}&source=project`), { cookie })).body);
   const arrows = (graph: { edges: { from: string; to: string; kind: string; label: string }[] }) =>
@@ -136,12 +137,14 @@ try {
   const contribution = await flow("library-contribution");
   assert.deepEqual(
     contribution.nodes.filter((node: { waits: boolean }) => node.waits).map((node: { number: number }) => node.number),
-    [2, 3],
+    [2, 4],
   );
   const contributionArrows = arrows(contribution);
-  for (const expected of ["s3>s1:back:revise", "s3>end:end:cancel", "s1>s2:next:no-library", "s3>s4:next:approval", "s4>end:end:"])
+  for (const expected of ["s4>s1:back:revise", "s4>end:end:cancel", "s1>s2:next:no-library", "s4>s5:next:approval", "s5>end:end:"])
     assert.ok(contributionArrows.includes(expected), `${expected} in ${contributionArrows.join(", ")}`);
   assert.match(contributionArrows.find((arrow) => arrow.startsWith("s1>end"))!, /not-eligible/);
+  // The project's own check of what leaves is a loop run as one step, which a side may replace.
+  assert.ok(contribution.nodes.find((node: { title: string }) => node.title === "Own check").loops.includes("contribution-check"));
 
   // A step that runs only on a condition: the way into it says so, and otherwise the loop goes past it.
   const authoring = await flow("loop-authoring");
@@ -149,9 +152,10 @@ try {
   for (const expected of ["start>s1:next:regenerate", "start>s2:branch:otherwise", "s7>s4:back:revise", "s7>s9:branch:cancel", "s8>end:end:"])
     assert.ok(authoringArrows.includes(expected), `${expected} in ${authoringArrows.join(", ")}`);
   assert.ok(!authoringArrows.some((arrow) => arrow.startsWith("s8>s9")), "installing ends the loop");
-  // Configuring the machine regenerates stale scripts through loop-authoring, run as one of its steps.
-  const configure = await flow("machine-config");
-  assert.ok(configure.nodes.find((node: { title: string }) => node.title === "Check").loops.includes("loop-authoring"));
+  // Setup runs the side's configure, and regenerates stale scripts through loop-authoring, each as one of its steps.
+  const setup = await flow("setup");
+  assert.ok(setup.nodes.find((node: { title: string }) => node.title === "Configure").loops.includes("configure"));
+  assert.ok(setup.nodes.find((node: { title: string }) => node.title === "Check").loops.includes("loop-authoring"));
   assert.equal((await request(at("api/flow?name=no-such-loop"), { cookie })).status, 404);
 
   // The quick search: a Chinese request finds the English definition it describes.

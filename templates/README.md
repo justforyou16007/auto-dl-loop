@@ -1,6 +1,6 @@
 # Templates
 
-Configuring a machine reads these: the `machine-config` loop's roles (`worker-config`, `validator-config`) and its apply step (`config-cli.js apply`). The installer copies them to `.contrejour/templates/`; you do not copy them by hand.
+Configuring a machine reads these: the roles of each side's `configure` loop, setup's first step (`worker-config`, `validator-config`), and its apply step (`config-cli.js apply`). The installer copies them to `.contrejour/templates/`; you do not copy them by hand.
 
 | Template | Used by |
 | --- | --- |
@@ -38,5 +38,5 @@ The base layer's `setup`, `healthcheck`, `smoke` and `test` entries are argv arr
 - Each sample is one test. Sample ids are stable and unique; repeats get their own ids. A sample the deliverable crashed on stays in the list with `status: "failed"` and counts as a failed test; the helper rejects runs that drop samples.
 - `dataset.expected_samples` is the full protocol count including repeats, never the smoke count.
 - Every `ok` sample carries a finite value of the metric named by `validation.pass_rule`; the helper applies the rule to it. Aggregate `metrics` are kept for the record and not published.
-- Files listed in the config's `evidence_files` are hashed when the validator's configuration is applied. Changing one stops the validation service until the configuration is applied again (the `machine-config` loop).
+- Files listed in the config's `evidence_files` are hashed when the validator's configuration is applied. Changing one stops the validation service until the configuration is applied again (the `configure` loop).
 - Layers the `test-extender` role adds later use the same output format (without `metrics` and `evidence_files`); see its role file.

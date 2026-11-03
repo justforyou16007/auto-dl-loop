@@ -2,7 +2,7 @@
 
 Contrejour 是在两台机器上对抗进行的研究任务，以 agent 流程的形式运行在 Claude Code 上；它的项目包就是本仓库 [auto-dl-loop](https://github.com/justforyou16007/auto-dl-loop)，本指南部署的就是它。**worker** 为 `task.md` 构建交付物并提交。**validator** 持有只增不改的隐藏 benchmark，作为 worker 的对抗方评审每次提交，发布结论、测试项总数与通过数，以及对所发现问题的反馈。两台机器之间只有验证服务的四个 MCP 工具（`task`、`requirements`、`submit`、`query`）和每个 zip 的上传。
 
-两台机器都运行在 [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio) 框架上。工作以**流程**的形式运行：流程定义用自然语言写成，写明每一步由哪个**角色**做、按什么顺序、在什么上限之内；根据定义生成的 Claude Code workflow 脚本严格照此调度各个角色。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为轨迹，`trajectory-optimizer` 角色据此修复角色。框架提供 helper、安装器、Studio（你在浏览器里用的控制台），以及每个项目一开始就有的基础流程和角色；各项目之间共享的流程和角色放在 [agent-loop-community](https://github.com/justforyou16007/agent-loop-community)。
+两台机器都运行在 [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio) 框架上。工作以**流程**的形式运行：流程定义用自然语言写成，写明每一步由哪个**角色**做、按什么顺序、在什么上限之内；根据定义生成的 Claude Code workflow 脚本严格照此调度各个角色。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为轨迹，`trajectory-optimizer` 角色据此修复角色。框架提供 helper、安装器、Studio（你在浏览器里用的控制台），以及每个项目一开始就有的基础流程和角色，其中的 `setup` 用同一种方式设置每个项目；各项目做出来、留给别的项目用的流程和角色放在 [agent-loop-community](https://github.com/justforyou16007/agent-loop-community)。
 
 Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo。设计及其理由见 auto-dl-loop 仓库中的 `ARCHITECTURE_GUIDE.md`；框架自身的设计见 `agent-loop-studio/docs/architecture.md`。[English setup guide](SETUP_GUIDE.md)
 
@@ -14,10 +14,10 @@ auto-dl-loop 是一个项目包：它只放研究任务特有的东西，框架�
 | --- | --- |
 | `project.json` | 项目可以安装成的两种 profile，`worker` 和 `validator`：各自的会话以哪个角色启动（`worker-task-manager`、`validator-task-manager`），以及装好之后做什么 |
 | `src/tools/` | 研究任务自己的 helper：机器配置（`config-cli`）、验证服务（`validation-cli`）、worker 的台账（`worker-cli`）和研究 wiki |
-| `library/loops/`、`library/roles/` | worker 端和验证端的流程与角色，分别在 `worker/` 和 `validator/` 下 |
+| `library/loops/`、`library/roles/` | worker 端和验证端的流程与角色，分别在 `worker/` 和 `validator/` 下；其中有两端各自的 `configure`，也就是设置项目时由本项目包提供的那一部分 |
 | `skills/`、`templates/` | 角色用到的技能和模板 |
-| `agent-loop-studio/` | 子模块：框架，包括它的 helper、Studio、安装器（`distribution/install.mjs`）和基础流程与角色（`library/loops/framework/`、`library/roles/framework/`） |
-| `agent-loop-community/` | 子模块：共享流程库，各项目把任何项目都能用的流程和角色贡献到这里 |
+| `agent-loop-studio/` | 子模块：框架，包括它的 helper、Studio、安装器（`distribution/install.mjs`）和基础流程与角色，`setup` 也在其中（`library/loops/framework/`、`library/roles/framework/`） |
+| `agent-loop-community/` | 子模块：共享流程库，各项目把自己做出来的流程和角色贡献到这里，留给别的项目用 |
 
 依赖只有一个方向：auto-dl-loop 固定引用两个子模块各自的某个版本，它们都不依赖 auto-dl-loop。
 
@@ -66,92 +66,99 @@ bash contrejour/install.sh --role worker --project /path/to/project
 | --- | --- | --- |
 | `.contrejour/` | 编译好的 helper（`dist/`，含 Studio 页面）、它们的运行依赖、模板，以及项目包的 `project.json` | 由安装器更新 |
 | `.claude/skills/` | `research-wiki`、`browser-act` 和共享参考 | 由安装器更新 |
-| `.claude/agents/` | 框架的八个角色和本端的九个角色 | 首次放入，之后归项目所有 |
-| `.claude/loops/`、`.claude/workflows/` | 每个流程的定义和脚本：框架的 `loop-authoring`、`role-authoring`、`library-contribution`，以及本端的 `machine-config` 和主任务流程（worker 端是 `research-iteration`；验证端是 `submission-review`，另有 `proposal-review`，以及验证端自己那份多一步泄漏检查的 `library-contribution`） | 首次放入，之后归项目所有 |
+| `.claude/agents/` | 框架的九个角色和本端的九个角色 | 首次放入，之后归项目所有 |
+| `.claude/loops/`、`.claude/workflows/` | 每个流程的定义和脚本：框架的 `setup`、`loop-authoring`、`role-authoring`、`library-contribution`、`upstream-optimization` 和 `contribution-check`；本端自己的 `configure`，代替框架的那个；以及本端的主任务流程（worker 端是 `research-iteration`；验证端是 `submission-review`，另有 `proposal-review`，以及验证端自己的 `contribution-check`，即泄漏检查，代替框架的那个） | 首次放入，之后归项目所有 |
 | `.contrejour/seeded/` | 每个流程和角色放入时的副本：之后用来分清本项目改了什么 | 放入文件时写入 |
 | `.contrejour/install.json` | 本项目是哪一端、作为项目流程库的本地仓库，以及安装器所管理文件的哈希 | 每次安装重写 |
-| `.claude/settings.json` | Contrejour 的 hooks 登记；你的其他设置和 hooks 保持不变 | 每次安装重新登记 |
+| `.claude/settings.json` | Contrejour 的 hooks 登记和入口角色（本端的任务管理角色）；你的其他设置和 hooks 保持不变 | 每次安装重新写入 |
 
-流程和角色只在项目里还没有同名文件时写入，更新从不替换或删除它们，因为它们本来就要变化：`trajectory-optimizer` 修复角色，流程和新角色由你通过 `loop-authoring`、`role-authoring` 这两个流程修改和添加。项目可以把改动送回它们来自的流程库（见[贡献回流程库](#贡献回流程库)），这就是安装器要记录本地仓库的原因。从归档安装不会记录流程库（从归档更新时保留之前记录的），贡献时需要先取一份本地仓库。
+流程和角色只在项目里还没有同名文件时写入，更新从不替换或删除它们，因为它们本来就要变化：`trajectory-optimizer` 修复角色，流程和新角色由你通过 `loop-authoring`、`role-authoring` 这两个流程修改和添加。`.contrejour/seeded/` 里的副本让项目分得清哪些是自己改的、哪些是流程库改的；记录下来的本地仓库则是这些改动的去处：项目自己做出来的流程和角色可以贡献给共享流程库，对拿到的流程和角色所做的改进可以送回各自的来源（见[哪些内容会离开项目](#哪些内容会离开项目)）。从归档安装不会记录流程库（从归档更新时保留之前记录的），所以从这样的项目往外送任何东西，都要先取一份本地仓库。
 
-项目是哪一端在安装时固定：之后的一切都读取它，用另一端更新会被拒绝，所以每一端用一个项目。早期版本为 Codex 安装的项目，以及名为 ARL 的版本安装的项目（数据在 `.aris/` 下），会被拒绝而不是迁移：请安装到新项目，重新配置，并新建 `research-wiki/`。安装器不再接受 `--provider`。
+项目是哪一端在安装时固定：之后的一切都读取它，用另一端更新会被拒绝，所以每一端用一个项目。早期版本为 Codex 安装的项目，以及名为 ARL 的版本安装的项目（数据在 `.aris/` 下），会被拒绝而不是迁移：请安装到新项目，重新设置，并新建 `research-wiki/`。安装器不再接受 `--provider`。
 
-安装完成时，安装器会列出接下来要做的事：打开 Studio，接受目录信任提示，配置机器。下一节逐一说明。
+安装完成时，安装器会列出接下来要做的事：先接受一次目录信任提示，再在 Studio 或会话里设置项目。worker 端还会提醒你先设置验证端，验证端则提醒你设置完成后再启动服务。下一节逐一说明。
 
 ## 安装之后
 
-装好的项目还要做三件事才能工作，三件事各管一摊。
+装好的项目已经有了流程和角色，但还没有这台机器在任务里的那一部分：没有任务，没有 benchmark 或连接，也没有要运行的流程。设置项目就是把这些都定下来，靠的只是一个流程：框架给每个项目都配好的 `setup`。
 
-**Studio** 是你管理项目的控制台，在本机的浏览器里使用（见 [Studio](#studio)）。在项目里启动它，打开它打印的登录链接：
+### 设置项目
 
-```bash
-cd /path/to/project
-node .contrejour/dist/tools/studio.js --project .
-```
+先在项目里打开一次 `claude`，接受目录信任提示：Claude Code 只在它信任的目录里启动后台会话，而 Studio 和验证服务都要靠后台会话工作。
 
-它只在本机的回环地址上响应；机器在远端时，先转发端口（`ssh -L 8790:127.0.0.1:8790 <机器>`）。然后在项目里打开一次 `claude`，接受目录信任提示：Claude Code 只在它信任的目录里启动后台会话，而 Studio 和验证服务都要靠后台会话工作。
+在项目里打开的每个会话，一开始就是本端的任务管理角色（`validator-task-manager` 或 `worker-task-manager`），因为安装器已经把它作为入口角色写进了 `.claude/settings.json`；Studio 启动的会话也一样。任务管理角色负责运行流程、把你的回答带进流程，所以刚打开的这个会话马上就能设置项目。有两种做法：
 
-**主任务流程和它的超参数取值由你选定。** 主任务流程就是项目要做的工作：worker 端是 `research-iteration`，验证端是 `submission-review`。在 Studio 里选（把流程放到画布上，打开「超参数」，设好取值，再点「设为本项目的主任务」），或者在项目里用命令行：
+- **在 Studio 里。** Studio 是你管理项目的控制台，在本机的浏览器里使用（见 [Studio](#studio)）。在项目里启动它，打开它打印的登录链接：
 
-```bash
-node .contrejour/dist/tools/project-cli.js use --project . --loop <流程> --param <名字>=<取值>
-node .contrejour/dist/tools/project-cli.js show --project .
-```
+  ```bash
+  cd /path/to/project
+  node .contrejour/dist/tools/studio.js --project .
+  ```
 
-每改一个取值写一个 `--param`，其余的保持默认值；`show` 显示项目当前运行什么。选定的结果记在 `.contrejour/loop.json`。同时，它把本端的任务管理角色写进 `.claude/settings.json`，作为项目里每个 Claude Code 会话启动时的角色：运行流程、替你传话的就是这个角色。随时可以重新选，下一轮或下一次评审就用新的选择。配置机器从不替你选主任务流程。
+  它只在本机的回环地址上响应；机器在远端时，先转发端口（`ssh -L 8790:127.0.0.1:8790 <机器>`）。还没设置的项目，一打开画布上就是它的 `setup` 流程。点「运行」：流程在后台会话里运行，每次需要你决定时都会在对话里问你。
 
-**配置机器**由 `machine-config` 流程完成。机器是新的、或者它的条款要改时运行它：在 Studio 里选中它，点「运行」；或者在项目里开一个会话：
+- **在会话里。** 在项目里运行：
 
-```bash
-claude "Run the machine-config loop"
-```
+  ```bash
+  claude "Run the setup loop"
+  ```
 
-它定下只有这台机器才有的东西：验证端是 `task.md`、benchmark、验证条款和服务；worker 端是到验证端的连接。然后它准备本机环境，检查项目里的流程，最后交接。步骤见 [`library/loops/validator/machine-config.md`](library/loops/validator/machine-config.md) 和 [`library/loops/worker/machine-config.md`](library/loops/worker/machine-config.md)；做这些步骤的角色是 `validator-config` 和 `worker-config`，它们使用的 helper 是 `.contrejour/dist/tools/config-cli.js`。
+  项目还没设置时，在会话里说 `start` 也会运行 setup。
+
+### setup 的四步
+
+setup 分四步。只有第一步因项目而异，后三步是框架的，每个项目都一样。它的定义在框架里，即 `agent-loop-studio/library/loops/framework/setup.md`；它自己的那几步由 `project-setup` 角色来做。
+
+1. **配置。** setup 先运行子流程 `configure`，定下这个项目特有的东西；项目包要替换的只有这一步。本项目包给两端各提供了自己的 `configure`，代替框架的那个：验证端的定下 `task.md`、benchmark、验证条款和服务；worker 端的定下到验证端的连接，并通过它取回 `task.md`。两者随后都准备本机环境，最后写一份报告，说明定下了什么。步骤见 [`library/loops/validator/configure.md`](library/loops/validator/configure.md) 和 [`library/loops/worker/configure.md`](library/loops/worker/configure.md)；做这些步骤的角色是 `validator-config` 和 `worker-config`，它们使用的 helper 是 `.contrejour/dist/tools/config-cli.js`。
+2. **主任务流程。** 主任务流程就是项目要做的工作：worker 一轮接一轮做的事，或者验证端对每次提交做的评审。`loop-query` 在本项目和它的流程库里找出适合 `task.md` 的主任务流程，`project-setup` 从中推荐一个，并给出各个超参数的取值。你批准，或者说明想换哪个流程、哪些取值。都不合适时，就要一个新的：`loop-authoring` 作为 setup 的一步把它建出来，经你批准后，再和其他流程一样拿来推荐。你批准之后，它就成为本项目的主任务流程，记在 `.contrejour/loop.json` 里。
+3. **检查。** 对项目里的流程运行流程检查和角色检查。过期或有缺陷的流程脚本，由 `loop-authoring` 按不变的定义重新生成，再检查一次。
+4. **交接。** 你会收到一份报告：配置的报告（原样转给你）、主任务流程及其取值、检查结果，以及怎样开始工作。然后 `project-cli.js finish-setup` 写入 `.contrejour/setup.json`：从此这个项目就算设置好了。
+
+先配置、再选主任务流程，是因为主任务流程要按任务来选，而两端的 `task.md` 都是在配置这一步定下的。
+
+### 流程需要你时
 
 流程每次需要你时就停下来，会话给你看一份审核说明和一个问题：在终端里，或者，对 Studio 运行的流程来说，在 Studio 的对话里。你的下一句话就是回答，会话把它原样交给流程，流程从停下的地方接着运行。下面每一个决定都是这样做的，由流程里的 `owner-review` 这一步负责。（在流程里运行的角色自己没法问你：Claude Code 不给 workflow 里的 agent 向人提问的工具，所以由会话来传问题和回答。hook 会核对进入流程的每个回答，都是你在流程提出那个问题之后亲手输入、没有改动的消息。）
 
-在项目里打开的每个会话，一开始就是本端的任务管理角色（`validator-task-manager` 或 `worker-task-manager`），因为安装器已经把它作为入口角色写进了 `.claude/settings.json`；Studio 启动的会话也一样。任务管理角色负责运行流程、把你的回答带进流程，所以第一次打开会话就可以直接说 `claude "Run the machine-config loop"`。在你选定主任务流程之前，只说 `start` 时它只会提醒你先去选一个。
+### 以后要改时
 
-## 先配置验证机器
+每一部分以后都可以单独改：
 
-worker 的机器配置要从运行中的验证服务取回 `task.md`，所以先配置验证端：选定评审流程，配置机器，然后启动服务。
+- **机器的配置**，比如验证条款、连接、某个 key 或环境：单独运行 `configure`，在 Studio 里，或者用 `claude "Run the configure loop"`。主任务流程保持不变。
+- **主任务流程或它的超参数取值**：在 Studio 里把流程放到画布上，打开「超参数」，设好取值，再点「设为本项目的主任务」；或者在项目里用命令行：
 
-### 1. 选定评审流程
+  ```bash
+  node .contrejour/dist/tools/project-cli.js use --project . --loop <流程> --param <名字>=<取值>
+  node .contrejour/dist/tools/project-cli.js show --project .
+  ```
 
-照上面的做法安装、打开 Studio 并接受信任提示。项目里已经有流程库的评审流程 `submission-review`（见[一次提交怎么评审](#一次提交怎么评审)）。在 Studio 里，或者用下面的命令，按你要的取值把它设为本项目的主任务流程：
+  每个不想用默认值的超参数写一个 `--param`：没写的都取默认值，而不是沿用之前选的值。`show` 显示项目当前运行什么。下一轮或下一次评审就用新的选择。
+- **全部重来**：再运行一次 `setup`。它从项目现在的状态出发，把四步再走一遍。
 
-```bash
-node .contrejour/dist/tools/project-cli.js use --project . --loop submission-review
-```
+## 先设置验证机器
 
-| 超参数 | 默认值 | 决定什么 |
-| --- | --- | --- |
-| `max_adapter_fixes` | 2 | 完整运行暴露的适配器问题最多交回 `adapter-writer` 几次 |
-| `max_extension_rounds` | 3 | 一次评审最多找几轮问题、加几轮测试项；新增测试项的总数仍受 `limits.max_new_tests_per_review` 限制 |
-| `max_leak_reviews` | 5 | 流程一次运行最多做几次泄漏审查；什么时候扣下反馈仍由 `limits.feedback_attempts` 决定 |
+worker 的配置要从运行中的验证服务取回 `task.md`，而验证服务要等验证端有了评审流程才能启动。所以顺序是：先设置验证端，再启动它的服务，最后才设置 worker。
 
-如果这里的评审要按别的方式进行，在 Studio 的对话里说清楚：它会列出相近的流程，`loop-authoring` 在最接近的那个上面修改，经你批准后才装进项目（见 [Studio](#studio)）。服务对每次提交运行一次你选定的流程，参数是 `{submission_id, submission_dir, params}`。新流程要接受这些参数，并以 `validator-task-manager` 发布评审结果结束，验证方无法完成评审时则放弃这次评审。这样 worker 只能收到 finalize 发布的内容。没有选定评审流程，服务不会启动。
+### 1. 开始设置
 
-### 2. 运行机器配置
-
-在 Studio 里选中 `machine-config`，点「运行」；或者在项目里开一个会话：
+安装、接受目录信任提示，然后开始设置：在 Studio 里（画布上就是 `setup` 流程，点「运行」），或者在会话里：
 
 ```bash
 cd /path/to/validator-project
-claude "Run the machine-config loop"
+claude "Run the setup loop"
 ```
 
-会话以 `validator-task-manager` 身份运行，由它运行这个流程，也就是下面这些步骤。每个决定都以审核说明加问题的形式交给你，做法见[安装之后](#安装之后)。
+会话以 `validator-task-manager` 身份运行，由它运行这个流程。setup 先运行验证端的 `configure`，也就是下面第 2 到第 5 步；然后由你选定评审流程（第 6 步），最后 setup 检查流程并交接（第 7 步）。每个决定都以审核说明加问题的形式交给你，做法见[流程需要你时](#流程需要你时)。
 
-### 3. 说明需求，写好任务
+### 2. 说明需求，写好任务
 
-流程从你的需求开始：这台机器要验证什么。说清楚交付物要做到什么、用什么来评判、worker 有多少次提交机会，以及评审的运行方式有没有特殊要求。流程会问你要这些，缺什么再追问什么。
+配置从你的需求开始：这台机器要验证什么。说清楚交付物要做到什么、用什么来评判、worker 有多少次提交机会，以及评审的运行方式有没有特殊要求。流程会问你要这些，缺什么再追问什么。
 
-项目根目录的 `task.md` 就是全部任务，也是 worker 能得到的唯一任务说明：服务通过 `task` 工具原样交出它，之后的修改会在 worker 下次取回时生效。如果还没有，`validator-config` 根据你的需求和 `.contrejour/templates/TASK_TEMPLATE.md` 写出它（UTF-8 文本）请你审阅，你批准后流程才继续。你自己写好的 `task.md` 保持原样。它写要构建什么，不写怎么测试。
+项目根目录的 `task.md` 就是全部任务，也是 worker 能得到的唯一任务说明：服务通过 `task` 工具原样交出它，之后的修改会在 worker 下次取回时生效。如果还没有，`validator-config` 根据你的需求和 `.contrejour/templates/TASK_TEMPLATE.md` 写出它（UTF-8 文本）请你审阅，你批准后流程才继续。你自己写好的 `task.md` 保持原样，除非你要求修改。它写要构建什么，不写怎么测试。
 
-### 4. 审阅配置表
+### 3. 审阅配置表
 
-审核说明以项目语言一次展示整张配置表：每个字段及其可选项、建议和未解决的问题。在一次回复中给出多项修改，或者直接编辑 `.contrejour/setup-draft.json` 再告诉它；`validator-config` 把你的回答改成对配置表的修改，刷新后你会再次看到整张表。建议只有在你接受后才成为取值。评审流程和它的超参数不在配置表里，保持第 1 步里你选定的样子。
+审核说明以项目语言一次展示整张配置表：每个字段及其可选项、建议和未解决的问题。在一次回复中给出多项修改，或者直接编辑 `.contrejour/setup-draft.json` 再告诉它；`validator-config` 把你的回答改成对配置表的修改，刷新后你会再次看到整张表。建议只有在你接受后才成为取值。评审流程和它的超参数不在配置表里：机器配置好之后，setup 才会问你（第 6 步）。
 
 | 字段 | 决定什么 |
 | --- | --- |
@@ -172,9 +179,9 @@ claude "Run the machine-config loop"
 
 `validation.service.port` 必须填写，因为服务总在一个固定端口上监听（默认 8765）。
 
-如果验证机器已经以 `CONTREJOUR_URL`（服务根地址，不带 `/mcp`）和 `CONTREJOUR_TOKEN`（至少 32 个字符）提供了服务的地址和 token，配置直接使用它们：`public_url` 取自 `CONTREJOUR_URL`，在配置表里不能修改（要填别的地址，先取消这个变量）；apply 把 `CONTREJOUR_TOKEN` 作为服务 token，不再新建。这两个变量在流程运行时读取；修改任何一个之后，再运行一次机器配置，重新审阅、确认、apply，然后重启服务。
+如果验证机器已经以 `CONTREJOUR_URL`（服务根地址，不带 `/mcp`）和 `CONTREJOUR_TOKEN`（至少 32 个字符）提供了服务的地址和 token，配置直接使用它们：`public_url` 取自 `CONTREJOUR_URL`，在配置表里不能修改（要填别的地址，先取消这个变量）；apply 把 `CONTREJOUR_TOKEN` 作为服务 token，不再新建。这两个变量在流程运行时读取；修改任何一个之后，再运行一次 `configure`，重新审阅、确认、apply，然后重启服务。
 
-### 5. 确认并 apply
+### 4. 确认并 apply
 
 配置表没有问题时，审核说明会给出它的 `configuration_sha256`。你批准这个版本，流程就确认并写入它。之后的任何修改，包括 `task.md`，都需要重新确认；提出修改不等于批准。
 
@@ -186,31 +193,49 @@ apply 随后：
 - 写入 `.claude/settings.json`：入口角色 `validator-task-manager`、hooks 登记，以及 `worktree.bgIsolation: "none"`，让后台会话可以直接修改 git 仓库里的文件，不必先建工作树。你的其他设置保持不变；
 - 在 `CLAUDE.md` 中写入两段：`CONTREJOUR ROLE` 标记之间的角色段（每个验证端角色都遵守的规则），以及 `CONTREJOUR ENVIRONMENT` 标记之间的空环境段。文件其余部分不动。
 
-评审流程保持你选定的样子。apply 返回 `loop`（你选定的那个流程，还没选时为 `null`）、`service_command`（运行服务的命令）、`worker_connection`（`url`，即 `public_url` 加上 `/mcp`，以及 worker 的机器配置需要的 `token`）和 `from_environment`（用了 `CONTREJOUR_URL` 和 `CONTREJOUR_TOKEN` 中的哪些），此外还有写入的文件、入口角色，以及环境技能所在的目录 `environment_skill_dir`。
+apply 不碰评审流程，它由 setup 接下来再选。apply 返回 `service_command`（运行服务的命令）、`worker_connection`（`url`，即 `public_url` 加上 `/mcp`，以及 worker 的配置需要的 `token`）和 `from_environment`（用了 `CONTREJOUR_URL` 和 `CONTREJOUR_TOKEN` 中的哪些），此外还有写入的文件、入口角色，以及环境技能所在的目录 `environment_skill_dir`。
 
 入口角色写在设置里而不是 `CLAUDE.md` 里，是因为每个角色都会读 `CLAUDE.md`。这个文件只放所有角色都必须知道的内容：本端的规则和本机的环境。
 
-### 6. 环境、wiki 和检查
+### 5. 环境和 wiki
 
-随后 `validator-config` 在真实机器上工作。它新建 `research-wiki/`，写好环境技能的脚本并把每个实际运行一次，再把每个角色都必须知道的本机情况写进环境段（见[经验放在哪里](#经验放在哪里)）。环境需要只有你知道的信息时，会问你。然后运行流程检查和角色检查（`loop-check.js check` 和 `roles`）：过期或有缺陷的流程脚本，由 `loop-authoring` 作为一步按不变的定义重新生成，再检查一次。
+随后 `validator-config` 在真实机器上工作。它新建 `research-wiki/`，写好环境技能的脚本并把每个实际运行一次，再把每个角色都必须知道的本机情况写进环境段（见[经验放在哪里](#经验放在哪里)）。环境需要只有你知道的信息时，会问你。
 
-流程最后交接，给你一份报告：apply 写入了什么，评审流程和它的超参数取值（或者还没有选定），每个环境脚本及其实际运行是否通过，检查结果，做不成的事及其真实错误，运行服务的命令，以及 `worker_connection`。
+配置最后写出它的报告，setup 交接时原样转给你：确认过的需求、apply 写入了什么、每个环境脚本及其实际运行是否通过、做不成的事及其真实错误、运行服务的命令，以及 `worker_connection`。
 
-### 7. 启动服务
+### 6. 选定评审流程
 
-在项目根目录运行服务命令，整个任务期间保持运行，例如放在终端复用器（tmux、screen）里，或作为系统服务（systemd、Windows 服务或计划任务）：
+机器配置好之后，setup 接着选评审每次提交的流程。它推荐适合 `task.md` 的那个，通常是流程库里的 `submission-review`（见[一次提交怎么评审](#一次提交怎么评审)），并给出各个超参数的取值：
+
+| 超参数 | 默认值 | 决定什么 |
+| --- | --- | --- |
+| `max_adapter_fixes` | 2 | 完整运行暴露的适配器问题最多交回 `adapter-writer` 几次 |
+| `max_extension_rounds` | 3 | 一次评审最多找几轮问题、加几轮测试项；新增测试项的总数仍受 `limits.max_new_tests_per_review` 限制 |
+| `max_leak_reviews` | 5 | 流程一次运行最多做几次泄漏审查；什么时候扣下反馈仍由 `limits.feedback_attempts` 决定 |
+
+批准，或者说明想换哪些取值、哪个流程。如果这里的评审要按别的方式进行，就把要求说清楚：`loop-authoring` 作为 setup 的一步，在最接近的流程上构建，经你批准后，setup 再把它拿来推荐。服务对每次提交运行一次你选定的流程，参数是 `{submission_id, submission_dir, params}`。新流程要接受这些参数，并以 `validator-task-manager` 发布评审结果结束，验证方无法完成评审时则放弃这次评审。这样 worker 只能收到 finalize 发布的内容。你批准之后，流程和取值记在 `.contrejour/loop.json` 里。
+
+### 7. 检查和交接
+
+然后 setup 运行流程检查和角色检查（`loop-check.js check` 和 `roles`）：过期或有缺陷的流程脚本，由 `loop-authoring` 作为一步按不变的定义重新生成，再检查一次。
+
+最后是交接，给你一份报告：第 5 步配置的报告、评审流程和它的超参数取值、检查结果和还要处理的问题、怎样启动服务，以及之后还可以做什么。到这里验证端就设置好了。
+
+### 8. 启动服务
+
+在项目根目录运行交接报告里给出的服务命令，整个任务期间保持运行，例如放在终端复用器（tmux、screen）里，或作为系统服务（systemd、Windows 服务或计划任务）：
 
 ```bash
 node .contrejour/dist/tools/validation-cli.js serve --project .
 ```
 
-没有选定评审流程（第 1 步）时，它拒绝启动。服务在启动时读取冻结的配置和 token，所以每次重新 apply 之后都要重启它。流程和超参数在每次开始评审时读取：换一个流程或改了取值，只影响下一次评审，不影响正在进行的评审。查看验证状态：
+服务要在设置之后才启动，因为它运行的是 setup 选定的评审流程：还没有选定时，它拒绝启动（`LOOP_NOT_SELECTED`）。服务在启动时读取冻结的配置和 token，所以每次重新 apply 之后都要重启它。流程和超参数在每次开始评审时读取：换一个流程或改了取值，只影响下一次评审，不影响正在进行的评审。查看验证状态：
 
 ```bash
 node .contrejour/dist/tools/validation-cli.js status --project .
 ```
 
-通过私密渠道把 `worker_connection` 的地址和 token 交给 worker 端的 owner。评审不用你启动：服务为每次提交启动一次。之后要改条款，再运行一次机器配置，apply 之后重启服务；要改评审流程或它的超参数，在 Studio 里重新选。
+通过私密渠道把 `worker_connection` 的地址和 token 交给 worker 端的 owner。评审不用你启动：服务为每次提交启动一次。之后要改条款，再运行一次 `configure`，apply 之后重启服务；要改评审流程或它的超参数取值，见[以后要改时](#以后要改时)。
 
 ### benchmark 只增不改
 
@@ -267,15 +292,19 @@ worker 的任务管理角色调用 `submit`，拿到一次性上传地址，用 
 
 ## worker 机器
 
-确认验证端的服务正在运行，并拿到了它的 `worker_connection`。然后和验证端一样：选定流程，配置机器，开始工作。
+确认验证端已经设置好、服务正在运行，并拿到了它的 `worker_connection`。然后用同样的方式设置 worker，再开始工作。
 
-### 1. 选定流程
+### 1. 开始设置
 
-安装、打开 Studio 并接受信任提示。项目里已经有流程库的研究流程 `research-iteration`（见[一轮做什么](#一轮做什么)）。在 Studio 里，或者用命令行，按你要的取值把它设为本项目的主任务流程，例如：
+安装、接受目录信任提示，然后开始设置：在 Studio 里（画布上就是 `setup` 流程，点「运行」），或者在项目里用 `claude "Run the setup loop"`。第一步是 worker 端的 `configure`；整个设置过程都不会开始研究。
 
-```bash
-node .contrejour/dist/tools/project-cli.js use --project . --loop research-iteration --param informed_ideators=2
-```
+worker 的配置表包括 `project.name`、`project.language`、`environment.secrets`、`connection.url`（`worker_connection` 的地址，以 `/mcp` 结尾）和 `connection.token`。连接信息填进配置表后，`worker-config` 用 `config-cli.js fetch-task` 从验证端逐字节取回 `task.md`；不要手工编写或复制它。你确认审核说明给出的摘要时，取回的任务也在确认范围内。
+
+apply 先核对 `task.md` 是否仍与验证端一致：如果在你审阅之后验证端改过任务，apply 以 `TASK_CHANGED` 停止，流程会重新取回任务，再请你确认配置表。随后 apply 把 `environment.secrets` 写入 `.contrejour/environment.json`（权限 0600）；把 `contrejour` 服务写入 `.mcp.json`，只替换这一项；把 `.contrejour/` 和 `.mcp.json` 加进 `.gitignore`，因为其中有凭据；写入 `.claude/settings.json`，包括入口角色 `worker-task-manager`、hooks 登记和 `worktree.bgIsolation: "none"`；并在 `CLAUDE.md` 中写入角色段和空的环境段。之后 `worker-config` 新建 `research-wiki/`，写好环境技能的脚本并把每个实际运行一次，写入环境段（只有你知道的信息会问你，比如主机、配额、它找不到的路径）。配置最后写出它的报告：apply 写入了什么、每个脚本的实际运行情况，以及未完成的事。
+
+### 2. 选定流程
+
+接着 setup 推荐这台机器要运行的流程，通常是流程库里的研究流程 `research-iteration`（见[一轮做什么](#一轮做什么)），并给出各个超参数的取值：
 
 | 超参数 | 默认值 | 决定什么 |
 | --- | --- | --- |
@@ -284,13 +313,9 @@ node .contrejour/dist/tools/project-cli.js use --project . --loop research-itera
 | `blank_ideators` | 1 | 每轮只看任务和问题的出想法角色个数 |
 | `ucb_c` | 1 | 给想法排序时探索奖励的权重；为 0 时只按潜力×可行性排序 |
 
-这台机器怎样做验证端的任务，就由这个选择决定。想换一种工作方式，比如比多轮探索更窄的工作，或者对做法有限制，就在 Studio 的对话里说清楚，`loop-authoring` 会在最接近的流程上构建，经你批准后才装进项目。无论选定哪个流程，都由 `worker-task-manager` 运行，也只有它能访问验证服务。
+这台机器怎样做验证端的任务，就由这个选择决定。批准，或者说明想换哪些取值、哪个流程。想换一种工作方式，比如比多轮探索更窄的工作，或者对做法有限制，就把要求说清楚，`loop-authoring` 会在最接近的流程上构建，经你批准后才装进项目。无论选定哪个流程，都由 `worker-task-manager` 运行，也只有它能访问验证服务。
 
-### 2. 配置机器
-
-在 Studio 里，或者在项目里用 `claude "Run the machine-config loop"`，运行 worker 的 `machine-config` 流程；它不会开始任何研究。配置表包括 `project.name`、`project.language`、`environment.secrets`、`connection.url`（`worker_connection` 的地址，以 `/mcp` 结尾）和 `connection.token`。连接信息填进配置表后，`worker-config` 用 `config-cli.js fetch-task` 从验证端逐字节取回 `task.md`；不要手工编写或复制它。你确认审核说明给出的摘要时，取回的任务也在确认范围内。
-
-apply 先核对 `task.md` 是否仍与验证端一致：如果在你审阅之后验证端改过任务，apply 以 `TASK_CHANGED` 停止，流程会重新取回任务，再请你确认配置表。随后 apply 把 `environment.secrets` 写入 `.contrejour/environment.json`（权限 0600）；把 `contrejour` 服务写入 `.mcp.json`，只替换这一项；把 `.contrejour/` 和 `.mcp.json` 加进 `.gitignore`，因为其中有凭据；写入 `.claude/settings.json`，包括入口角色 `worker-task-manager`、hooks 登记和 `worktree.bgIsolation: "none"`；并在 `CLAUDE.md` 中写入角色段和空的环境段。你选定的流程保持不变。之后 `worker-config` 新建 `research-wiki/`，写好环境技能的脚本并把每个实际运行一次，写入环境段（只有你知道的信息会问你，比如主机、配额、它找不到的路径），检查项目里的流程，然后交接：报告 apply 写入了什么、项目运行哪个流程、每个脚本的实际运行情况、检查结果和未完成的事。
+然后 setup 像在验证端一样检查流程并交接：配置的报告、流程和它的取值、检查结果，以及怎样开始工作。到这里 worker 就设置好了。
 
 ### 3. 开始工作
 
@@ -303,7 +328,7 @@ claude --permission-mode bypassPermissions "start"
 
 流程无人值守地运行，所以会话要用不等人批准的权限模式：默认模式下，它在第一条命令就会停下等批准。`bypassPermissions` 让实验可以使用网络和项目之外的路径；`auto` 由分类器审查每一步，可能拒绝其中一些。Studio 启动的会话用 `bypassPermissions`，除非启动 Studio 时加了 `--permission-mode auto`。
 
-会话以 `.claude/settings.json` 里的入口角色 `worker-task-manager` 身份运行，并加载 `.mcp.json`；Claude Code 询问时，批准 `contrejour` 服务。Studio 启动的会话在后台运行，没有人在场批准，所以打算从 Studio 开始工作的话，先在机器配置完成之后，于项目里打开一次 `claude`，批准这个服务。会话按你选定的取值运行主任务流程。第一句话里不要放别的内容：流程里的每个角色都会收到启动它的那条消息，包括只该看到任务和问题的"空白"出想法角色。
+会话以 `.claude/settings.json` 里的入口角色 `worker-task-manager` 身份运行，并加载 `.mcp.json`；Claude Code 询问时，批准 `contrejour` 服务。Studio 启动的会话在后台运行，没有人在场批准，所以打算从 Studio 开始工作的话，先在设置完成之后，于项目里打开一次 `claude`，批准这个服务。会话按你选定的取值运行主任务流程。第一句话里不要放别的内容：流程里的每个角色都会收到启动它的那条消息，包括只该看到任务和问题的"空白"出想法角色。
 
 让这个会话一直运行。它会自己一轮接一轮地运行，只有任务结束时才再需要你。你可以随时问它状态（Studio 启动的会话，用对话里给出的编号运行 `claude attach <编号>`）：它根据台账和 `query`，报告每次提交的状态、结论、测试项通过数与总数、想法和针对的问题、commit 和 zip，以及已用和剩余的次数。
 
@@ -326,32 +351,36 @@ claude --permission-mode bypassPermissions "start"
 
 通过全部现有测试项不会结束任务，因为验证端还会继续加测试项。`query` 报告 `closed` 时任务才结束：计次提交已经用完，也没有正在进行的评审。
 
-任务管理角色随后报告最终统计，以及还可以送回各流程库的内容（见[贡献回流程库](#贡献回流程库)），然后停止。验证端用 `status` 查看同样的状态。
+任务管理角色随后报告最终统计，以及还有哪些内容可以离开项目：项目自己做出来、可以贡献的流程和角色，以及它对拿到的流程和角色所做、可以送回的改进（见[哪些内容会离开项目](#哪些内容会离开项目)），然后停止。验证端用 `status` 查看同样的状态。
 
-## 贡献回流程库
+## 哪些内容会离开项目
 
-项目学到的东西可以送回它的流程和角色来自的流程库，以 PR 的形式交给各库的维护者审核。不必等任务结束：**只要有一次提交完成就可以**，也就是有一次提交走完评审、结果已发布（`invalid`、`expired`、`failed` 不算）。项目有值得分享的东西就可以贡献，之后还可以再贡献。两端都一样，在 Studio 里运行 `library-contribution` 流程，或者在项目里运行：
+项目里的东西不会自己离开项目。往外送东西的流程有两个，每个都只在你决定时运行、只在有任务完成之后运行，而且要等你审核过要发出的确切内容：
+
+| 流程 | 送出什么 | 送到哪里 |
+| --- | --- | --- |
+| `library-contribution`：贡献 | 本项目自己做出来的流程和角色，也就是不是从任何流程库拿到的那些 | 一律送到共享流程库 agent-loop-community，一个 PR |
+| `upstream-optimization`：把改进送回来源 | 本项目对从流程库拿到的流程和角色所做的改进，主要是 `trajectory-optimizer` 修好的角色 | 各自送回来源，每个流程库一个 PR：框架的基础流程和角色回 agent-loop-studio，本项目包 worker 端和验证端的回 auto-dl-loop，共享流程库的回 agent-loop-community |
+
+两者从不重叠：从流程库拿到的流程或角色只会被送回来源，不会被贡献；项目自己做的只会被贡献，不会被送回。
+
+任务完成指的是有一次提交完成：走完评审、结果已发布（`invalid`、`expired`、`failed` 不算）。不必等整个任务结束：项目有值得送出的东西，就可以运行其中一个，之后还可以再运行。第一次有提交完成时，worker 的任务管理角色会告诉你；任务结束时，它还会告诉你还有什么可以送出。两端都一样，在 Studio 里运行，或者在项目里运行：
 
 ```bash
 claude "Run the library-contribution loop"
+claude "Run the upstream-optimization loop"
 ```
 
-每个流程或角色都回到它来的地方：
+两个流程的步骤相同，会话运行流程并替你传话：
 
-| 内容 | 去向 |
-| --- | --- |
-| 你改过的框架基础流程或角色，比如 `loop-authoring`、`trajectory-optimizer` | agent-loop-studio |
-| worker 端或验证端的流程和角色，改过的或新建的 | auto-dl-loop |
-| 任何项目都能用的新流程或新角色（`side` 为 `framework`），以及原本来自共享流程库、被你改过的 | agent-loop-community |
+1. **列清单。** `library-contributor` 列出要发送的内容，写明每个文件去哪个流程库，并逐个给出判断：别的项目用不用得上，会不会透露本项目的东西。只考虑项目安装后新增或改动的文件：安装器把放入的内容在 `.contrejour/seeded/` 留了一份副本，所以你没动过的文件绝不发送，不管流程库后来变了多少，送出去的东西也就不会改回别人的改进。送回改进时，如果流程库在此期间也改了同一个文件：改在不同位置的，合并两边；改了同一处的，这个文件先留下，并说明怎么处理。不合 Contrejour 流程或角色格式的文件（比如你自己的 agent）留在项目里。含本项目密钥或 token、隐藏路径或注入模式的文件直接拒绝。本机路径和只有本项目用得上的内容会指出来，由你决定。清单还列出流程检查和角色检查在结果里发现的问题。
+2. **验证端的检查。** 在验证端，不论往哪里送，都要先运行验证端自己的 `contribution-check`（[`library/loops/validator/contribution-check.md`](library/loops/validator/contribution-check.md)）：`leak-reviewer` 从全新的上下文出发，拿要发出的这批文件和隐藏测试逐一比对，把结论记在这份清单的摘要上。没有通过，什么都发不出去。它代替框架的 `contribution-check`（框架的那个是请你自己把这些文件读一遍）；worker 端的清单不需要这项检查。
+3. **审核。** 你审核一次清单（`owner-review` 这一步），清单包括要发往各个流程库的全部内容：批准，或者说明要去掉或修改什么，然后你会看到新的清单。只有检查没有发现问题（验证端还要泄漏检查通过）时才能批准。你批准之前，什么都不会推送。
+4. **发送。** `library-contributor` 只发送你批准的内容，每个流程库一个 PR。对每个流程库，它从该库的最新版本新开分支（贡献用 `library/<项目>-<端>-<yyyymmdd>`，送回改进用 `upstream/<项目>-<端>-<yyyymmdd>`），写入批准的文件，然后提交、推送并开 PR；对某个仓库没有写权限就走 fork。各本地仓库当前的分支和改动保持不变，用过的工作副本会清理掉。你批准之后内容如果又有变化，helper 会拒绝发送；再运行一次流程，审核新的清单。
 
-会话以任务管理角色运行，它运行这个流程并替你传话。流程的步骤是：
+两个流程都通过 helper `library-cli.js` 工作：`plan`、`clone` 和 `contribute`，各自带 `--purpose share`（贡献，默认）或 `--purpose upstream`（送回改进）。只想看看会送出什么、不真的发送，可以运行 `node .contrejour/dist/tools/library-cli.js plan --project . --purpose upstream`（或 `share`）。研究任务给这两件事另加的规则，比如什么算任务完成、验证端的检查，写在 [`skills/shared-references/project-rules.md`](skills/shared-references/project-rules.md) 里。
 
-1. **`library-contributor` 列出要发送的内容**，写明每个文件去哪个流程库，并逐个给出判断。只有项目安装后新增或改动的文件：安装器把放入的内容在 `.contrejour/seeded/` 留了一份副本，所以你没动过的文件绝不发送，不管流程库后来变了多少，贡献也就不会改回别人的改进。你和流程库改了同一个角色的不同位置，就合并两边；改了同一处，这个文件先留下，并说明怎么处理。不合 Contrejour 流程或角色格式的文件（比如你自己的 agent）留在项目里。含本项目密钥或 token、隐藏路径或注入模式的文件直接拒绝。本机路径和只有本项目用得上的内容会指出来，由你决定。清单还列出流程检查和角色检查在结果里发现的问题。
-2. **验证端由 `leak-reviewer` 检查这批文件**：它从全新上下文拿这批文件和隐藏测试比对，结论记在这份清单上。
-3. **你审核一次清单**（`owner-review` 这一步），清单包括要发往各个流程库的全部内容：批准，或者说明要去掉或修改什么，然后你会看到新的清单。只有检查没有发现问题（验证端还要泄漏检查通过）时才能批准。你批准之前，什么都不会推送。
-4. **`library-contributor` 只发送你批准的内容**，每个流程库一个 PR。对每个流程库，它从该库的最新版本新开分支 `library/<项目>-<端>-<yyyymmdd>`，写入批准的文件，然后提交、推送并开 PR；对某个仓库没有写权限就走 fork。各本地仓库当前的分支和改动保持不变，用过的工作副本会清理掉。你批准之后内容如果又有变化，helper 会拒绝发送；再运行一次流程，审核新的清单。
-
-推送到 GitHub 和开 PR 需要已登录的 GitHub CLI（`gh auth login`）。没有它时，如果你的 git 凭据允许，分支仍会推送，并给出地址让你自己开 PR；推送不了，提交就留在那个本地仓库里，结果会说明缺什么。从归档安装的项目没有本地仓库：流程会问你要不要从这个版本注明的仓库取一份（连同子模块），或者你在安装时传 `--library PATH`。新角色的 `side` 决定谁能拿到：`framework` 经由 agent-loop-community 进入所有项目，`worker` 或 `validator` 经由 auto-dl-loop 只进入那一端。
+推送到 GitHub 和开 PR 需要已登录的 GitHub CLI（`gh auth login`）。没有它时，如果你的 git 凭据允许，分支仍会推送，并给出地址让你自己开 PR；推送不了，提交就留在那个本地仓库里，结果会说明缺什么。从归档安装的项目没有本地仓库：流程会问你要不要取一份，贡献时取共享流程库，送回改进时取这个版本注明的仓库（连同子模块）；也可以在安装时传 `--library PATH`。贡献出去的流程或角色，由它的 `side` 决定共享流程库把它交给哪些项目：`framework` 交给所有项目，`worker` 或 `validator` 只交给那一端的项目。新角色要是任何项目都用得上，清单会指出来，由你决定是否把它的 `side` 改成 `framework`。
 
 ## 经验放在哪里
 
@@ -360,8 +389,8 @@ claude "Run the library-contribution loop"
 | 种类 | 位置 | 写入方 |
 | --- | --- | --- |
 | 研究知识：每个问题上已有工作做了什么、试过哪些想法和实验、哪些有效 | `research-wiki/`，每台机器一份 | 只有记忆角色（`worker-memory`、`validator-memory`），通过 `research-wiki.js` |
-| 本机的事实和经验 | `CLAUDE.md` 的环境段 | 机器配置（`worker-config`、`validator-config`）写初始内容，之后只有记忆角色 |
-| 每次都一样的固定操作 | 环境技能 `<项目>-environment` 的脚本 | 机器配置写初始内容，之后由记忆角色补充 |
+| 本机的事实和经验 | `CLAUDE.md` 的环境段 | 配置角色（`worker-config`、`validator-config`）写初始内容，之后只有记忆角色 |
+| 每次都一样的固定操作 | 环境技能 `<项目>-environment` 的脚本 | 配置角色写初始内容，之后由记忆角色补充 |
 | 一个角色怎么做它那一步 | `.claude/agents/` 里它的文件 | `trajectory-optimizer`；验证端只能通过你在 `proposal-review` 里接受的提案；新角色通过 `role-authoring` |
 | 运行哪些角色、按什么顺序 | `.claude/loops/` 里的流程定义 | `loop-authoring`，只按你的要求 |
 
@@ -373,15 +402,15 @@ claude "Run the library-contribution loop"
 
 **角色。** worker 每一轮、validator 每一次评审之后，`trajectory-optimizer` 读每个角色做了什么，按该角色自己的 Evaluation 一节评估它，在问题重复出现或明显影响了结果的地方，对角色文件做一处小修改。在 worker 端，每处修改单独提交一个 commit，任何一处都可以撤回。在验证端，它只把提案写进 `.contrejour/proposals/`，你在 `proposal-review` 流程里接受后才生效：验证端的轨迹里有隐藏测试和 worker 写的文字，这两样都不能混进角色。
 
-**流程库。** 流程和角色回到它们来自的流程库（见[贡献回流程库](#贡献回流程库)），下一个项目就从这个项目学到的东西开始。这取代了早期版本跨项目的 `Experience.md`。
+**流程库。** 项目自己做出来的流程和角色贡献给共享流程库，对拿到的流程和角色所做的改进送回各自的来源（见[哪些内容会离开项目](#哪些内容会离开项目)），下一个项目就从这个项目学到的东西开始。这取代了早期版本跨项目的 `Experience.md`。
 
 ## 修改流程和角色
 
-修改流程和角色也通过流程进行，每次都经你审核。最方便的入口是 Studio 的对话（见 [Studio](#studio)）；在会话里，用 `claude "Run the <流程> loop"` 运行其中一个，并说明你要什么，任务管理角色运行它并替你传话。换一个主任务流程，或者改它的超参数取值，不需要改任何流程：在 Studio 里或用 `project-cli.js use` 重新选即可（见[安装之后](#安装之后)）。
+修改流程和角色也通过流程进行，每次都经你审核。最方便的入口是 Studio 的对话（见 [Studio](#studio)）；在会话里，用 `claude "Run the <流程> loop"` 运行其中一个，并说明你要什么，任务管理角色运行它并替你传话。换一个主任务流程，或者改它的超参数取值，不需要改任何流程：在 Studio 里或用 `project-cli.js use` 重新选即可（见[以后要改时](#以后要改时)）。
 
 - **`loop-authoring`** 按你的描述新建或修改流程。先由 `loop-query` 在本项目和它的各个流程库里找可以作为基础的流程；如果已有流程恰好就能做你要的事，会先问你是否直接用它。然后 `loop-editor` 在最接近的流程上构建新流程，保留它做得好的部分，只改你要求改的（只有你要求时才从头写）；缺的角色由 `role-creator` 以最接近的已有角色为基础补上。所有内容先放在 `.contrejour/drafts/` 里并通过检查；你会看到流程定义、脚本、新角色以及和基础流程的区别，只有你批准的那个版本才会装进项目。运行中的流程不会改自己，其他流程也不改流程。
 - **`role-authoring`** 按你的描述（在哪一步做什么、收到什么、交出什么、能读写什么、怎样算做得好）新建或修改角色。`role-creator` 先在本项目和它的各个流程库里找已经能做这件事的角色，有合适的就先问你是否直接用；没有就以最接近的角色为基础构建（只有你要求时才从头写），检查后装入你批准的版本。需要一个没有角色负责的步骤时，就加一个角色，而不是加一段不属于任何角色的代码。
-- **`library-contribution`** 把项目新增和改动的内容送回它们来自的流程库（见[贡献回流程库](#贡献回流程库)）。
+- **`library-contribution`** 把项目自己做出来的流程和角色贡献给共享流程库，**`upstream-optimization`** 把项目对拿到的流程和角色所做的改进送回各自的来源（见[哪些内容会离开项目](#哪些内容会离开项目)）。
 - **`proposal-review`**（验证端）把 `trajectory-optimizer` 提出的角色修改交给你，应用你接受的那些。
 
 想问哪个流程适合某项工作，或者某个流程做什么，可以直接问 `loop-query`：`claude --agent loop-query "<你的问题>"`。
@@ -392,9 +421,9 @@ claude "Run the library-contribution loop"
 node .contrejour/dist/tools/loop-check.js check --project .
 ```
 
-它报告未知或未指定的角色、未知的子流程和嵌套超过一层的子流程、对当前时间或随机数的使用、停不下来的循环、未声明的阶段、任何回答都走不到的角色、未知的 `kind` 或触发动作，以及比定义旧的脚本。流程的 `kind` 写明它的用途：`task` 是项目的工作，由你选作主任务流程；`on-request` 在你要求时运行。
+它报告未知或未指定的角色、未知的子流程和嵌套超过一层的子流程、对当前时间或随机数的使用、停不下来的循环、未声明的阶段、任何回答都走不到的角色、未知的 `kind` 或触发动作，以及比定义旧的脚本。流程的 `kind` 写明它的用途：`task` 是项目的工作，由你选作主任务流程；`setup` 是设置项目的流程；`on-request` 在你要求时运行。
 
-hooks 负责每次某个事件发生都必须做的事。安装器在 `.claude/settings.json` 里登记它们，所以从你运行的第一个流程起它们就在把关；选定主任务流程、apply 机器配置时还会重新登记。全部交给 Contrejour 的 hook helper。它们只做记录、通知或拦截，执行哪些动作写在流程定义里（`triggers`）：
+hooks 负责每次某个事件发生都必须做的事。安装器在 `.claude/settings.json` 里登记它们，所以从你运行的第一个流程起它们就在把关；选定主任务流程、apply 配置时还会重新登记。全部交给 Contrejour 的 hook helper。它们只做记录、通知或拦截，执行哪些动作写在流程定义里（`triggers`）：
 
 - `record-trajectory`：角色结束时，把它的过程记录复制到 `.contrejour/trajectories/`，并记下所属的会话、流程和提交。Claude Code 自己的记录放在你的用户目录下，默认 30 天后清理，格式也随版本变化，所以要复制一份。轨迹只留在本机。
 - `notify-stopped-review`（验证端）：评审会话在提交未完成时停下，就通知服务。
@@ -415,7 +444,7 @@ node .contrejour/dist/tools/loop-view.js --project .
 
 ## Studio
 
-Studio 是你在本机浏览器里管理项目的控制台：它把每个流程画成流程图，按你的描述找出相近的流程，在对话里和你一起改，把其中一个连同你定的超参数设为本项目的主任务流程，还能运行项目里的流程，把它们的问题转给你。
+Studio 是你在本机浏览器里管理项目的控制台：它和你一起设置新项目，把每个流程画成流程图，按你的描述找出相近的流程，在对话里和你一起改，把其中一个连同你定的超参数设为本项目的主任务流程，还能运行项目里的流程，把它们的问题转给你。
 
 ```bash
 node .contrejour/dist/tools/studio.js --project .
@@ -423,11 +452,12 @@ node .contrejour/dist/tools/studio.js --project .
 
 它会打印一个登录链接，在浏览器里打开一次即可。这个链接只能让一个浏览器登录，只保存在 Studio 的内存里、不写进任何文件，所以本机上的 agent 没法借它冒充你；需要新链接就重启 Studio。和流程页面一样，Studio 只在本机地址上响应（默认端口 8790，`--port` 可以换）。要在别的机器上用，先用 `ssh -L 8790:127.0.0.1:8790 <机器>` 转发端口，再在那台机器上打开登录链接；两边的端口号要一致，因为 Studio 只应答发给它自己地址的请求。
 
+- **设置项目。** 还没设置的项目，一打开画布上就是它的 `setup` 流程（见[setup 的四步](#setup-的四步)）。点「运行」；每次需要你决定时，审核说明和问题都会出现在对话里。项目设置好之后，Studio 打开时画布上就是它的主任务流程。
 - **说你想要什么。** 在对话框里描述你需要的流程。Studio 马上列出本项目和它的各个流程库里相近的流程，每个都能预览它的流程图，并把最接近的放到画布上。可以换一个，也可以原样使用。
 - **画布**上是流程的各个步骤、每一步由哪些角色来做、同时进行的角色分组、停下等你决定的步骤（橙色），以及箭头：去下一步、按条件跳到后面、回到前面的步骤（虚线）、提前结束。流程的超参数排在右侧，用虚线连到它们影响的步骤。点一个步骤可以看它的完整说明。
 - **用一句话改。** 点画布上的步骤、箭头或参数来引用它们，再说要怎么改；你不需要指定变量或角色之间的接口。Studio 会在后台的 Claude Code 会话里、以任务管理角色的身份运行 `loop-authoring`，并显示当前是哪个角色在工作。创建流程的角色以画布上的流程为基础起草修改、补上需要的角色、检查草稿，然后停下请你审核：草稿画在画布上，可以和原流程切换着看，审核说明显示在对话里。你可以批准、取消，或者继续说还要怎么改。你的回复会原样交给流程，`guard-owner-answers` 像核对终端里输入的回复一样核对它；只有你批准的那个版本才会装进项目。
 - **设为主任务流程。** 「超参数」列出流程的各个超参数及其默认值和取值范围。设好取值，点「设为本项目的主任务」：流程和这些取值写进 `.contrejour/loop.json`，下一轮或下一次评审就用它们。只有 `task` 类的流程能设为主任务流程。项目里还没有的流程库流程，会先连同它需要、而项目里还没有的角色一起复制进项目，从此归项目所有。
-- **运行流程。** 「运行」在一个后台 Claude Code 会话里、以任务管理角色的身份运行项目里的某个流程：`machine-config`、`library-contribution`、验证端的 `proposal-review`，或者 worker 端的主任务流程（验证端的评审由服务按提交逐次启动）。画布上会标出正在进行和已经完成的步骤。流程停下等你决定时，审核说明和问题显示在对话里，你的回复会原样交给流程。
+- **运行流程。** 「运行」在一个后台 Claude Code 会话里、以任务管理角色的身份运行项目里的某个流程：`setup`、`configure`、`library-contribution`、`upstream-optimization`、验证端的 `proposal-review`，或者 worker 端的主任务流程（验证端的评审由服务按提交逐次启动）。画布上会标出正在进行和已经完成的步骤。流程停下等你决定时，审核说明和问题显示在对话里，你的回复会原样交给流程。
 - **角色和运行记录。** 角色页显示每个角色的文件内容和用到它的流程，也可以在对话里通过 `role-authoring` 修改某个角色或新建角色；运行记录页显示每个流程在轨迹索引里的运行。
 
 Studio 启动的会话无人值守，所以默认用 `--permission-mode bypassPermissions`；启动 Studio 时加 `--permission-mode auto` 则改用 auto 模式。`--model` 指定这些会话的模型，`--claude` 指定它们运行的 Claude Code 程序（Windows 上用原生的 `claude.exe`：npm 安装的 `claude.cmd` 不经过 shell 无法启动）。对话里会给出会话编号，用 `claude attach <编号>` 可以实时查看。Claude Code 只在它信任的目录里启动后台会话，所以先在项目里打开一次 `claude` 并接受信任提示。
@@ -448,7 +478,7 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 bash distribution/install-contrejour.sh --role worker --project /path/to/project
 ```
 
-安装器根据当前仓库生成并校验一个临时文件包，补回缺失的文件，更新 helper、运行依赖、模板和装好的技能，删除包里已移除的文件。其中任何一个有本地修改，更新都会在写入之前停止：保存你的修改，再加 `--force` 重新运行以替换它。放入项目的流程和角色保持项目里的版本，列在 `kept_project_versions` 下。想用流程库里更新的版本，先删除项目里的那份（流程要同时删除定义和脚本），再运行安装器。`task.md`、wiki、benchmark、提交记录、机器配置的草稿和状态、`.contrejour/loop.json` 里选定的流程、`.contrejour/environment.json` 和环境技能都不会被动；`.claude/settings.json` 里，安装器只重新登记它的 hooks。
+安装器根据当前仓库生成并校验一个临时文件包，补回缺失的文件，更新 helper、运行依赖、模板和装好的技能，删除包里已移除的文件。其中任何一个有本地修改，更新都会在写入之前停止：保存你的修改，再加 `--force` 重新运行以替换它。放入项目的流程和角色保持项目里的版本，列在 `kept_project_versions` 下。想用流程库里更新的版本，先删除项目里的那份（流程要同时删除定义和脚本），再运行安装器。`task.md`、wiki、benchmark、提交记录、配置的草稿和状态、`.contrejour/loop.json` 里选定的流程、表示项目已设置好的 `.contrejour/setup.json`、`.contrejour/environment.json` 和环境技能都不会被动；`.claude/settings.json` 里，安装器只重新写入它的 hooks 和入口角色。
 
 已经配置过的机器，重新运行 `node .contrejour/dist/tools/config-cli.js apply --project .` 来更新 `CLAUDE.md` 的角色段和设置；配置没变时，原来的确认仍然有效。Claude Code 在会话开始时读取角色和技能，所以之后要打开新会话，并重启 Studio。验证端要重启服务，让它运行更新后的 helper。
 
@@ -461,14 +491,15 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 | 安装器：`Local file differs` | 安装包管理的某个文件被改过：保存修改，再加 `--force` 重新运行 |
 | Studio 的登录链接提示已用过或不对，或页面返回 `wrong host` | 链接只能让一个浏览器登录一次：重启 Studio 获取新链接。经 `ssh -L` 转发时，两边用同一个端口号 |
 | Studio 启动不了会话（点「运行」，或在对话里要求修改时） | 目录已信任（在项目里运行一次 `claude` 并接受提示）；`--claude` 指向不经过 shell 也能启动的 Claude Code（Windows 上用 `claude.exe`）；运行 Studio 的用户已登录 Claude Code。对话里会说明会话为何无法启动 |
-| 服务启动失败：`LOOP_NOT_SELECTED` | 在 Studio 里，或用 `project-cli.js use --project . --loop submission-review` 选定评审流程，再启动服务 |
+| 说 `start` 却运行了 setup，而不是主任务流程 | 项目还没设置好（没有 `.contrejour/setup.json`）：让 setup 走到交接；之后 `start` 就会运行主任务流程 |
+| 服务启动失败：`LOOP_NOT_SELECTED` | 还没有选定评审流程：让 setup 走完选主任务流程这一步并交接，或者在 Studio 里、用 `project-cli.js use --project . --loop submission-review` 选定，再启动服务 |
 | 提交都以 `failed` 结束，`claude agents` 里也没有评审会话 | 目录已信任（在验证端项目里运行一次 `claude` 并接受提示）；`validation.agent.claude_command` 能运行 `--version`（Windows 上用 `claude.exe`，或 `node` 加 `cli.js`）；运行服务的用户已登录 Claude Code。服务的输出会说明会话为何无法启动 |
 | 配置表在 `validation.agent.claude_command` 上报告问题 | 该命令无法启动，或它的 `--version` 失败；Windows 上 `.cmd` 或 `.bat` 包装会被拒绝 |
-| 某个流程未通过 `loop-check` | 报告会列出每个缺陷，或指出脚本已过期。脚本过期时用 `claude "Run the loop-authoring loop to regenerate <流程>"` 按定义重新生成；定义本身有错，就通过 `loop-authoring` 修改，经你审核。机器配置在检查这一步会重新生成未通过的脚本；验证端的任务管理角色在每次评审前也会自己重新生成未通过的脚本，仍不通过就停止 |
+| 某个流程未通过 `loop-check` | 报告会列出每个缺陷，或指出脚本已过期。脚本过期时用 `claude "Run the loop-authoring loop to regenerate <流程>"` 按定义重新生成；定义本身有错，就通过 `loop-authoring` 修改，经你审核。setup 在检查这一步会重新生成未通过的脚本；验证端的任务管理角色在每次评审前也会自己重新生成未通过的脚本，仍不通过就停止 |
 | 没有轨迹，或某个 hook 似乎不起作用 | 看 `.contrejour/hook-errors.log`：hook helper 把错误写在那里，并让事件照常通过。它的动作只有在某个流程定义的 `triggers` 里声明了才会执行。登记写在 `.claude/settings.json` 里，指向写入登记时的那个 Node.js：Node.js 换了位置后，重新运行安装器 |
-| `query` 或 `fetch-task` 失败 | 服务正在运行；worker 能访问 `/health`；地址以 `/mcp` 结尾；token 一致；验证端的 `task.md` 是 UTF-8 |
+| `query` 或 `fetch-task` 失败 | 验证端已设置好、服务正在运行；worker 能访问 `/health`；地址以 `/mcp` 结尾；token 一致；验证端的 `task.md` 是 UTF-8 |
 | worker 的 apply 报告 `TASK_CHANGED` | 验证端在你审阅之后改了 `task.md`：流程会重新取回，你再审阅并确认 |
-| 新会话不是任务管理角色，或没有 `contrejour` 工具 | 安装器会把入口角色写进 `.claude/settings.json`（选定主任务流程、apply 机器配置时会再写一次）；如果被删掉了，运行 `node .contrejour/dist/tools/project-cli.js hooks --project .`。worker 的 apply 把 `contrejour` 服务写进 `.mcp.json`，Claude Code 会请你批准；打开新会话 |
+| 新会话不是任务管理角色，或没有 `contrejour` 工具 | 安装器会把入口角色写进 `.claude/settings.json`（选定主任务流程、apply 配置时会再写一次）；如果被删掉了，运行 `node .contrejour/dist/tools/project-cli.js hooks --project .`。worker 的 apply 把 `contrejour` 服务写进 `.mcp.json`，Claude Code 会请你批准；打开新会话 |
 | 上传被拒为 `invalid` | `requirements` 里的 zip 规则：`USAGE.md` 在根目录或唯一的顶层文件夹，大小和文件数限制，可移植的相对路径名。上传地址只能用一次，而且会过期。`invalid` 不计次 |
 | 提交为 `failed` | 本方原因。要么评审会话无法启动、被删除、无法继续，或超出审查时限（服务的输出会说明是哪种，`claude logs <编号>` 显示会话内容），要么评审因本机故障被放弃（`validation-cli.js status --project . --submission <编号>` 在 `abandoned` 下显示原因）。`failed` 不计次 |
 | 修改之后服务拒绝工作（`BENCHMARK_CHANGED`） | 恢复冻结的 base benchmark、它的证据文件和层的仓库，或新开一个验证端项目 |

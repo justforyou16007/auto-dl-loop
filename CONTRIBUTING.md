@@ -1,12 +1,12 @@
 # Contributing
 
-This repository holds the research task. The framework it runs on, [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio), and the shared library of loops and roles, [agent-loop-community](https://github.com/justforyou16007/agent-loop-community), are git submodules at `agent-loop-studio/` and `agent-loop-community/`, each pinned at a version. Dependencies point one way: this package uses them, and nothing in them may depend on it.
+This repository holds the research task. The framework it runs on, [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio), and the shared library of loops and roles, [agent-loop-community](https://github.com/justforyou16007/agent-loop-community), are git submodules at `agent-loop-studio/` and `agent-loop-community/`, each pinned at a version. Dependencies point one way: this package uses them, and neither needs it to build or to pass its checks.
 
 So a change goes where it belongs:
 
-- **The framework** (its helpers such as the hooks, the loop check and the contribution helper; the Studio; the installer; the base loops and roles): make it in agent-loop-studio, as a pull request there. Once it is merged, bump the submodule here in a commit of its own. CI checks the submodules out, so a pull request here can only point at a submodule commit that is already on GitHub.
-- **A loop or role any project can use**: agent-loop-community.
-- **What belongs to the research task alone**: here.
+- **The framework** (its helpers such as the hooks, the loop check and the contribution helper; the Studio; the installer; the base loops and roles, `setup` among them): make it in agent-loop-studio, as a pull request there. Once it is merged, bump the submodule here in a commit of its own. CI checks the submodules out, so a pull request here can only point at a submodule commit that is already on GitHub.
+- **A new loop or role a project made**: agent-loop-community, which takes every contribution, whichever side it serves. Its [check](agent-loop-community/tools/check.mjs) notes, and does not fail, a side's loop that uses what that side's package provides, because the community library cannot check those: the project that contributed the loop checked it whole. Its [README](agent-loop-community/README.md) says what it accepts.
+- **What belongs to the research task** (its helpers, and the worker's and validator's loops and roles): here. A machine is set up by the framework's `setup` loop: to change what setup settles on a machine, change that side's `configure` and its role here; to change setup's own steps, change agent-loop-studio.
 
 ## Prepare a checkout
 
@@ -29,9 +29,9 @@ After changes, run `npm run build`, `npm run typecheck`, `npm run lint` and `npm
 
 | Path | Contents |
 | --- | --- |
-| `project.json` | What the package tells the framework and the installer about itself: the profiles `worker` and `validator`, each with its entry role and library side; the extension module; the hook actions it adds |
+| `project.json` | What the package tells the framework and the installer about itself: the profiles `worker` and `validator`, each with its entry role, its library side and the note the installer prints for it (`next`); the extension module; the hook actions it adds |
 | `library/roles/worker/`, `library/roles/validator/` | The research roles installation seeds into projects of each side |
-| `library/loops/worker/`, `library/loops/validator/` | The research loops: each a definition (`<loop>.md`) and its generated script (`<loop>.js`) |
+| `library/loops/worker/`, `library/loops/validator/` | The research loops: each a definition (`<loop>.md`) and its generated script (`<loop>.js`). Each side's `configure` and the validator's `contribution-check` take the place of the framework's loops of those names |
 | `src/tools/` | The research helpers (the configuration sheet, the validation service, the worker's ledger, the wiki) and `research-extension.ts`, the extension the framework loads |
 | `skills/` | Skills; only `research-wiki`, `browser-act` and `shared-references` ship. `shared-references/project-rules.md` holds this package's rules for the framework's roles |
 | `templates/` | Project scaffolding: the role blocks, the environment placeholder, the task and benchmark templates |
@@ -52,7 +52,12 @@ npm run build && node tools/library-check.mjs
 
 It copies the framework's library, the community's and this package's, in that order, into a temporary folder and runs the loop and role checks on the result; a non-zero exit means a defect, named in its report. After regenerating a script from its changed definition, run it with `--stamp`, which records each definition's digest in its script (this package's scripts only). Stamping declares a script current, so stamp only after regenerating.
 
-Projects send back what they added or changed with the `library-contribution` loop, once one of their submissions has finished. The [`library-contributor`](agent-loop-studio/library/roles/framework/library-contributor.md) role sends each loop or role back to the library it came from: a changed base loop or role of the framework to agent-loop-studio, a worker or validator one, changed or new, to this repository, and a new one any project can use to agent-loop-community. The owner reviews exactly what leaves, in one review (on the validator after a leak check), and nothing is pushed before that approval; then each library gets one pull request, from a branch named `library/<project>-<side>-<yyyymmdd>`. Maintainers review and merge. Here, CI runs the library check on it, and a merged role reaches every project installed afterwards, so review it as code; an existing project gets it when its installer runs again, unless it already has a file of that name. A validator role may describe how tests are constructed, but must never contain an actual test case.
+What a project learned leaves it through two loops, each run only when its owner decides, once one of its submissions has finished. The owner reviews exactly what leaves, in one review, and nothing is pushed before that approval. On the validator, `leak-reviewer` first checks exactly those files against the hidden tests, in the validator's [`contribution-check`](library/loops/validator/contribution-check.md), which replaces the framework's default. The framework's [`library-contributor`](agent-loop-studio/library/roles/framework/library-contributor.md) role does the steps of both, through `library-cli.js` (`--purpose share` or `--purpose upstream`):
+
+- [`library-contribution`](agent-loop-studio/library/loops/framework/library-contribution.md) sends what the project made, the loops and roles no library gave it, to agent-loop-community, always: one pull request, from a branch named `library/<project>-<side>-<yyyymmdd>`.
+- [`upstream-optimization`](agent-loop-studio/library/loops/framework/upstream-optimization.md) sends improvements to loops and roles a library gave the project, above all the role fixes `trajectory-optimizer` made, back where each came from: the framework's base ones to agent-loop-studio, this package's worker and validator ones to this repository, the community's to agent-loop-community. Each library gets one pull request, from a branch named `upstream/<project>-<side>-<yyyymmdd>`.
+
+So what reaches this repository from projects are improvements to its own loops and roles. Maintainers review and merge. Here, CI runs the library check on each, and a merged role reaches every project installed afterwards, so review it as code; an existing project gets a new loop or role when its installer runs again, but keeps its own copy of any it already has. A validator role may describe how tests are constructed, but must never contain an actual test case.
 
 When adding or changing a role, loop, skill or helper, keep the [agent guide](AGENT_GUIDE.md) and the [integration contract](skills/shared-references/integration-contract.md) in sync, and [`project-rules.md`](skills/shared-references/project-rules.md) when the framework's roles need to know about it; add a helper's row to the contract in the same change that makes a role call it. Helpers stay compatible with Node.js 22.12+ and Windows and launch configured commands as argv arrays, never through a shell. Before adding a feature, go through the questions at the end of the [architecture guide](ARCHITECTURE_GUIDE.md).
 

@@ -6,7 +6,7 @@
 
 Contrejour 在两台机器上运行一个研究任务。**worker** 为任务构建交付物并提交。**validator** 持有只增不改的隐藏 benchmark，作为 worker 的对抗方评判每次提交，发布结论、测试项总数与通过数，以及经过泄漏审查的反馈。worker 根据反馈不断改进，直到提交次数用完。
 
-两台机器上的工作都组织成由**角色**组成的**流程**，运行在 [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio) 框架上。流程定义用自然语言写成，是流程的唯一依据：每一步由哪个角色做、角色之间传递什么、在哪里分支、最多重复几次。根据定义生成的 Claude Code workflow 脚本负责执行它。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为**轨迹**，`trajectory-optimizer` 角色从中学习，修复角色。owner 在 **Studio**（浏览器里的控制台）里选择、修改和运行流程。
+两台机器上的工作都组织成由**角色**组成的**流程**，运行在 [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio) 框架上。流程定义用自然语言写成，是流程的唯一依据：每一步由哪个角色做、角色之间传递什么、在哪里分支、最多重复几次。根据定义生成的 Claude Code workflow 脚本负责执行它。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为**轨迹**，`trajectory-optimizer` 角色从中学习，修复角色。owner 在 **Studio**（浏览器里的控制台）里设置项目，选择、修改和运行它的流程。
 
 Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo。
 
@@ -16,7 +16,7 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 
 | 仓库 | 内容 |
 | --- | --- |
-| [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio)，位于 `agent-loop-studio/` | 框架：在 Claude Code 上由流程调度角色的机制，检查和运行流程的 helper，Studio，安装器，以及每个项目都会拿到的基础流程和角色，例如 `loop-authoring`、`owner-review` 和 `trajectory-optimizer`。 |
+| [agent-loop-studio](https://github.com/justforyou16007/agent-loop-studio)，位于 `agent-loop-studio/` | 框架：在 Claude Code 上由流程调度角色的机制，检查和运行流程的 helper，Studio，安装器，以及每个项目都会拿到的基础流程和角色，例如 `setup`、`loop-authoring`、`owner-review` 和 `trajectory-optimizer`。 |
 | [agent-loop-community](https://github.com/justforyou16007/agent-loop-community)，位于 `agent-loop-community/` | 共享流程库：各项目贡献出来、供其他项目使用的流程和角色。目前还是空的。 |
 | auto-dl-loop，即本仓库 | 研究任务：向框架说明两种机器的 `project.json`；研究用的 helper（验证服务、配置表、worker 的提交台账、wiki）；`library/` 里 worker 和 validator 的流程与角色；技能、模板和测试。 |
 
@@ -47,13 +47,24 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 - **hooks 只做记录、通知或拦截。** 安装器只登记一次；哪些动作执行，写在流程定义里。框架自带的动作负责记录每个角色的轨迹，并在每个流程启动前核对：会话带进去的每个回答，都是 owner 在流程提问之后亲手输入、没有改动的消息。本仓库在 `project.json` 里另加了两个：一个在评审会话提前停下时通知验证服务，另一个不让验证端的角色碰 benchmark、隐藏数据和只能由 helper 写的文件。
 - **没有流程之外的调度。** 会话只负责启动流程、把 owner 的回答带进流程；流程调度角色；角色完成各自那一步。角色从不直接调用别的角色，owner 的决定是流程里的 `owner-review` 一步。workflow 里的 agent 没法向人提问，所以流程在这一步停下，会话给 owner 看审核说明，拿到回答后流程接着运行。
 - **新流程、新角色从已有的出发。** `loop-authoring` 先让 `loop-query` 找可以作为基础的流程，再由 `loop-editor` 在最接近的那个上构建；`role-authoring` 先让 `role-creator` 找已经能做这件事的角色，再以最接近的为基础构建。只有 owner 要求时才从头写。草稿只有在 owner 批准了确切版本后才装进项目。
-- **Studio。** `studio.js` 是 owner 在本机浏览器里用的控制台。在对话框里说出想要的流程，它会列出相近的流程，每个都能预览流程图，并把最接近的画到画布上，超参数排在旁边、连到它们影响的步骤。点步骤或箭头、说要怎么改，或者要一个新角色，`loop-authoring` 或 `role-authoring` 就在后台会话里起草，然后停下请你审核，草稿画在画布上。在这里还可以选定项目运行的流程和超参数取值、运行任意流程并看着它一步步执行，以及管理多个项目：从参考项目新建，或复制已有项目。只有用一次性链接登录的浏览器才能使用它，而且它只在本机地址上响应。`loop-view.js` 则把同样的流程显示成一个只读页面。
-- **项目之间共享的流程库。** 安装时，项目会拿到框架的基础流程和角色、社区库里的流程和角色，以及本仓库里 worker 或 validator 那一端的流程和角色；此后它们归项目所有，安装时的副本另外保留一份。只要有一次提交完成，owner 就可以运行 `library-contribution` 流程：它把项目新增和改动的内容送回各自来自的库（新写的、任何项目都能用的进社区库），每个库一个 PR，发出前 owner 要审过确切的内容。保留的副本能分清项目改了什么、库里改了什么，所以贡献不会改回别人的改进。
+- **Studio。** `studio.js` 是 owner 在本机浏览器里用的控制台。还没设置的项目打开时，画布上就是它的 `setup` 流程。在对话框里说出想要的流程，它会列出相近的流程，每个都能预览流程图，并把最接近的画到画布上，超参数排在旁边、连到它们影响的步骤。点步骤或箭头、说要怎么改，或者要一个新角色，`loop-authoring` 或 `role-authoring` 就在后台会话里起草，然后停下请你审核，草稿画在画布上。在这里还可以选定项目运行的流程和超参数取值、运行任意流程并看着它一步步执行，以及管理多个项目：从参考项目新建，或复制已有项目。只有用一次性链接登录的浏览器才能使用它，而且它只在本机地址上响应。`loop-view.js` 则把同样的流程显示成一个只读页面。
+- **项目之间共享的流程库。** 安装时，项目会拿到框架的基础流程和角色、社区库里的流程和角色，以及本仓库里 worker 或 validator 那一端的流程和角色；某一端的流程与框架的流程同名时，以那一端的为准。此后它们归项目所有，安装时的副本另外保留一份，以后靠它分清哪些是项目改的、哪些是库里改的。
 
-### 主任务流程与机器配置
+### 设置一台机器
 
-- **流程由 owner 选定。** 每个项目运行一个主任务流程：worker 上是 `research-iteration`，validator 上是 `submission-review`。owner 在 Studio 里（或用 `project-cli.js use`）选定它并设置超参数，选择结果记在 `.contrejour/loop.json`。流程自己声明超参数和默认值，所以调整流程只需要选取值，不用改流程；也可以换成别的流程，或者让 `loop-authoring` 新建一个。
-- **配置机器也是一个流程。** `machine-config` 在 owner 需要时运行，可以从 Studio 启动，也可以在项目里的会话中启动。它确定只有这台机器才有的东西：验证端是 `task.md`、benchmark、验证条款和服务；worker 端是连到 validator 的连接，`task.md` 就从那里取回。这台机器需要的配置都汇总在一张配置表上，只有 owner 批准的那个版本才会被应用。之后它准备好机器的环境、检查各流程，并告诉 owner 下一步做什么。
+- **`setup` 流程由框架提供。** 每个项目都有框架的 [`setup`](agent-loop-studio/library/loops/framework/setup.md) 流程，所以不管项目是做什么的，设置的方式都一样。它有四步。**配置**（Configure）确定这个项目特有的东西。**主任务流程**（Task loop）确定项目运行什么：`loop-query` 找出适合 `task.md` 的主任务流程，`project-setup` 提议其中一个并给出超参数取值，owner 可以批准、修改，或者要一个新的，由 `loop-authoring` 构建；选择结果记在 `.contrejour/loop.json`。**检查**（Check）运行流程和角色检查，重新生成过期的脚本。**交接**（Hand off）给 owner 一份报告，写明怎么开始工作，再由 `project-cli.js finish-setup` 写入 `.contrejour/setup.json`，标记项目已设置好。还没设置的项目，Studio 打开时画布上就是 `setup`；在这种项目的会话里说 `start`，运行的也是 setup。
+- **两端各有自己的 `configure`。** 配置是项目包唯一要改的一步，因为一台机器需要什么取决于它是哪一端，所以本仓库的两个 `configure` 流程替代了框架的那个。[worker 端](library/loops/worker/configure.md)：配置表（连到 validator 的连接，`task.md` 由此取回）→ 应用 → 环境 → 报告。[validator 端](library/loops/validator/configure.md)：需求 → 任务（`task.md`）→ 配置表（benchmark、验证条款和服务）→ 应用 → 环境 → 报告，报告里写明启动服务的命令和 worker 需要的连接信息。这台机器需要的配置都汇总在一张配置表上，只有 owner 批准的那个版本才会被应用。以后单独运行 `configure`，就能重新配置机器，不用重选主任务流程。
+- **流程由 owner 选定。** 每个项目运行一个主任务流程：通常 worker 上是 `research-iteration`，validator 上是 `submission-review`。流程自己声明超参数和默认值，所以调整流程只需要选取值，不用改流程；也可以换成别的流程，或者让 `loop-authoring` 新建一个。设置完之后要改，用 Studio 或 `project-cli.js use`。
+
+### 什么会离开项目
+
+项目学到的东西通过两个流程离开项目。两个流程都只在 owner 决定时运行，前提是已有任务完成（至少一次提交的结果已发布）；owner 审过要发出的确切内容之前，什么都不会发出。
+
+- **贡献**（[`library-contribution`](agent-loop-studio/library/loops/framework/library-contribution.md)）。项目自己做出来的东西，也就是没有哪个库给过它的流程和角色，一律进社区库 agent-loop-community，发一个 PR，供其他项目使用。
+- **角色优化送回来源**（[`upstream-optimization`](agent-loop-studio/library/loops/framework/upstream-optimization.md)）。项目对某个库给它的流程和角色所做的改进，主要是 `trajectory-optimizer` 修好的角色，送回各自的来源，这样以后拿到它的项目也都能用上：框架的基础流程和角色回 agent-loop-studio，本仓库 worker 和 validator 的回 auto-dl-loop，社区库的回 agent-loop-community。每个库各开一个 PR。
+- **验证端的泄漏检查。** 验证端的角色可以写测试的构造方法，但绝不能包含实际测试。所以在 validator 上，这两个流程都先运行验证端自己的 [`contribution-check`](library/loops/validator/contribution-check.md)：`leak-reviewer` 从全新的上下文出发，拿要发出的文件逐个比对隐藏测试，并把结论记在这份计划的摘要上。它替代框架默认的 `contribution-check`（由 owner 自己检查文件）。
+
+这两个流程的步骤都由 `library-contributor` 角色完成，它用的工具是 `library-cli.js`（`--purpose share` 或 `--purpose upstream`）。这个 helper 把每个文件同安装时保留的副本和库里的当前版本比较，所以项目没动过的文件绝不会发出去，也不会改回别人的改进。文件里有 key、token、隐藏路径或注入模式时，它拒绝发出；有本机路径时，它给出警告；它还把计划绑定到一个摘要上，所以发出去的就是 owner 批准的内容。之后由各个库的维护者审核合并。
 
 ### 独立、可度量的验证
 
@@ -73,16 +84,16 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 
 ### 本地、按归属管理的安装
 
-安装器来自框架，在本仓库准备好的本地副本里运行。它把编译好的 helper（框架的和本仓库的）、`research-wiki` 和 `browser-act` 技能及共享参考文档、三个库里的流程和角色以及运行依赖复制进项目。它不下载任何东西，只写入项目目录。更新只替换安装器管理的文件；放入项目的流程和角色、任务、wiki、benchmark、提交记录和设置都保持项目里的样子。
+安装器来自框架，在本仓库准备好的本地副本里运行。它把编译好的 helper（框架的和本仓库的）、`research-wiki` 和 `browser-act` 技能及共享参考文档、三个库里的流程和角色以及运行依赖复制进项目。它把 hooks 和这一端的入口角色写进 `.claude/settings.json`，所以 hooks 从一开始就守着每个流程，每个会话从一开始就是这一端的任务管理角色。它不下载任何东西，只写入项目目录；它不做配置，也不选流程，这些是 setup 的事。更新只替换安装器管理的文件；放入项目的流程和角色、任务、wiki、benchmark、提交记录和设置都保持项目里的样子。
 
 ## 工作方式
 
-1. **定义任务。** 在验证机器上，先在 Studio 里选定评审流程和超参数，再运行 `machine-config`。它和你一起写好 `task.md`，再请你确认一张配置表：benchmark、逐样本通过规则、提交次数、评审会话怎么启动、服务地址。应用配置表时冻结验证条款，然后启动服务。
-2. **构建。** 在 worker 机器上，选定研究流程和超参数，用 validator 给你的连接信息运行 `machine-config`；它通过服务取回 `task.md`。在项目里打开的 Claude Code 会话就是任务管理角色，它一轮接一轮地运行选定的流程 `research-iteration`。
+1. **定义任务。** 在验证机器上运行 `setup` 流程。它的 `configure` 一步和你一起写好 `task.md`，再请你确认一张配置表：benchmark、逐样本通过规则、提交次数、评审会话怎么启动、服务地址。应用配置表时冻结验证条款。接着 setup 请你批准评审流程（通常是 `submission-review`）和它的超参数取值，检查各流程并交接；然后启动服务。
+2. **构建。** 在 worker 机器上，用 validator 给你的连接信息运行 `setup`。它的 `configure` 一步通过服务取回 `task.md`；接着你批准研究流程（通常是 `research-iteration`）和它的超参数取值。在项目里打开的 Claude Code 会话就是任务管理角色，说 `start`，它就一轮接一轮地运行这个流程。
 3. **提交。** 每一轮以一个 commit 结束，打包成带 `USAGE.md` 的 zip，上传到一次性地址。
 4. **评审。** 服务为这次提交启动一个评审会话，它运行选定的流程 `submission-review`，发布结论、测试项计数和经过泄漏审查的反馈。
 5. **学习。** worker 的记忆角色记下结果和反馈指出的问题，`trajectory-optimizer` 修复两端的角色，下一轮从仍未解决的问题开始。
-6. **贡献与结束。** 只要有一次提交完成，任一端的 owner 都可以运行 `library-contribution`，把该项目新增和改动的流程、角色送回它们来自的库；验证端的要先经过泄漏检查。提交次数用完时任务结束。
+6. **贡献与结束。** 只要有一次提交完成，两端的 owner 都可以在自己决定时运行 `library-contribution`，把该项目自己做的流程和角色分享给社区库，也可以运行 `upstream-optimization`，把对拿到的流程和角色所做的改进送回各自的来源；在 validator 上，两者都要先过泄漏检查。提交次数用完时任务结束。
 
 两个项目放在不同的机器上，不共享也不同步任何目录：正是这一点让隐藏的 benchmark 不在 worker 能触及的范围内。评测和反馈的边界见[架构说明](ARCHITECTURE_GUIDE.md)。
 
@@ -124,11 +135,11 @@ bash distribution/install-contrejour.sh --role validator --project /path/to/proj
 bash distribution/install-contrejour.sh --role worker --project /path/to/project
 ```
 
-项目是哪一端在安装时固定。安装只读取准备好的本地仓库，不下载任何东西；缺少依赖或编译产物时直接报错。安装器会在项目里记下这个本地仓库的位置，因为项目的贡献要送回那里。目标机器上没有仓库时，使用离线归档里的 `install.sh`，参数相同。
+项目是哪一端在安装时固定。安装只读取准备好的本地仓库，不下载任何东西；缺少依赖或编译产物时直接报错。安装器写好 hooks 和入口角色，所以项目里的每个会话从一开始就是这一端的任务管理角色，然后打印下一步要做的事：接受目录信任提示，设置项目，再加上 `project.json` 里给这一端的说明。安装器还会在项目里记下这个本地仓库的位置，因为项目要在那里找流程库：一是找项目还没有的流程，二是发出离开项目的 PR。目标机器上没有仓库时，使用离线归档里的 `install.sh`，参数相同；以后需要本地仓库的流程会先问你要不要取回一份。
 
-### 配置两台机器
+### 设置两台机器
 
-先配置 validator，因为配置 worker 时要从 validator 运行中的服务取回 `task.md`：
+先设置 validator。worker 的 `configure` 要从 validator 运行中的服务取回 `task.md`，而这个服务要等 validator 的 setup 选定评审流程之后才能启动。
 
 ```bash
 cd /path/to/validator-project
@@ -136,31 +147,32 @@ claude                                                 # 只需一次：接受�
 node .contrejour/dist/tools/studio.js --project .      # 打印一次性登录链接
 ```
 
-在这台机器的浏览器里打开链接（要从别的机器访问，先转发端口：`ssh -L 8790:127.0.0.1:8790 <机器>`）。在 Studio 里把 `submission-review` 设为项目的主任务流程并设置超参数，然后运行 `machine-config`。它会停下来请你说明这台机器要验证什么、审阅 `task.md`、确认配置表，每次都由 Studio 的对话框来问你。在终端里也可以完成同样的事：
+在这台机器的浏览器里打开链接（要从别的机器访问，先转发端口：`ssh -L 8790:127.0.0.1:8790 <机器>`）。项目还没设置，所以 Studio 打开时画布上就是它的 `setup` 流程：点「运行」。它会停下来请你说明这台机器要验证什么、审阅 `task.md`、确认配置表，并批准评审流程（通常是 `submission-review`）和它的超参数取值，每次都由 Studio 的对话框来问你。在终端里也可以完成同样的事：
 
 ```bash
-node .contrejour/dist/tools/project-cli.js use --project . --loop submission-review   # 用 --param 名称=值 改默认值
-claude "Run the machine-config loop"
+claude "Run the setup loop"
 ```
 
-完成后启动验证服务并保持运行；它会为每次提交启动一个评审会话：
+交接之后，启动验证服务并保持运行；它会为每次提交启动一个评审会话：
 
 ```bash
 node .contrejour/dist/tools/validation-cli.js serve --project .
 ```
 
-后台会话（Studio 启动的和评审用的）只能在已信任的目录里启动，所以要接受信任提示。`machine-config` 最后给出 worker 的连接信息，即一个地址和一个 token，私下交给 worker 机器。验证机器已经提供 `CONTREJOUR_URL` 和 `CONTREJOUR_TOKEN` 时，它直接使用它们，不再询问地址，也不新建 token。
+后台会话（Studio 启动的和评审用的）只能在已信任的目录里启动，所以要接受信任提示。setup 的报告里写明启动服务的命令和 worker 的连接信息，即一个地址和一个 token，把连接信息私下交给 worker 机器。验证机器已经提供 `CONTREJOUR_URL` 和 `CONTREJOUR_TOKEN` 时，它直接使用它们，不再询问地址，也不新建 token。
 
-然后用同样的方式配置 worker，在 Studio 里或终端里都可以：把 `research-iteration` 设为主任务流程，用连接信息运行 `machine-config`（它会取回 `task.md`），然后开始一轮轮迭代：
+然后用同样的方式设置 worker，在 Studio 里或终端里都可以。它的 `setup` 会向你要连接信息，通过 validator 的服务取回 `task.md`，并请你批准研究流程（通常是 `research-iteration`）和它的超参数取值。然后开始一轮轮迭代：
 
 ```bash
 cd /path/to/worker-project
-node .contrejour/dist/tools/project-cli.js use --project . --loop research-iteration
-claude "Run the machine-config loop"
-claude --permission-mode bypassPermissions "start"    # 以 worker-task-manager 身份运行，一轮接一轮
+claude                                                 # 只需一次：接受目录信任提示，然后退出
+claude "Run the setup loop"
+claude --permission-mode bypassPermissions "start"     # 以 worker-task-manager 身份运行，一轮接一轮
 ```
 
-保持最后这个会话打开，它会自己一轮接一轮地运行，所以要用不等人批准的权限模式（更谨慎的选择是 `auto`，见部署指南）。第一句话只写 "start"，因为流程里的每个角色都会收到启动这次运行的那句话。
+保持最后这个会话打开，它会自己一轮接一轮地运行，所以要用不等人批准的权限模式（更谨慎的选择是 `auto`，见部署指南）。第一句话只写 "start"，因为流程里的每个角色都会收到启动这次运行的那句话。如果想从 Studio 开始迭代，要先在项目里再打开一次 `claude`，批准 `contrejour` 服务器：后台会话没法问你。
+
+以后要重新配置机器，单独运行 `configure`，从 Studio 启动或用 `claude "Run the configure loop"` 都可以；之后重启 validator 正在运行的服务，让它用上新应用的地址和 token。要换主任务流程或改它的取值，用 Studio 或 `project-cli.js use`。
 
 配置表、网络、一次提交怎么评审、升级和故障排查，见**[中文部署指南](SETUP_GUIDE_CN.md)**或 **[English setup guide](SETUP_GUIDE.md)**。
 
@@ -168,11 +180,11 @@ claude --permission-mode bypassPermissions "start"    # 以 worker-task-manager 
 
 | 部分 | 角色 | 流程 |
 | --- | --- | --- |
-| 框架，每个项目都有 | `loop-query`、`loop-editor`、`role-creator`、`owner-review`、`trajectory-optimizer`、`library-contributor`；另有 `task-manager` 和 `project-memory`，研究任务的两端不用它们，而是用各自的任务管理角色和记忆角色 | `loop-authoring`、`role-authoring`、`library-contribution` |
-| worker | `worker-config`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration`（主任务）、`machine-config` |
-| validator | `validator-config`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review`（主任务）、`machine-config`、`library-contribution`（验证端自己的版本，带泄漏检查，替代框架的那个）、`proposal-review` |
+| 框架，每个项目都有 | `project-setup`、`loop-query`、`loop-editor`、`role-creator`、`owner-review`、`trajectory-optimizer`、`library-contributor`；另有 `task-manager` 和 `project-memory`，研究任务的两端不用它们，而是用各自的任务管理角色和记忆角色 | `setup`、`loop-authoring`、`role-authoring`、`library-contribution`、`upstream-optimization`；另有 `configure` 和 `contribution-check`，是某一端可以替换的默认版本 |
+| worker | `worker-config`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration`（主任务）、`configure`（自己的版本，替代框架的那个） |
+| validator | `validator-config`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review`（主任务）、`configure` 和 `contribution-check`（自己的版本，替代框架的那两个）、`proposal-review` |
 
-worker 和 validator 的源文件在 [`library/`](library/)，框架的在 [`agent-loop-studio/library/`](agent-loop-studio/library/)；社区库目前还没有内容。每个角色做什么见 [Agent 指南](AGENT_GUIDE.md)。随附两个技能，作为角色引用的操作手册：[`research-wiki`](skills/research-wiki/SKILL.md) 是长期记忆，[`browser-act`](skills/browser-act/SKILL.md) 通过外部的 browser-act CLI 访问渲染后的页面和浏览器会话。`machine-config` 会再写入第三个：项目自己的 `<项目>-environment` 技能。文献检索、GPU 平台和通知等可选集成留在本仓库中，不会安装进项目。
+worker 和 validator 的源文件在 [`library/`](library/)，框架的在 [`agent-loop-studio/library/`](agent-loop-studio/library/)；社区库目前还没有内容。每个角色做什么见 [Agent 指南](AGENT_GUIDE.md)。随附两个技能，作为角色引用的操作手册：[`research-wiki`](skills/research-wiki/SKILL.md) 是长期记忆，[`browser-act`](skills/browser-act/SKILL.md) 通过外部的 browser-act CLI 访问渲染后的页面和浏览器会话。`configure` 会再写入第三个：项目自己的 `<项目>-environment` 技能。文献检索、GPU 平台和通知等可选集成留在本仓库中，不会安装进项目。
 
 ## 文档
 

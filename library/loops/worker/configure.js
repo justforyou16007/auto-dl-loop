@@ -1,16 +1,10 @@
 export const meta = {
-  name: "machine-config",
+  name: "configure",
   description:
-    "Configure this machine as the worker: the sheet with the connection, apply, environment, checks, hand-off",
+    "Setup's first step on the worker: the sheet with the connection to the validator, apply, environment, report",
   whenToUse:
-    "Worker machine configuration, when the owner asks for it. Run it with {}, then again with the owner's replies in answers.",
-  phases: [
-    { title: "Sheet" },
-    { title: "Apply" },
-    { title: "Environment" },
-    { title: "Check" },
-    { title: "Hand off" },
-  ],
+    "As the first step of setup on the worker, or when the owner asks to configure the machine again. Run it with {}, then again with the owner's replies in answers.",
+  phases: [{ title: "Sheet" }, { title: "Apply" }, { title: "Environment" }, { title: "Report" }],
 };
 
 const STRINGS = { type: "array", items: { type: "string" } };
@@ -55,12 +49,7 @@ const ENVIRONMENT = {
   },
   required: ["needs_owner", "request", "summary", "incomplete"],
 };
-const CHECKED = {
-  type: "object",
-  properties: { stale: STRINGS, defects: STRINGS },
-  required: ["stale", "defects"],
-};
-const HANDOFF = {
+const REPORT = {
   type: "object",
   properties: { report: { type: "string" } },
   required: ["report"],
@@ -152,35 +141,16 @@ for (let round = 1; round <= 3; round += 1) {
 }
 
 // Step 4
-phase("Check");
-let checked = await agent(JSON.stringify({ action: "check" }), {
-  agentType: "worker-config",
-  schema: CHECKED,
-  phase: "Check",
-});
-if (checked.stale.length) {
-  if (checked.stale.length > 4) log(`${checked.stale.length - 4} stale loops were not regenerated`);
-  for (const stale of checked.stale.slice(0, 4))
-    await workflow("loop-authoring", { regenerate: stale });
-  checked = await agent(JSON.stringify({ action: "check" }), {
-    agentType: "worker-config",
-    schema: CHECKED,
-    phase: "Check",
-  });
-}
-
-// Step 5
-phase("Hand off");
-const handoff = await agent(
+phase("Report");
+const report = await agent(
   JSON.stringify({
-    action: "handoff",
+    action: "report",
     applied: applied.summary,
     environment: environment.summary,
     incomplete: environment.incomplete,
-    check: checked,
   }),
-  { agentType: "worker-config", schema: HANDOFF, phase: "Hand off" },
+  { agentType: "worker-config", schema: REPORT, phase: "Report" },
 );
-return { done: true, report: handoff.report };
+return { done: true, report: report.report };
 
-// contrejour-loop-definition-sha256: 5d093ff1d5040c612c211012773f65ad213fcb7bc6bdf8e02111b268d31393f9
+// contrejour-loop-definition-sha256: 2e8d918c524a41140e91d9a5cb2c26593cf40559b0504e33da50c9922cc33a20

@@ -165,9 +165,12 @@ try {
     Object.fromEntries(view.loops.map((loop) => [loop.name, [loop.kind, loop.source]])),
     {
       "research-iteration": ["task", "project"],
+      setup: ["setup", "project"],
+      configure: ["on-request", "project"],
       "library-contribution": ["on-request", "project"],
+      "upstream-optimization": ["on-request", "project"],
+      "contribution-check": ["on-request", "project"],
       "loop-authoring": ["on-request", "project"],
-      "machine-config": ["on-request", "project"],
       "role-authoring": ["on-request", "library"],
     },
   );
@@ -192,7 +195,9 @@ try {
   const contribution = loopOf(view, "library-contribution");
   assert.ok(contribution.steps.some((step) => step.roles.includes("owner-review")));
   assert.ok(view.roles.find((role) => role.name === "owner-review")?.used_by.includes("library-contribution"));
-  assert.ok(loopOf(view, "machine-config").children.includes("loop-authoring"));
+  // Setup runs the side's configure, and loop-authoring to build or regenerate a loop, each as one step.
+  assert.ok(loopOf(view, "setup").children.includes("configure"));
+  assert.ok(loopOf(view, "setup").children.includes("loop-authoring"));
 
   // Runs, newest first: which roles finished in each (a role that ran twice, twice) and the submission.
   assert.deepEqual(
