@@ -194,6 +194,7 @@ A review session can stop before it publishes: it crashed, its turn ended early,
 - `node .contrejour/dist/tools/validation-cli.js status --project .` shows the service state, counted and remaining submissions, the layers, and each submission's status, verdict and test counts; add `--submission <id>` for one in full.
 - The service's own output says when it started, reminded or failed a review session.
 - `.contrejour/trajectories/` holds every role's transcript, and `.contrejour/proposals/` the proposed role fixes. To go through the pending proposals, run `claude "Run the proposal-review loop"` in the project: you see each with its evidence and exact change, the ones you accept are applied, and the fate of each is recorded.
+- The loop page ([Viewing the loops](#viewing-the-loops)) lists each review's run of `submission-review`: which roles finished, when, for which submission.
 
 ## Worker machine
 
@@ -312,6 +313,18 @@ Hooks cover what must happen every time an event occurs. The installer registers
 - `notify-stopped-review` (validator): tell the service when a review session stops with its submission unfinished.
 - `guard-protected-paths` (validator): block writes to the benchmark, its frozen configuration, the hidden data and the files only the helper writes.
 - `guard-owner-answers`: before a loop runs, check that every answer the session passes in is a message you typed in this session after the loop stopped at that review, whole and word for word, and block the run otherwise. The answers it verified are recorded in `.contrejour/reviews/answers/`, which is all `owner-review` accepts.
+
+## Viewing the loops
+
+To see the project's loops without reading their files, open the loop page:
+
+```bash
+node .contrejour/dist/tools/loop-view.js --project .
+```
+
+It prints an address, `http://127.0.0.1:8780/` unless you pass another `--port`, to open in a browser. For each loop it shows its purpose and its steps, each with the roles that do it, and marks the steps where the loop stops for you; its parameters, with this project's values beside the defaults; the roles it calls; whether its script passes the loop check; and its recent runs from the trajectory index: which roles finished in each, when, and for which submission. Loops are grouped by `kind`, with the task loop setup chose marked, and the library's loops this project does not have are listed too. A role's page shows its file and the loops that use it. **Refresh** reads the files again, and the page switches between Chinese and English.
+
+The page only reads: the loop and role files, the chosen loop with its parameters, and the trajectory index. It never reads a transcript, the wiki, the benchmark or the hidden data, changes nothing, and loads nothing from the network; no role runs it. It answers only on this machine's own address. To view it from another machine, forward the port, for example `ssh -L 8780:127.0.0.1:8780 <machine>`, and open `http://127.0.0.1:8780/` there. `--out loops.html` writes the same page as one file instead, to open without a server. On the validator the page shows how submissions are judged: keep it, and any file written from it, away from the worker side.
 
 ## Update or repair
 

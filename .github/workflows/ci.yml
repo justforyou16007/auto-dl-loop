@@ -43,6 +43,7 @@ jobs:
             test_validation.ts,
             test_framework.ts,
             test_contribution.ts,
+            test_loop_view.ts,
           ]
     steps:
       - uses: actions/checkout@v4

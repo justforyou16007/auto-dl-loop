@@ -40,5 +40,6 @@ helper's error and the step it blocked. Do not:
 | `threat-scan` (inside `research-wiki.js`) | `research-wiki.js` | Quarantines strict-scope hits; see [injection-hygiene.md](injection-hygiene.md). |
 | `capture-filter.js` | the memory roles | Rewrite or drop the flagged note; see [capture-antipatterns.md](capture-antipatterns.md). |
 | `ensure-browser-act.js` | `browser-act`, setup and environment scripts that need a browser | Stop browser work; see [browser-act.md](browser-act.md). |
+| `loop-view.js` | the owner only: a read-only page of the loops, served until stopped | No role runs it. When the owner asks to see the loops, give them the command `node .contrejour/dist/tools/loop-view.js --project .` instead. |
 
 Add a row here in the same change that makes a role call a new helper.

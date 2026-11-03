@@ -15,7 +15,7 @@ const version = pkg.version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
 const stage = path.join(temp, "contrejour");
 const skills = ["research-wiki", "browser-act", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli"];
+const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view"];
 const visited = new Set();
 
 function copy(relative) {

@@ -35,6 +35,7 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 - **没有流程之外的调度。** 会话只负责启动流程、把 owner 的回答带进流程；流程调度角色；角色完成各自那一步。角色从不直接调用别的角色，owner 的决定是流程里的 `owner-review` 一步。workflow 里的 agent 没法向人提问，所以流程在这一步停下，会话给 owner 看审核说明，拿到回答后流程接着运行。
 - **setup 从需求出发，本身也是流程。** owner 说明项目需要什么，本端的 setup 角色就运行 `project-setup` 流程：有合适的流程就复用，没有就由 `loop-authoring` 在最接近的已有流程上构建一个，然后 owner 在一张配置表上设置这个流程的超参数。流程自己声明超参数和默认值，所以复用流程只需要选取值，不用改流程。
 - **新流程、新角色从已有的出发。** `loop-authoring` 先让 `loop-query` 找可以作为基础的流程，再由 `loop-editor` 在最接近的那个上构建；`role-authoring` 先让 `role-creator` 找已经能做这件事的角色，再以最接近的为基础构建。只有 owner 要求时才从头写。草稿只有在 owner 批准了确切版本后才装进项目。`trajectory-optimizer` 根据轨迹修复角色；验证端的修改要 owner 在 `proposal-review` 里接受。
+- **流程页面。** `loop-view.js` 在本机浏览器里给 owner 展示每个流程：每一步由哪些角色来做、在哪里停下等 owner 决定、超参数和本项目的取值、检查结果和最近的运行。它只读，也可以把页面写成一个文件。
 
 ### 独立、可度量的验证
 
