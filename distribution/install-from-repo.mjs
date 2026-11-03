@@ -40,6 +40,7 @@ for (const relative of [
   "dist/tools/loop-check.js",
   "dist/tools/worker-cli.js",
   "dist/tools/library-cli.js",
+  "dist/tools/loop-view.js",
 ]) {
   if (!fs.existsSync(path.join(root, relative))) {
     throw new Error(
