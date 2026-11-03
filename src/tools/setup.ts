@@ -32,7 +32,10 @@ import {
   validationConfigPath,
   type ValidationConfig,
 } from "./validation/config.js";
-import { standaloneEnvironment } from "./validation/dispatch.js";
+import { standaloneEnvironment } from "./sessions.js";
+import { hookHelperPath, registerHooks, writeEntryRole } from "./project-settings.js";
+
+export { hookHelperPath, registerHooks };
 import { assertBenchmarkIntact } from "./validation/layers.js";
 import { countedSubmissions } from "./validation/store.js";
 import { TASK_MANAGER, installedRole, skillsDir, type Role } from "./installation.js";
@@ -791,68 +794,9 @@ function mergeJsonEntry(file: string, key: string, name: string, entry: JsonObje
   writeStateJsonAtomic(file, { ...current, [key]: { ...section, [name]: entry } });
 }
 
-/**
- * Events the Contrejour hook helper listens to. Which actions run on them is
- * declared by the loop definitions; the helper itself decides.
- */
-const HOOK_EVENTS: readonly { event: string; matcher?: string }[] = [
-  { event: "SubagentStop" },
-  { event: "Stop" },
-  { event: "PreToolUse", matcher: "Write|Edit|NotebookEdit|Workflow" },
-];
-export const hookHelperPath = (root: string): string =>
-  path.join(root, ".contrejour", "dist", "tools", "hook.js");
-const isContrejourHook = (hook: unknown): boolean =>
-  isRecord(hook) &&
-  Array.isArray(hook.args) &&
-  typeof hook.args[0] === "string" &&
-  /[\\/]\.contrejour[\\/]dist[\\/]tools[\\/]hook\.js$/.test(hook.args[0]);
-
-/**
- * The project settings Contrejour owns: the entry role, its hook registrations
- * (argv form, no shell, the node running setup) and background sessions that may
- * edit a git checkout without a worktree. Every other setting stays as it is.
- */
+/** The settings this project's sessions start with: the side's task manager as the entry role. */
 function writeProjectSettings(root: string, role: SetupRole): string {
-  const file = registerHooks(root);
-  const settings = readJson(file);
-  const worktree = isRecord(settings.worktree) ? settings.worktree : {};
-  writeStateJsonAtomic(file, {
-    ...settings,
-    agent: TASK_MANAGER[role],
-    worktree: { ...worktree, bgIsolation: "none" },
-  });
-  return file;
-}
-
-/**
- * Register Contrejour's hooks in the project settings, replacing its earlier
- * registrations and keeping every other setting and hook. The installer does it
- * too, so the hooks guard setup's own loop before apply writes the rest.
- */
-export function registerHooks(projectRoot: string): string {
-  const root = path.resolve(projectRoot);
-  const file = path.join(root, ".claude", "settings.json");
-  const settings = readJson(file);
-  const hooks: JsonObject = isRecord(settings.hooks) ? { ...settings.hooks } : {};
-  for (const { event, matcher } of HOOK_EVENTS) {
-    const groups = (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).filter(
-      (group) =>
-        !(isRecord(group) && Array.isArray(group.hooks) && group.hooks.some(isContrejourHook)),
-    );
-    hooks[event] = [
-      ...groups,
-      {
-        ...(matcher ? { matcher } : {}),
-        hooks: [
-          { type: "command", command: process.execPath, args: [hookHelperPath(root), event] },
-        ],
-      },
-    ] as JsonObject[];
-  }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeStateJsonAtomic(file, { ...settings, hooks });
-  return file;
+  return writeEntryRole(root, TASK_MANAGER[role]);
 }
 
 /**

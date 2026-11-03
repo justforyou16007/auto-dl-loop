@@ -326,6 +326,23 @@ It prints an address, `http://127.0.0.1:8780/` unless you pass another `--port`,
 
 The page only reads: the loop and role files, the chosen loop with its parameters, and the trajectory index. It never reads a transcript, the wiki, the benchmark or the hidden data, changes nothing, and loads nothing from the network; no role runs it. It answers only on this machine's own address. To view it from another machine, forward the port, for example `ssh -L 8780:127.0.0.1:8780 <machine>`, and open `http://127.0.0.1:8780/` there. `--out loops.html` writes the same page as one file instead, to open without a server. On the validator the page shows how submissions are judged: keep it, and any file written from it, away from the worker side.
 
+## The Studio
+
+The Studio is your console for the project's loops, in a browser on this machine: it draws each loop as a flow, finds the loops close to what you ask for, and changes them with you in a chat.
+
+```bash
+node .contrejour/dist/tools/studio.js --project .
+```
+
+It prints a sign-in link: open it once in your browser. The link signs in that one browser and is kept only in the Studio's memory, never in a file, so no agent on the machine can act as you through it; restart the Studio for a new one. Like the loop page, the Studio answers only on this machine's own address (`--port` picks another port than 8790); forward the port with `ssh -L 8790:127.0.0.1:8790 <machine>` to use it from elsewhere.
+
+- **Say what you want.** Describe in the chat the loop you need. The Studio at once lists the close loops of the project and the library, each with a preview of its flow, and puts the closest on the canvas. Pick another, or keep it as it is.
+- **The canvas** shows the loop's steps, the roles that do each, the groups of roles that run at once, the steps where the loop stops for you (orange), and arrows on to the next step, ahead on a condition, back to an earlier step (dashed) and out to the end. The loop's parameters sit on the right, joined by dashed lines to the steps they affect. Click a step for its full text.
+- **Change it in words.** Click steps, arrows or parameters to point at them, then say what to change; you never name variables or the roles' inputs. The Studio starts `loop-authoring` in a background Claude Code session running as the task manager, and shows which role is working. The loop-writing roles take the loop on the canvas as the base, draft the change, add any role it needs, check the draft and stop for your review: the draft is drawn on the canvas, beside the original, and the review note is shown in the chat. Approve, cancel, or say what else to change. Your reply goes to the loop exactly as you typed it, and `guard-owner-answers` checks it as it checks a reply typed in a terminal; only the version you approve is installed.
+- **Roles and runs.** The Roles page shows each role's file and the loops that use it; the Runs page shows each loop's runs from the trajectory index.
+
+The sessions the Studio starts run unattended, so they use `--permission-mode bypassPermissions` unless you start the Studio with `--permission-mode auto`; `--model` picks their model. `claude attach <id>` follows one live: the chat names its id. Claude Code starts background sessions only in a folder it trusts, so open `claude` in the project once and accept the prompt. Choosing the project's task loop and its parameter values still goes through setup.
+
 ## Update or repair
 
 Update your checkout and rebuild it explicitly, then rerun the installer with the same side and project:

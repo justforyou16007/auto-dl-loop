@@ -88,6 +88,7 @@ Roles call compiled helpers from the project root with `node .contrejour/dist/to
 | `hook.js` | The hook actions, among them the check that every answer a session passes to a loop is the owner's own message; Claude Code runs it on the events the installer and setup registered |
 | `research-wiki.js` | The wiki's commands |
 | `loop-view.js` | The owner's read-only page of the loops; no role runs it |
+| `studio.js` | The owner's console: flows on a canvas, the chat that starts `loop-authoring` in a background session and relays the owner's replies; no role runs it |
 
 ## Where things live
 

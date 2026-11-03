@@ -15,7 +15,7 @@ const version = pkg.version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
 const stage = path.join(temp, "contrejour");
 const skills = ["research-wiki", "browser-act", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view"];
+const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view", "tools/studio"];
 const visited = new Set();
 
 function copy(relative) {
@@ -35,6 +35,8 @@ function runtime(relative) {
 }
 try {
   for (const entry of entries) runtime(`dist/${entry}.js`);
+  // The Studio's page: static files its server sends, built by Vite, not traced through imports.
+  copy("dist/studio");
   for (const skill of skills) copy(`skills/${skill}`);
   copy("library");
   copy("templates");

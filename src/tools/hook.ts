@@ -146,8 +146,16 @@ export function readSessionLog(transcript: string): SessionLog {
           ? content.map((block) => String((block as Record<string, unknown>).text ?? "")).join("")
           : null;
     if (text === null) return;
-    // A loop's result reaches the session as a notification, never as the owner's words.
-    if (entry.origin !== undefined || entry.promptSource === "system") {
+    // Typed by a person: no origin (Claude Code 2.1.316 and before) or a human one (2.1.317
+    // on, promptSource "typed"), and never sent by the system. A loop's result reaches the
+    // session as a notification; a message relayed from another session or channel has its
+    // own origin. Neither is the owner's words.
+    const origin = isRecord(entry.origin) ? entry.origin : null;
+    const typed =
+      entry.promptSource !== "system" &&
+      (entry.origin === undefined || (origin !== null && origin.kind === "human"));
+    if (!typed) {
+      if (entry.promptSource !== "system" && origin?.kind !== "task-notification") return;
       for (const match of text.matchAll(/"review_id"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
         let id: string;
         try {

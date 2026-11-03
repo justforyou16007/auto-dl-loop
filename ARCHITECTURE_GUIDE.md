@@ -305,7 +305,7 @@ owner 在 worker 项目里打开 Claude Code，主线程就是 worker 的任务�
 
 **Windows。** helper 用 Node 写，命令一律用 argv 数组，不拼字符串，不调用 shell 脚本。启动 Claude Code 的命令可以配置：npm 安装的 `claude` 在 Windows 上是 `.cmd` 包装，不经过 shell 无法启动，要写成 `node` 加脚本路径，或使用原生安装的 `claude.exe`。hooks 也用 argv 形式登记。
 
-**能看到什么。** `claude agents` 列出本机所有会话及其状态，`claude attach <编号>` 实时查看并可以接管某个会话，`claude logs <编号>` 显示最近的输出。各角色的轨迹在 `.contrejour/trajectories/`，研究记录通过 `research-wiki` 技能、命令行或本机 Markdown 查看，验证端的状态用 `node .contrejour/dist/tools/validation-cli.js status --project .` 查看。流程本身用 `node .contrejour/dist/tools/loop-view.js --project .` 打开的页面查看：每一步由哪些角色做、在哪里停下等 owner、超参数取值、检查结果和最近的运行。这个页面只读，只在本机地址上响应，不读过程记录和隐藏数据；在验证端它显示提交怎么被评判，所以不能让 worker 那边访问到。
+**能看到什么。** `claude agents` 列出本机所有会话及其状态，`claude attach <编号>` 实时查看并可以接管某个会话，`claude logs <编号>` 显示最近的输出。各角色的轨迹在 `.contrejour/trajectories/`，研究记录通过 `research-wiki` 技能、命令行或本机 Markdown 查看，验证端的状态用 `node .contrejour/dist/tools/validation-cli.js status --project .` 查看。流程本身用 `node .contrejour/dist/tools/loop-view.js --project .` 打开的页面查看：每一步由哪些角色做、在哪里停下等 owner、超参数取值、检查结果和最近的运行。这个页面只读，只在本机地址上响应，不读过程记录和隐藏数据；在验证端它显示提交怎么被评判，所以不能让 worker 那边访问到。要动手改流程，用 `node .contrejour/dist/tools/studio.js --project .` 打开 Studio：对话里说想要什么，它先找出相近的流程画在画布上，你点着步骤或箭头说怎么改，它在后台会话里以任务管理角色运行 `loop-authoring`，草稿和审核说明回到画布和对话里，你的回复原样交给流程、照样经过回答核对。Studio 本身不做任何判断，也不是一条流程之外的流程：它只是把终端里的对话搬到了网页上。
 
 ## 十一、保留了什么、删掉了什么
 

@@ -299,6 +299,101 @@ function projectLanguage(root: string): "zh" | "en" {
   return project.language === "en" ? "en" : "zh";
 }
 
+interface LoopContext {
+  root: string;
+  roleNames: Set<string>;
+  loopNames: Set<string>;
+  chosen: { loop: string; params: Record<string, unknown> } | null;
+  runs: Map<string, RunView[]>;
+  /** Run the loop check on the project's own loops. */
+  check: boolean;
+}
+
+/** One loop as the page shows it: what its definition says, its check, its runs. */
+async function describeLoop(file: LoopFile, context: LoopContext): Promise<LoopView> {
+  const { root, roleNames, loopNames, chosen, runs } = context;
+  const fields = frontmatter(file.definition);
+  const sections = sectionsOf(file.definition);
+  const section = (title: string) => sections.find((entry) => entry.title === title)?.body ?? "";
+  let parameters: ParameterView[] = [];
+  let problem: string | null = null;
+  try {
+    parameters = loopParameters(file.definition);
+  } catch (error) {
+    problem = (error as Error).message;
+  }
+  const isChosen = file.source === "project" && chosen?.loop === file.name;
+  if (isChosen && chosen)
+    parameters = parameters.map((parameter) =>
+      parameter.name in chosen.params
+        ? { ...parameter, value: chosen.params[parameter.name] }
+        : parameter,
+    );
+  const steps = parseSteps(section("Steps"), roleNames, loopNames);
+  let check: LoopReport | null = null;
+  if (file.source === "project" && context.check)
+    try {
+      check = await checkLoop(root, file.name);
+    } catch (error) {
+      check = {
+        loop: file.name,
+        ok: false,
+        stale: false,
+        roles_called: [],
+        defects: [`the check could not run: ${(error as Error).message}`],
+      };
+    }
+  const roles = [
+    ...new Set([...steps.flatMap((step) => step.roles), ...(check?.roles_called ?? [])]),
+  ];
+  const children = [
+    ...new Set([
+      ...[...(file.script ?? "").matchAll(/\bworkflow\s*\(\s*(['"`])([^'"`]+)\1/g)].map(
+        (match) => match[2]!,
+      ),
+      ...steps.flatMap((step) => step.loops),
+    ]),
+  ].filter((name) => name !== file.name);
+  return {
+    name: file.name,
+    source: file.source,
+    side: fields.side ?? "unknown",
+    kind: fields.kind ?? "task",
+    description: fields.description ?? "",
+    triggers: parseTriggers(fields.triggers),
+    chosen: isChosen,
+    parameters,
+    parameter_problem: problem,
+    purpose: section("Purpose"),
+    steps,
+    sections: sections
+      .filter((entry) => !["", "Purpose", "Steps", "Parameters"].includes(entry.title))
+      .map((entry) => ({ title: entry.title, markdown: entry.body })),
+    roles,
+    children,
+    definition: file.definition,
+    script: file.script,
+    check,
+    runs: runs.get(file.name) ?? [],
+  };
+}
+
+function describeRole(file: RoleFile, loops: LoopView[]): RoleView {
+  const fields = frontmatter(file.text);
+  return {
+    name: file.name,
+    source: file.source,
+    side: fields.side ?? "unknown",
+    description: fields.description ?? "",
+    tools: fields.tools ?? "",
+    effort: fields.effort ?? "",
+    body: sectionsOf(file.text)
+      .map((entry) => (entry.title ? `## ${entry.title}\n\n${entry.body}` : entry.body))
+      .join("\n\n"),
+    used_by: loops.filter((loop) => loop.roles.includes(file.name)).map((loop) => loop.name),
+  };
+}
+
 /** Everything the page shows, read from the project (and its library) as it is now. */
 export async function collectView(projectRoot: string, live = false): Promise<ViewData> {
   const root = path.resolve(projectRoot);
@@ -348,89 +443,10 @@ export async function collectView(projectRoot: string, live = false): Promise<Vi
   }
   const runs = runsByLoop(root, runNames);
 
+  const context: LoopContext = { root, roleNames, loopNames, chosen, runs, check: true };
   const loops: LoopView[] = [];
-  for (const file of loopFiles) {
-    const fields = frontmatter(file.definition);
-    const sections = sectionsOf(file.definition);
-    const section = (title: string) => sections.find((entry) => entry.title === title)?.body ?? "";
-    let parameters: ParameterView[] = [];
-    let problem: string | null = null;
-    try {
-      parameters = loopParameters(file.definition);
-    } catch (error) {
-      problem = (error as Error).message;
-    }
-    const isChosen = file.source === "project" && chosen?.loop === file.name;
-    if (isChosen && chosen)
-      parameters = parameters.map((parameter) =>
-        parameter.name in chosen.params
-          ? { ...parameter, value: chosen.params[parameter.name] }
-          : parameter,
-      );
-    const steps = parseSteps(section("Steps"), roleNames, loopNames);
-    let check: LoopReport | null = null;
-    if (file.source === "project")
-      try {
-        check = await checkLoop(root, file.name);
-      } catch (error) {
-        check = {
-          loop: file.name,
-          ok: false,
-          stale: false,
-          roles_called: [],
-          defects: [`the check could not run: ${(error as Error).message}`],
-        };
-      }
-    const roles = [
-      ...new Set([...steps.flatMap((step) => step.roles), ...(check?.roles_called ?? [])]),
-    ];
-    const children = [
-      ...new Set([
-        ...[...(file.script ?? "").matchAll(/\bworkflow\s*\(\s*(['"`])([^'"`]+)\1/g)].map(
-          (match) => match[2]!,
-        ),
-        ...steps.flatMap((step) => step.loops),
-      ]),
-    ].filter((name) => name !== file.name);
-    loops.push({
-      name: file.name,
-      source: file.source,
-      side: fields.side ?? "unknown",
-      kind: fields.kind ?? "task",
-      description: fields.description ?? "",
-      triggers: parseTriggers(fields.triggers),
-      chosen: isChosen,
-      parameters,
-      parameter_problem: problem,
-      purpose: section("Purpose"),
-      steps,
-      sections: sections
-        .filter((entry) => !["", "Purpose", "Steps", "Parameters"].includes(entry.title))
-        .map((entry) => ({ title: entry.title, markdown: entry.body })),
-      roles,
-      children,
-      definition: file.definition,
-      script: file.script,
-      check,
-      runs: runs.get(file.name) ?? [],
-    });
-  }
-
-  const roles: RoleView[] = roleFiles.map((file) => {
-    const fields = frontmatter(file.text);
-    return {
-      name: file.name,
-      source: file.source,
-      side: fields.side ?? "unknown",
-      description: fields.description ?? "",
-      tools: fields.tools ?? "",
-      effort: fields.effort ?? "",
-      body: sectionsOf(file.text)
-        .map((entry) => (entry.title ? `## ${entry.title}\n\n${entry.body}` : entry.body))
-        .join("\n\n"),
-      used_by: loops.filter((loop) => loop.roles.includes(file.name)).map((loop) => loop.name),
-    };
-  });
+  for (const file of loopFiles) loops.push(await describeLoop(file, context));
+  const roles = roleFiles.map((file) => describeRole(file, loops));
 
   return {
     project: {
@@ -445,6 +461,70 @@ export async function collectView(projectRoot: string, live = false): Promise<Vi
     },
     loops,
     roles,
+  };
+}
+
+/** A draft in `.contrejour/drafts/<draft>/`: the loops and roles it holds, as the page shows them. */
+export interface DraftView {
+  draft: string;
+  /** The project as it would be with the draft installed. */
+  view: ViewData;
+  loops: string[];
+  roles: string[];
+}
+export async function collectDraftView(
+  projectRoot: string,
+  draft: string,
+): Promise<DraftView | null> {
+  const root = path.resolve(projectRoot);
+  const dir = path.join(root, ".contrejour", "drafts", draft);
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(draft) || !fs.existsSync(dir)) return null;
+  const base = await collectView(root);
+  const draftRoles: RoleFile[] = markdownFiles(path.join(dir, "agents")).map((file) => ({
+    name: file.slice(0, -3),
+    source: "project",
+    text: readText(path.join(dir, "agents", file)) ?? "",
+  }));
+  const draftLoops: LoopFile[] = markdownFiles(path.join(dir, "loops")).map((file) => ({
+    name: file.slice(0, -3),
+    source: "project",
+    definition: readText(path.join(dir, "loops", file)) ?? "",
+    script: readText(path.join(dir, "workflows", `${file.slice(0, -3)}.js`)),
+  }));
+  const roleNames = new Set([
+    ...base.roles.map((role) => role.name),
+    ...draftRoles.map((role) => role.name),
+  ]);
+  const loopNames = new Set([
+    ...base.loops.map((loop) => loop.name),
+    ...draftLoops.map((loop) => loop.name),
+  ]);
+  // The editor's own check ran on the draft; the page does not run it again.
+  const context: LoopContext = {
+    root,
+    roleNames,
+    loopNames,
+    chosen: base.project.chosen,
+    runs: new Map(),
+    check: false,
+  };
+  const described: LoopView[] = [];
+  for (const file of draftLoops) described.push(await describeLoop(file, context));
+  const loops = [
+    ...base.loops.filter(
+      (loop) => !(loop.source === "project" && draftLoops.some((file) => file.name === loop.name)),
+    ),
+    ...described,
+  ];
+  const roles = [
+    ...base.roles.filter((role) => !draftRoles.some((file) => file.name === role.name)),
+    ...draftRoles.map((file) => describeRole(file, loops)),
+  ];
+  return {
+    draft,
+    view: { ...base, loops, roles },
+    loops: draftLoops.map((file) => file.name),
+    roles: draftRoles.map((file) => file.name),
   };
 }
 
@@ -504,7 +584,7 @@ export async function writeSnapshot(
 }
 
 /** The files the page is made from, so a served page reloads only when one of them changed. */
-function fingerprint(root: string): string {
+export function fingerprint(root: string): string {
   let library: string | null = null;
   try {
     library = installedLibrary(root);

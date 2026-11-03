@@ -10,7 +10,7 @@ Run `npm ci` in this repository, then `npm run pack:contrejour`. No workspace pa
 
 The build writes `artifacts/contrejour-0.1.0.tar.gz` and its `.sha256`. The archive contains its Bash installer, the compiled helper dependency closure, the Commander runtime, the library of loops and roles (`library/`), the `research-wiki` and `browser-act` skills, shared references and templates. Target machines need no build tools, source checkout or npm install. Claude Code, browser and experiment host dependencies remain external; see the [setup guide](../SETUP_GUIDE.md).
 
-`tools/pack-contrejour.mjs` traces local JavaScript imports from the setup, validation, worker, wiki, hook, loop-check, library, loop-view, capture-filter and browser entrypoints. Add new runtime entrypoints and shipped skills there rather than shipping unrelated tools.
+`tools/pack-contrejour.mjs` traces local JavaScript imports from the setup, validation, worker, wiki, hook, loop-check, library, loop-view, studio, capture-filter and browser entrypoints, and copies the Studio's page, which `npm run build` builds with Vite into `dist/studio/` from `studio/`. The page's packages (React, React Flow, Tailwind, Radix, lucide) are build-time dependencies only: the package carries the built files. Add new runtime entrypoints and shipped skills there rather than shipping unrelated tools.
 
 The release archive remains available for manual offline distribution and CI; local repository installation does not read or download it. After changing shipped code, roles, loops, skills or documentation, run `npm run pack:contrejour` and copy the archive and checksum into `distribution/releases/` before committing.
 

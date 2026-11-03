@@ -41,5 +41,6 @@ helper's error and the step it blocked. Do not:
 | `capture-filter.js` | the memory roles | Rewrite or drop the flagged note; see [capture-antipatterns.md](capture-antipatterns.md). |
 | `ensure-browser-act.js` | `browser-act`, setup and environment scripts that need a browser | Stop browser work; see [browser-act.md](browser-act.md). |
 | `loop-view.js` | the owner only: a read-only page of the loops, served until stopped | No role runs it. When the owner asks to see the loops, give them the command `node .contrejour/dist/tools/loop-view.js --project .` instead. |
+| `studio.js` | the owner only: the console that draws loops, previews candidates and starts authoring loops in background sessions | No role runs it. A session the Studio started is an ordinary task-manager session: run the loop it names and relay the owner's replies as `running-loops.md` says. |
 
 Add a row here in the same change that makes a role call a new helper.

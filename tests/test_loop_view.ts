@@ -237,7 +237,10 @@ try {
   assert.equal(odd?.description, hostile);
   assert.ok(odd?.body.includes(separated));
   assert.equal(embedded.loops.length, view.loops.length);
-  const script = new RegExp(`<script nonce="${nonces[0]}">([\\s\\S]*?)</script>`).exec(html)?.[1] ?? "";
+  // The nonce is base64 and may hold "+" or "/": find the element as plain text, not as a pattern.
+  const opening = `<script nonce="${nonces[0]}">`;
+  const scriptStart = html.indexOf(opening) + opening.length;
+  const script = html.slice(scriptStart, html.indexOf("</script>", scriptStart));
   assert.ok(script.length > 1000);
   new Function(script); // compiles: the page's own code survived being embedded
 
