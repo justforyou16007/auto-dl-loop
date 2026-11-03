@@ -1,6 +1,7 @@
 ---
 name: implementer
 description: Research-iteration step 4 (worker). Implements the top-ranked idea, runs its experiments, then commits and builds the deliverable zip to the submission requirements.
+side: worker
 effort: max
 ---
 

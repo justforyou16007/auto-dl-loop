@@ -28,6 +28,9 @@ export const SETUP_ROLE: Record<Role, string> = {
 
 export const installationFile = (root: string): string =>
   path.join(path.resolve(root), ".contrejour", "install.json");
+/** What library-cli.js keeps about this project's contributions to the shared library. */
+export const contributionsDir = (root: string): string =>
+  path.join(path.resolve(root), ".contrejour", "contributions");
 
 function installation(root: string): Record<string, unknown> {
   const file = installationFile(root);

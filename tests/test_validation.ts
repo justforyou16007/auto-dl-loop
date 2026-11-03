@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
+import { selectedLoopPath } from "../src/tools/loops.js";
 import { writeStateJsonAtomic } from "../src/tools/state-file.js";
 import {
   readTesterFacilityConfig,
@@ -189,7 +190,14 @@ try {
     permission_mode: "bypassPermissions" as const,
     claude_command: [process.execPath, fakeClaude],
   };
-  const request = { root, submission_id: "s001", submission_dir: path.join(root, "s001") };
+  const reviewParams = { max_adapter_fixes: 2, max_extension_rounds: 3, max_leak_reviews: 5 };
+  const request = {
+    root,
+    submission_id: "s001",
+    submission_dir: path.join(root, "s001"),
+    loop: "submission-review",
+    params: reviewParams,
+  };
   const argv = claudeStartArgv(agent, request);
   assert.deepEqual(argv.slice(2, 11), [
     "--bg",
@@ -205,9 +213,12 @@ try {
   // A git checkout must not keep the session from editing files; the prompt names only the loop and its args.
   assert.deepEqual(JSON.parse(argv.at(-2)!), { worktree: { bgIsolation: "none" } });
   assert.equal(argv.at(-1), reviewPrompt(request));
+  // The session runs the loop setup chose, with the parameters the owner confirmed.
+  assert.match(argv.at(-1)!, /^Run the submission-review loop with args /);
   assert.deepEqual(JSON.parse(/with args (\{.*\})\.$/.exec(argv.at(-1)!)![1]!), {
     submission_id: "s001",
     submission_dir: request.submission_dir,
+    params: reviewParams,
   });
   // The session must not belong to the Claude Code session or Paseo agent the service runs in.
   Object.assign(process.env, { CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "parent", PASEO_AGENT_ID: "parent-agent" });
@@ -266,6 +277,8 @@ try {
     service: { host: "127.0.0.1", port: 8765, public_url: "https://validation.example" },
   };
   writeStateJsonAtomic(validationConfigPath(root), config);
+  const selectedLoop = { schema_version: 1, loop: "submission-review", params: reviewParams };
+  writeStateJsonAtomic(selectedLoopPath(root), selectedLoop);
   const token = ensureValidationToken(root);
   const dispatched: string[] = [];
   let failDispatch = false;
@@ -273,8 +286,10 @@ try {
     port: 0,
     tick_ms: 3_600_000,
     log: () => {},
-    dispatcher: async ({ submission_id }) => {
+    dispatcher: async ({ submission_id, loop, params }) => {
       if (failDispatch) throw new Error("claude is not installed");
+      assert.equal(loop, "submission-review");
+      assert.deepEqual(params, reviewParams);
       dispatched.push(submission_id);
       return { id: `id-${submission_id}`, session_id: `session-${submission_id}`, name: `contrejour-review-${submission_id}` };
     },
@@ -577,6 +592,9 @@ try {
   };
   writeStateJsonAtomic(validationConfigPath(watched), watchedConfig);
   ensureValidationToken(watched);
+  // The service runs the loop setup chose, so without that choice it refuses to start.
+  await assert.rejects(startValidationService(watched, { port: 0 }), /LOOP_NOT_SELECTED/);
+  writeStateJsonAtomic(selectedLoopPath(watched), selectedLoop);
   // Sessions not listed are at work; null means Claude Code cannot answer.
   const states = new Map<string, SessionState | null>();
   const resumes: { session: string; text: string }[] = [];
@@ -632,13 +650,19 @@ try {
     assert.equal(resumes.length, 1);
     assert.equal(resumes[0]!.session, `id-${a}`);
     assert.match(resumes[0]!.text, /Continue the submission-review loop with args \{"submission_id":"s001"/);
+    assert.match(resumes[0]!.text, /"params":\{"max_adapter_fixes":2/);
     assert.deepEqual(reasons(a), ["reminder"]);
+    // Setup applied again changes the next review; the one under way keeps the loop and values it started with.
+    writeStateJsonAtomic(selectedLoopPath(watched), { schema_version: 1, loop: "another-review", params: { rounds: 1 } });
     // Stopped again, it waits out the grace and the growing gap before the next reminder.
     states.set(`id-${a}`, "stopped");
     await later(5);
     assert.equal(resumes.length, 1);
     await later(6);
     assert.equal(resumes.length, 2);
+    assert.match(resumes[1]!.text, /Continue the submission-review loop with args .*"max_adapter_fixes":2/);
+    assert.deepEqual(readSubmission(watched, a).review_loop, { loop: selectedLoop.loop, params: selectedLoop.params });
+    writeStateJsonAtomic(selectedLoopPath(watched), selectedLoop);
 
     // A running session is never disturbed, nor one Claude Code cannot report on.
     states.set(`id-${a}`, "running");

@@ -1,6 +1,7 @@
 ---
 name: validator-memory
 description: The validator's only wiki writer — records, from the published result only, which problems each submission solved and which persist and the testing methods relied on, and keeps the environment section current.
+side: validator
 tools: Read, Grep, Glob, Bash, Write, Edit
 effort: high
 ---

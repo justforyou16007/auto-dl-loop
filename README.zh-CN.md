@@ -4,7 +4,7 @@
 
 [English](README.md) · [快速开始](#快速开始) · [部署指南](SETUP_GUIDE_CN.md) · [架构说明](ARCHITECTURE_GUIDE.md)
 
-Contrejour 在 Claude Code 上把 agent 的工作组织成由**角色**组成的**流程**。流程定义用自然语言写成，是流程的唯一依据：每一步由哪个角色做、角色之间传递什么、在哪里分支、最多重复几次。根据定义生成的 Claude Code workflow 脚本负责执行它。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为**轨迹**，`trajectory-optimizer` 角色从中学习，修复角色。流程和角色通过**流程库**共享：项目从流程库安装，任务结束后再同步回去。
+Contrejour 在 Claude Code 上把 agent 的工作组织成由**角色**组成的**流程**。流程定义用自然语言写成，是流程的唯一依据：每一步由哪个角色做、角色之间传递什么、在哪里分支、最多重复几次。根据定义生成的 Claude Code workflow 脚本负责执行它。每个角色是一个 Claude Code agent 文件，这一步怎么做全写在里面。每个角色的每次运行都记录为**轨迹**，`trajectory-optimizer` 角色从中学习，修复角色。流程和角色通过**流程库**共享：项目从流程库安装，再把学到的东西贡献回去。
 
 它的第一个应用是两台机器上的研究任务。**worker** 为任务构建交付物并提交。**validator** 持有只增不改的隐藏 benchmark，作为 worker 的对抗方评判每次提交，发布结论、测试项总数与通过数，以及经过泄漏审查的反馈。worker 根据反馈不断改进，直到提交次数用完。
 
@@ -29,10 +29,12 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 - **流程用自然语言定义，以脚本执行。** 流程定义（`.claude/loops/<流程>.md`）为每一步写明由哪个角色做、角色收到什么、交出什么、按什么条件分支、每处重复的上限，以及流程在哪里等待。`loop-editor` 据此生成 workflow 脚本（`.claude/workflows/<流程>.js`）。脚本只调用角色、按角色的结构化输出决定顺序和分支、在角色之间传递输入、在上限内循环。它从不在提示里写一步怎么做，也不用代码干活，所以对角色文件的修改不会被脚本盖过。
 - **编译检查。** `loop-check` 不调用模型，用假角色把脚本运行几遍，每遍给出不同的假回答，以走到每一个分支。它报告未知的角色、停不下来的循环、未声明的阶段、任何回答都走不到的角色、对当前时间或随机数的使用（会破坏续跑），以及比定义旧的脚本。
 - **角色就是 Claude Code agent 文件**（`.claude/agents/<角色>.md`）：职责、输入、结构化输出、能写的位置、模型和思考深度，以及写明评价信号的 Evaluation 一节。工具清单能做到真正的隔离：不给读文件工具的角色确实读不到 wiki。能用 Bash 的角色靠的是文件里的约定。
-- **轨迹让角色进步。** hook 把每个结束的角色的过程记录复制到项目里。worker 每一轮、validator 每一次评审之后，`trajectory-optimizer` 按每个角色自己的 Evaluation 一节评估它，在问题重复出现时修复角色文件。验证端的角色只能通过 owner 批准的提案修改。
-- **hooks 只做记录、通知或拦截。** setup 只登记一次；哪些动作执行，写在流程定义里。
-- **共享的流程库。** 安装时从 Contrejour 仓库的 `library/` 目录给项目放入角色和流程，此后它们归项目所有。任务结束后，`loop-query` 把它们推送到一个分支，由维护者审核合并。
-- **供 owner 使用的角色。** `loop-editor` 新建和修改流程，只按 owner 的要求；`loop-query` 在写新流程之前先找现成的；`role-creator` 在缺少某一步时补一个角色；`trajectory-optimizer` 修复角色。
+- **轨迹让角色进步。** hook 把每个结束的角色的过程记录复制到项目里。worker 每一轮、validator 每一次评审之后，`trajectory-optimizer` 按每个角色自己的 Evaluation 一节评估它，在问题重复出现时修复角色文件。验证端的角色只能通过 owner 在 `proposal-review` 流程里接受的提案修改。
+- **hooks 只做记录、通知或拦截。** 安装器只登记一次；哪些动作执行，写在流程定义里。其中一个在每个流程启动前核对：会话带进去的每个回答，都是 owner 在流程提问之后亲手输入、没有改动的消息。
+- **共享的流程库。** 安装时从 Contrejour 仓库的 `library/` 目录给项目放入角色和流程，此后它们归项目所有。只要有一次提交完成，owner 就可以运行 `library-contribution` 流程，把项目新增和改动的内容作为 PR 送回去。安装时保留的副本能分清项目改了什么、流程库改了什么，所以贡献不会改回别人的改进；发出去的内容也由 owner 批准。
+- **没有流程之外的调度。** 会话只负责启动流程、把 owner 的回答带进流程；流程调度角色；角色完成各自那一步。角色从不直接调用别的角色，owner 的决定是流程里的 `owner-review` 一步。workflow 里的 agent 没法向人提问，所以流程在这一步停下，会话给 owner 看审核说明，拿到回答后流程接着运行。
+- **setup 从需求出发，本身也是流程。** owner 说明项目需要什么，本端的 setup 角色就运行 `project-setup` 流程：有合适的流程就复用，没有就由 `loop-authoring` 在最接近的已有流程上构建一个，然后 owner 在一张配置表上设置这个流程的超参数。流程自己声明超参数和默认值，所以复用流程只需要选取值，不用改流程。
+- **新流程、新角色从已有的出发。** `loop-authoring` 先让 `loop-query` 找可以作为基础的流程，再由 `loop-editor` 在最接近的那个上构建；`role-authoring` 先让 `role-creator` 找已经能做这件事的角色，再以最接近的为基础构建。只有 owner 要求时才从头写。草稿只有在 owner 批准了确切版本后才装进项目。`trajectory-optimizer` 根据轨迹修复角色；验证端的修改要 owner 在 `proposal-review` 里接受。
 
 ### 独立、可度量的验证
 
@@ -46,7 +48,7 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 
 ### 有记忆的研究迭代
 
-- **一轮七步。** worker 的 `research-iteration` 流程先选出未解决的问题；让五个出想法角色各提一个想法（三个看 wiki，一个只知道无效的想法，一个只知道任务和问题）；给想法打分，用 `rank_ideas` 对整个候选池排序，尝试得越少的方向，探索奖励越高；实现得分最高的想法并做实验；提交一个 commit。结果发布后，记录结果并修复角色。一轮接一轮，直到任务结束。
+- **一轮七步。** worker 的 `research-iteration` 流程先选出未解决的问题；让出想法角色各提一个想法（默认五个：三个看 wiki，一个只知道无效的想法，一个只知道任务和问题）；给想法打分，用 `rank_ideas` 对整个候选池排序，尝试得越少的方向，探索奖励越高；实现得分最高的想法并做实验；提交一个 commit。结果发布后，记录结果并修复角色。一轮接一轮，直到任务结束。
 - **研究 wiki。** 每台机器的 `research-wiki` 按问题（可以是多个）记录已有工作做了什么、试过哪些想法和实验、哪些有效、哪些无效，用有类型的证据边相连。只有记忆角色写入。每一轮都从它的 query pack 开始，那是一份不超过 1000 字符的摘要。验证端的 wiki 记录每次提交解决了哪些问题、哪些仍在，从不包含测试内容。
 - **环境段和环境技能。** 关于机器的事实（主机、路径、环境、资源、指标输出位置、验证过的坑）写在 `CLAUDE.md` 的环境段里。每个角色都会读这个文件，所以这一段只写环境。固定的操作（同步代码、启动命名实验、检查、取回结果、停止）写成项目环境技能里验证过的脚本，每次运行有自己的名字，所以可以同时跑多个实验。key 和 token 只放在 `.contrejour/environment.json`。
 
@@ -56,12 +58,12 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 
 ## 工作方式
 
-1. **定义任务。** 在验证机器上写好 `task.md`，和 setup 角色一起确认一张配置表：benchmark、逐样本通过规则、提交次数、评审会话怎么启动、服务地址。apply 将其冻结，然后启动服务。
-2. **构建。** 在 worker 机器上，setup 角色通过服务取回 `task.md`。在项目里打开的 Claude Code 会话就是任务管理角色，收到要求后一轮接一轮地运行 `research-iteration` 流程。
+1. **定义任务。** 在验证机器上告诉 setup 角色你的需求。它的 setup 流程和你一起写好 `task.md`，复用合适的流程或构建一个，再请你确认一张配置表：流程的超参数、benchmark、逐样本通过规则、提交次数、评审会话怎么启动、服务地址。apply 冻结验证条款，然后启动服务。
+2. **构建。** 在 worker 机器上，setup 角色同样根据你的需求定下流程和超参数，并通过服务取回 `task.md`。在项目里打开的 Claude Code 会话就是任务管理角色，它一轮接一轮地运行选定的流程，默认是 `research-iteration`。
 3. **提交。** 每一轮以一个 commit 结束，打包成带 `USAGE.md` 的 zip，上传到一次性地址。
-4. **评审。** 服务为这次提交启动一个评审会话，它运行 `submission-review` 流程，发布结论、测试项计数和经过泄漏审查的反馈。
+4. **评审。** 服务为这次提交启动一个评审会话，它运行选定的流程（默认是 `submission-review`），发布结论、测试项计数和经过泄漏审查的反馈。
 5. **学习。** worker 的记忆角色记下结果和反馈指出的问题，`trajectory-optimizer` 修复两端的角色，下一轮从仍未解决的问题开始。
-6. **结束。** 提交次数用完时任务结束，两端各自把流程和角色同步到流程库；验证端的要先经过泄漏审查和 owner 批准。
+6. **贡献与结束。** 只要有一次提交完成，任一端的 owner 都可以把该项目新增和改动的流程、角色作为 PR 贡献到流程库；验证端的要先经过泄漏审查。提交次数用完时任务结束。
 
 两个项目放在不同的机器上，不共享也不同步任何目录：正是这一点让隐藏的 benchmark 不在 worker 能触及的范围内。评测和反馈的边界见[架构说明](ARCHITECTURE_GUIDE.md)。
 
@@ -106,9 +108,11 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup                                   # 第一次打开时接受目录信任提示
+claude --agent validator-setup "start"                           # 第一次打开时接受目录信任提示
 node .contrejour/dist/tools/validation-cli.js serve --project .  # setup 完成后运行，保持运行
 ```
+
+引号里是会话的第一句话：会话收到第一句话才开始工作，不写的话角色会一直等你输入。需求已经想好的话，直接写在 `start` 的位置。setup 从这个需求出发：有合适的流程就复用，没有就根据需求生成一个，然后你在一张配置表上设置流程的超参数和其他配置。
 
 评审会话是 Claude Code 后台会话，只能在已信任的目录里启动，所以要接受信任提示。setup 给出 worker 的连接信息，即一个地址和一个 token，私下交给 worker 机器。验证机器已经提供 `CONTREJOUR_URL` 和 `CONTREJOUR_TOKEN` 时，setup 直接使用它们，不再询问地址，也不新建 token。
 
@@ -116,11 +120,11 @@ node .contrejour/dist/tools/validation-cli.js serve --project .  # setup 完成�
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup     # 填入连接信息；setup 会取回 task.md
-claude                          # 以 worker-task-manager 身份运行
+claude --agent worker-setup "start"     # 你的需求、流程及其超参数、连接信息；setup 会取回 task.md
+claude --permission-mode bypassPermissions "start"   # 以 worker-task-manager 身份运行，开始运行选定的流程
 ```
 
-在最后这个会话里，让它启动 `research-iteration` 流程，并保持会话打开。
+保持最后这个会话打开，它会自己一轮接一轮地运行，所以要用不等人批准的权限模式（更谨慎的选择是 `auto`，见部署指南）。第一句话只写 "start"，因为流程里的每个角色都会收到启动这次运行的那句话。
 
 配置表、网络、一次提交怎么评审、升级和故障排查，见**[中文部署指南](SETUP_GUIDE_CN.md)**或 **[English setup guide](SETUP_GUIDE.md)**。
 
@@ -128,9 +132,9 @@ claude                          # 以 worker-task-manager 身份运行
 
 | 端 | 角色 | 流程 |
 | --- | --- | --- |
-| 框架，每个项目都有 | `loop-editor`、`loop-query`、`role-creator`、`trajectory-optimizer` | — |
-| worker | `worker-setup`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration` |
-| validator | `validator-setup`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review` |
+| 框架，每个项目都有 | `loop-editor`、`loop-query`、`role-creator`、`trajectory-optimizer`、`library-contributor`、`owner-review` | `loop-authoring`、`role-authoring` |
+| worker | `worker-setup`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration`（主任务）、`project-setup`、`library-contribution` |
+| validator | `validator-setup`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review`（主任务）、`project-setup`、`library-contribution`、`proposal-review` |
 
 它们的源文件在 [`library/`](library/)，每个角色做什么见 [Agent 指南](AGENT_GUIDE.md)。随附两个技能，作为角色引用的操作手册：[`research-wiki`](skills/research-wiki/SKILL.md) 是长期记忆，[`browser-act`](skills/browser-act/SKILL.md) 通过外部的 browser-act CLI 访问渲染后的页面和浏览器会话。setup 会再写入第三个：项目自己的 `<项目>-environment` 技能。文献检索、GPU 平台和通知等可选集成留在源码仓库中，不进入独立安装包。
 

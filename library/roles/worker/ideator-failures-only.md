@@ -1,6 +1,7 @@
 ---
 name: ideator-failures-only
 description: Research-iteration step 2 (worker), failures-only slot. Proposes one idea for the chosen problems that avoids every ineffective approach, knowing nothing else of the history.
+side: worker
 tools: WebSearch
 effort: high
 ---

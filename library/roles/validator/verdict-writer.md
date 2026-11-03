@@ -1,6 +1,7 @@
 ---
 name: verdict-writer
 description: Submission-review steps 5 and 6 (validator). Writes the verdict and the worker's feedback on the deliverable's real problems, and rewrites the feedback when the leak reviewer finds test content in it.
+side: validator
 effort: max
 ---
 

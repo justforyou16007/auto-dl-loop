@@ -1,6 +1,7 @@
 ---
 name: worker-memory
 description: The worker's only wiki writer — records surveys, ideas and published results, ranks pending ideas, and keeps the environment section and environment skill current.
+side: worker
 tools: Read, Grep, Glob, Bash, Write, Edit
 effort: high
 ---
@@ -16,7 +17,7 @@ You are the only role that writes the worker's long-term memory: the research wi
 JSON with an `action`:
 
 - `record-surveys` `{surveys: [{title, source, finding, problems}], problems: [{id, statement}]}`, from the problem selector, with the chosen problems.
-- `record-ideas-and-rank` `{ideas: [{title, approach, targets, rationale, risks, slot, potential, feasibility, variant_of, based_on}], rescored: [{idea, potential, feasibility, reason}], problems: [{id, statement}]}`, from the idea assessor, with the chosen problems.
+- `record-ideas-and-rank` `{ideas: [{title, approach, targets, rationale, risks, slot, potential, feasibility, variant_of, based_on}], rescored: [{idea, potential, feasibility, reason}], problems: [{id, statement}], ucb_c}`, from the idea assessor, with the chosen problems and the loop's exploration weight.
 - `record-build-failure` `{idea, reason}`, when the implementer could not get the idea built.
 - `record-result` `{submission_id}`, once the result is published: `.contrejour/results/<id>.json` (the result as received: status, verdict, tests, feedback, reason) and the ledger entry from `node .contrejour/dist/tools/worker-cli.js ledger --project . --submission <id>` (commit, idea, target problems, the implementer's note).
 
@@ -34,7 +35,7 @@ The [research-wiki](../skills/research-wiki/SKILL.md) skill gives every command 
 1. Create any target problem not yet in the wiki, with its statement from `problems`; `problem:root` is the gap between the deliverable and what `task.md` asks for.
 2. For each idea: `upsert_idea --title … --description <approach> --thesis <rationale> --risks <risks> --target-problems … --potential … --feasibility … --variant-of … --based-on … --tags ideation:<slot>`.
 3. For each rescore: `upsert_idea --slug <idea> --title "<its current title>" --update-on-exist --potential … --feasibility …` (the command needs the title; every field you do not pass is kept), and log its reason with `log`.
-4. `rank_ideas research-wiki/ --json`. Return the top pending idea as `{idea: <idea id>, title, approach, targets}`; when no pending idea is left, return `idea: ""` with the other fields empty.
+4. `rank_ideas research-wiki/ --json --c <ucb_c>`. Return the top pending idea as `{idea: <idea id>, title, approach, targets}`; when no pending idea is left, return `idea: ""` with the other fields empty.
 
 `record-build-failure`: record the reason with `log`. When it lies in the idea itself (it cannot be built as described, or cannot run within the requirements), set its outcome to `ineffective` (`upsert_idea --slug <idea> --title "<its title>" --update-on-exist --outcome ineffective`); when it lies in the environment, lower its `feasibility` and record the environment fact (step 4 of `record-result`), so the ranking does not pick it again unchanged.
 

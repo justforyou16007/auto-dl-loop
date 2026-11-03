@@ -36,6 +36,17 @@ import { standaloneEnvironment } from "./validation/dispatch.js";
 import { assertBenchmarkIntact } from "./validation/layers.js";
 import { countedSubmissions } from "./validation/store.js";
 import { TASK_MANAGER, installedRole, skillsDir, type Role } from "./installation.js";
+import {
+  listLoops,
+  loopDefinitionPath,
+  loopKind,
+  loopParameters,
+  loopSide,
+  parameterDefaults,
+  parameterProblem,
+  selectedLoopPath,
+  type LoopParameter,
+} from "./loops.js";
 
 export type SetupRole = Role;
 export interface SetupDraft {
@@ -74,16 +85,19 @@ export class SetupReviewIncompleteError extends Error {
 }
 
 const TITLES: Record<string, string> = {
+  loop: "流程 / Loop",
   project: "项目 / Project",
   environment: "执行环境 / Environment",
   connection: "验证服务连接 / Validation service",
   validation: "验证条款 / Validation terms",
 };
+/** The loop module comes first: the loop the owner's requirement calls for, then its parameters. */
 const ROLE_MODULES: Record<SetupRole, readonly string[]> = {
-  worker: ["project", "environment", "connection"],
-  validator: ["project", "environment", "validation"],
+  worker: ["loop", "project", "environment", "connection"],
+  validator: ["loop", "project", "environment", "validation"],
 };
 const MODULE_FIELDS: Record<string, readonly string[]> = {
+  loop: ["name", "params"],
   project: ["name", "language"],
   environment: ["secrets"],
   connection: ["url", "token"],
@@ -116,10 +130,67 @@ function serviceEnvironment(): { url?: string; token?: string } {
   const token = process.env.CONTREJOUR_TOKEN?.trim();
   return { ...(url ? { url } : {}), ...(token ? { token } : {}) };
 }
-/** CHOICES plus the ones the machine fixes. */
-function choicesFor(): Record<string, readonly unknown[]> {
+/** The task loops this side can run: setup, contribution and authoring loops are never the project's task. */
+function loopChoices(root: string): string[] {
+  const role = installedRole(root);
+  return listLoops(root).filter(
+    (name) => loopSide(root, name) === role && loopKind(root, name) === "task",
+  );
+}
+/** The parameters the chosen loop declares, or null while no valid loop is chosen. */
+function declaredParameters(root: string, configuration: JsonObject): LoopParameter[] | null {
+  const name = isRecord(configuration.loop) ? configuration.loop.name : undefined;
+  if (typeof name !== "string" || !loopChoices(root).includes(name)) return null;
+  try {
+    return loopParameters(fs.readFileSync(loopDefinitionPath(root, name), "utf8"));
+  } catch {
+    return null;
+  }
+}
+/**
+ * The chosen loop's parameters with their defaults filled in, so the sheet shows
+ * every one. A null is the owner clearing a value: it goes back to the default,
+ * or goes away when it is no parameter of this loop.
+ */
+function withLoopDefaults(root: string, configuration: JsonObject): JsonObject {
+  if (!isRecord(configuration.loop)) return configuration;
+  const loop = configuration.loop;
+  const set = Object.entries(isRecord(loop.params) ? loop.params : {}).filter(
+    ([, value]) => value !== null,
+  );
+  const defaults = parameterDefaults(declaredParameters(root, configuration) ?? []);
+  const params = { ...defaults, ...Object.fromEntries(set) };
+  return { ...configuration, loop: { ...loop, params: params as JsonObject } };
+}
+/** CHOICES plus the ones the machine and the chosen loop fix. */
+function choicesFor(root: string, configuration: JsonObject): Record<string, readonly unknown[]> {
   const { url } = serviceEnvironment();
-  return { ...CHOICES, ...(url ? { "validation.service.public_url": [url] } : {}) };
+  const choices: Record<string, readonly unknown[]> = {
+    ...CHOICES,
+    ...(url ? { "validation.service.public_url": [url] } : {}),
+    "loop.name": loopChoices(root),
+  };
+  for (const parameter of declaredParameters(root, configuration) ?? [])
+    if (parameter.type === "enum") choices[`loop.params.${parameter.name}`] = parameter.choices!;
+  return choices;
+}
+/** What the sheet says about the loop and each of its parameters, from the loop's definition. */
+function loopAdvice(root: string, configuration: JsonObject): Record<string, string> {
+  const advice: Record<string, string> = {
+    "loop.name":
+      "The loop this project runs. The setup role finds one in .claude/loops that fits the owner's requirement, or has loop-editor generate one from it; its parameters then appear below.",
+  };
+  for (const parameter of declaredParameters(root, configuration) ?? []) {
+    const range = [
+      parameter.min === undefined ? "" : `min ${parameter.min}`,
+      parameter.max === undefined ? "" : `max ${parameter.max}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    advice[`loop.params.${parameter.name}`] =
+      `${parameter.description} Default ${JSON.stringify(parameter.default)}${range ? ` (${range})` : ""}.`;
+  }
+  return advice;
 }
 const ADAPTER_CONTRACT =
   'The runner calls `python <CONTREJOUR_ADAPTER_DIR>/predict.py <inputs.jsonl> <predictions.jsonl>`. predict.py runs the deliverable in CONTREJOUR_ARTIFACT_REF as USAGE.md describes and writes one JSON line {"id", "prediction"} per input. The runner scores the predictions and writes CONTREJOUR_TEST_OUTPUT.';
@@ -194,6 +265,7 @@ const statePath = (root: string): string =>
   path.join(path.resolve(root), ".contrejour", "setup-state.json");
 
 function moduleDefaults(root: string, module: string): JsonObject {
+  if (module === "loop") return { name: null, params: {} };
   if (module === "project") return { name: path.basename(path.resolve(root)), language: "zh" };
   if (module === "environment") return { secrets: {} };
   if (module === "connection") return { url: null, token: null };
@@ -225,7 +297,7 @@ function completeModules(root: string, configuration: JsonObject): JsonObject {
       merge(moduleDefaults(root, module), configuration[module] ?? {}),
       provided[module] ?? {},
     );
-  return out;
+  return withLoopDefaults(root, out);
 }
 function loadDraft(root: string): SetupDraft {
   const file = setupDraftPath(root);
@@ -244,13 +316,14 @@ function draftDigest(root: string, draft: SetupDraft): string {
   });
 }
 
-function recommendation(key: string, value: unknown): string {
+function recommendation(key: string, value: unknown, extra: Record<string, string> = {}): string {
+  if (extra[key]) return extra[key];
   if (key === "validation.service.public_url" && serviceEnvironment().url)
     return "Taken from CONTREJOUR_URL on this machine; unset that variable to enter another address.";
   const advice: Record<string, string> = {
     "project.language": "zh for Chinese collaboration; en for English.",
     "environment.secrets":
-      'Only keys and tokens the environment scripts need, as {"NAME": "value"}; {} when there are none. Hosts, paths and commands go into the environment skill, not here.',
+      'Only keys and tokens the environment scripts need, as {"NAME": "value"}; {} when there are none. Hosts, paths and commands go into the environment section of CLAUDE.md, not here.',
     "connection.url": "The `url` the validator-setup role printed on the validator machine.",
     "connection.token":
       "The `token` the validator-setup role printed; .mcp.json will hold it, so keep that file out of git.",
@@ -295,14 +368,19 @@ function rows(
   key: string,
   choices: Record<string, readonly unknown[]>,
   mask = false,
+  advice: Record<string, string> = {},
 ): SetupReviewField[] {
   if (isRecord(value) && Object.keys(value).length)
-    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`, choices, mask));
+    return Object.entries(value).flatMap(([k, v]) => rows(v, `${key}.${k}`, choices, mask, advice));
   if (Array.isArray(value) && value.some(isRecord))
-    return value.flatMap((v, i) => rows(v, `${key}.${i}`, choices, mask));
+    return value.flatMap((v, i) => rows(v, `${key}.${i}`, choices, mask, advice));
   if (mask && isSecret(key) && typeof value === "string" && value)
     return [
-      { path: key, value: `…${value.slice(-4)}`, recommendation: recommendation(key, value) },
+      {
+        path: key,
+        value: `…${value.slice(-4)}`,
+        recommendation: recommendation(key, value, advice),
+      },
     ];
   const options =
     choices[key.replace(/\.\d+(?=\.|$)/g, ".*")] ??
@@ -312,7 +390,7 @@ function rows(
       path: key,
       value: value ?? null,
       ...(options ? { options } : {}),
-      recommendation: recommendation(key, value),
+      recommendation: recommendation(key, value, advice),
     },
   ];
 }
@@ -359,7 +437,7 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
     }
     for (const key of Object.keys(value))
       if (!MODULE_FIELDS[module]!.includes(key)) add(`${module}.${key}`, "unknown field");
-    for (const row of rows(value, module, choicesFor())) {
+    for (const row of rows(value, module, choicesFor(root, configuration))) {
       if (row.options && !empty(row.value) && !row.options.includes(row.value))
         add(row.path, `choose one of ${JSON.stringify(row.options)}`);
       if (
@@ -367,6 +445,36 @@ export function validateSetupConfiguration(configuration: JsonObject, root: stri
         /YOUR_|PINNED_COMMIT|PINNED_DATA_REVISION|\/absolute\/path/.test(row.value)
       )
         add(row.path, "replace the template placeholder");
+    }
+  }
+  // The loop comes from the owner's requirement; its parameters are checked against its definition.
+  const loop = configuration.loop;
+  if (isRecord(loop)) {
+    const options = loopChoices(root);
+    if (empty(loop.name))
+      add(
+        "loop.name",
+        options.length
+          ? `choose the loop this project runs, one of ${JSON.stringify(options)}`
+          : "no loop for this side is installed: have loop-editor generate one from the requirement",
+      );
+    else if (options.includes(String(loop.name))) {
+      let declared: LoopParameter[] = [];
+      attempt("loop.name", () => {
+        declared = loopParameters(
+          fs.readFileSync(loopDefinitionPath(root, String(loop.name)), "utf8"),
+        );
+      });
+      const params = isRecord(loop.params) ? loop.params : {};
+      for (const key of Object.keys(params))
+        if (!declared.some((parameter) => parameter.name === key))
+          add(`loop.params.${key}`, "not a parameter of this loop");
+      // An enum's choices are checked with the sheet's options above.
+      for (const parameter of declared)
+        if (parameter.type !== "enum") {
+          const problem = parameterProblem(parameter, params[parameter.name]);
+          if (problem) add(`loop.params.${parameter.name}`, problem);
+        }
     }
   }
   if (empty(get(configuration, "project.name"))) add("project.name", "required");
@@ -518,7 +626,13 @@ export function refreshSetupReview(projectRoot: string, patch?: unknown): SetupR
       modules: ROLE_MODULES[role].map((id) => ({
         id,
         title: TITLES[id]!.split(" / ")[language === "en" ? 1 : 0]!,
-        fields: rows(draft.configuration[id], id, choicesFor(), true),
+        fields: rows(
+          draft.configuration[id],
+          id,
+          choicesFor(root, draft.configuration),
+          true,
+          loopAdvice(root, draft.configuration),
+        ),
       })),
       issues,
     };
@@ -684,7 +798,7 @@ function mergeJsonEntry(file: string, key: string, name: string, entry: JsonObje
 const HOOK_EVENTS: readonly { event: string; matcher?: string }[] = [
   { event: "SubagentStop" },
   { event: "Stop" },
-  { event: "PreToolUse", matcher: "Write|Edit|NotebookEdit" },
+  { event: "PreToolUse", matcher: "Write|Edit|NotebookEdit|Workflow" },
 ];
 export const hookHelperPath = (root: string): string =>
   path.join(root, ".contrejour", "dist", "tools", "hook.js");
@@ -700,6 +814,24 @@ const isContrejourHook = (hook: unknown): boolean =>
  * edit a git checkout without a worktree. Every other setting stays as it is.
  */
 function writeProjectSettings(root: string, role: SetupRole): string {
+  const file = registerHooks(root);
+  const settings = readJson(file);
+  const worktree = isRecord(settings.worktree) ? settings.worktree : {};
+  writeStateJsonAtomic(file, {
+    ...settings,
+    agent: TASK_MANAGER[role],
+    worktree: { ...worktree, bgIsolation: "none" },
+  });
+  return file;
+}
+
+/**
+ * Register Contrejour's hooks in the project settings, replacing its earlier
+ * registrations and keeping every other setting and hook. The installer does it
+ * too, so the hooks guard setup's own loop before apply writes the rest.
+ */
+export function registerHooks(projectRoot: string): string {
+  const root = path.resolve(projectRoot);
   const file = path.join(root, ".claude", "settings.json");
   const settings = readJson(file);
   const hooks: JsonObject = isRecord(settings.hooks) ? { ...settings.hooks } : {};
@@ -718,14 +850,8 @@ function writeProjectSettings(root: string, role: SetupRole): string {
       },
     ] as JsonObject[];
   }
-  const worktree = isRecord(settings.worktree) ? settings.worktree : {};
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeStateJsonAtomic(file, {
-    ...settings,
-    agent: TASK_MANAGER[role],
-    hooks,
-    worktree: { ...worktree, bgIsolation: "none" },
-  });
+  writeStateJsonAtomic(file, { ...settings, hooks });
   return file;
 }
 
@@ -756,6 +882,8 @@ function claudeCommandProblem(command: unknown): string | null {
 }
 
 type SetupEnvironmentResult = {
+  /** The loop this project runs; its name and parameter values are in .contrejour/loop.json. */
+  loop: string;
   /** Where the setup role writes the environment skill's scripts; apply does not create it. */
   environment_skill_dir: string;
   environment_secrets: string;
@@ -840,11 +968,19 @@ export async function applySetup(projectRoot: string): Promise<SetupApplyResult>
       ],
     };
   }
+  // The loop and its parameters, as the owner confirmed them: the service and the task manager run it so.
+  const loop = configuration.loop as JsonObject;
+  writeStateJsonAtomic(selectedLoopPath(root), {
+    schema_version: 1,
+    loop: loop.name,
+    params: loop.params,
+  });
   const settings = writeProjectSettings(root, role);
   writeRoleBlock(root, role);
   ensureEnvironmentBlock(root);
   return {
     ...wiring,
+    loop: String(loop.name),
     environment_skill_dir: environmentSkillDir(root),
     environment_secrets: secretsFile,
     settings,

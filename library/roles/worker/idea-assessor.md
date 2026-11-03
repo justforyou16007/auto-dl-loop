@@ -1,6 +1,7 @@
 ---
 name: idea-assessor
 description: Research-iteration step 3 (worker). Drops ideas that repeat an ineffective one and scores the rest for potential and feasibility, with their variant and survey links.
+side: worker
 tools: Read, Grep, Glob, Bash
 effort: high
 ---

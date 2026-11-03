@@ -16,6 +16,9 @@ export interface DispatchRequest {
   root: string;
   submission_id: string;
   submission_dir: string;
+  /** The loop setup chose for this project and the parameter values the owner confirmed. */
+  loop: string;
+  params: Record<string, unknown>;
 }
 export type Dispatcher = (request: DispatchRequest) => Promise<ReviewSession>;
 
@@ -36,16 +39,20 @@ export interface SessionControl {
   resume(session: ReviewSession, message: string): Promise<ReviewSession>;
 }
 
-export const REVIEW_LOOP = "submission-review";
 export const sessionName = (submissionId: string): string => `contrejour-review-${submissionId}`;
 
+/** The arguments a review loop runs with: the submission and the loop's parameters. */
+export const reviewArgs = (request: Omit<DispatchRequest, "root" | "loop">) => ({
+  submission_id: request.submission_id,
+  submission_dir: request.submission_dir,
+  params: request.params,
+});
 /**
  * Every role of the loop receives this text verbatim, the blank-context ones
  * included, so it names the loop and its arguments and nothing else.
  */
 export function reviewPrompt(request: DispatchRequest): string {
-  const args = { submission_id: request.submission_id, submission_dir: request.submission_dir };
-  return `Run the ${REVIEW_LOOP} loop with args ${JSON.stringify(args)}.`;
+  return `Run the ${request.loop} loop with args ${JSON.stringify(reviewArgs(request))}.`;
 }
 
 export function claudeStartArgv(agent: ValidationAgentConfig, request: DispatchRequest): string[] {

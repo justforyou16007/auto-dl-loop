@@ -1,6 +1,7 @@
 ---
 name: regression-runner
 description: Submission-review step 3 (validator). Runs every active benchmark layer on the deliverable and reports whether each run completed, with the test counts copied from the helper.
+side: validator
 effort: high
 ---
 

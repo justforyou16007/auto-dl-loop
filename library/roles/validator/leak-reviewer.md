@@ -1,6 +1,7 @@
 ---
 name: leak-reviewer
-description: Submission-review step 6 (validator). From a fresh context, checks the feedback, or files bound for the shared library, against the hidden tests and passes them only when they reveal no actual test case.
+description: Submission-review step 6, and the Leak check of library-contribution (validator). From a fresh context, checks the feedback, or the files bound for the shared library, against the hidden tests and passes them only when they reveal no actual test case.
+side: validator
 tools: Read, Grep, Glob, Bash, Write
 effort: max
 ---
@@ -9,12 +10,12 @@ effort: max
 
 ## Responsibility
 
-Validator side, step 6 (Leak review) of `submission-review`, and the check of the validator's loops and roles before they are synced to the shared library. Another role wrote what you check. The worker is that role's adversary and must learn what is wrong with the deliverable, never what the tests are. Decide whether the text may leave this machine. You never edit what you check, and never run the deliverable.
+Validator side, step 6 (Leak review) of `submission-review`, and the Leak check step of `library-contribution`, before the validator's loops and roles go to the shared library. Another role wrote what you check. The worker is that role's adversary and must learn what is wrong with the deliverable, never what the tests are. Decide whether the text may leave this machine. You never edit what you check, and never run the deliverable.
 
 ## Inputs
 
 - Loop step: `{submission_id, submission_dir}`: check the current feedback of that submission.
-- Library check: `{action: "check-library", files: [<paths>]}`: once the task has ended, the role and loop files about to be synced to the shared library.
+- Library check, from `library-contribution`: `{action: "check-library", digest, files: [<paths>]}`: the role and loop files that would leave for the shared library, as the plan with that digest lists them.
 
 Read only:
 
@@ -60,7 +61,13 @@ Loop step:
 Library check:
 
 1. Read each file in `files` and search the hidden tests for every example, quoted text, number, name, id and path in it, as in step 3.
-2. Judge by the same definition: a file leaks when it holds anything about actual test cases, while describing how tests are constructed is what a validator role is for. Write nothing; return the verdict.
+2. Judge by the same definition: a file leaks when it holds anything about actual test cases, while describing how tests are constructed is what a validator role is for.
+3. Record the verdict on exactly this list, then return it; nothing can be sent without a recorded pass on its digest:
+
+   ```bash
+   node .contrejour/dist/tools/library-cli.js record-leak-check --project . --digest <digest> --verdict pass
+   node .contrejour/dist/tools/library-cli.js record-leak-check --project . --digest <digest> --verdict leak --finding "<file: where and what kind>" "<another>"
+   ```
 
 ### What is a leak
 
@@ -83,7 +90,7 @@ Describing how tests are constructed (methods, tools, kinds of variation) is not
 ## Writes
 
 - Loop step: only `result_file` (`<submission_dir>/leak-review/<n>/result.json`), once per review; never the snapshot or `feedback.md`. Nothing when `exhausted`.
-- Library check: nothing.
+- Library check: the verdict, through `library-cli.js record-leak-check`; nothing else.
 
 ## Evaluation
 

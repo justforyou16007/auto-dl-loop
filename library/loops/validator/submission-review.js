@@ -98,6 +98,7 @@ const PUBLISHED = {
 };
 
 const submission = { submission_id: args.submission_id, submission_dir: args.submission_dir };
+const params = args.params;
 const input = (extra) => JSON.stringify({ ...submission, ...extra });
 
 // Step 1
@@ -137,7 +138,11 @@ if (adapted.runs) {
     phase: "Regress",
   });
   // A defect in the adapter goes back to the adapter's writer, then the layers run again.
-  for (let attempt = 1; regressed.adapter_defect && attempt <= 2; attempt += 1) {
+  for (
+    let attempt = 1;
+    regressed.adapter_defect && attempt <= params.max_adapter_fixes;
+    attempt += 1
+  ) {
     adapted = await agent(input({ fix: regressed.summary }), {
       agentType: "adapter-writer",
       schema: ADAPTED,
@@ -155,7 +160,7 @@ if (adapted.runs) {
   complete = adapted.runs && regressed.complete && !regressed.adapter_defect;
   if (complete) {
     phase("Extend");
-    for (let round = 1; round <= 3; round += 1) {
+    for (let round = 1; round <= params.max_extension_rounds; round += 1) {
       const extended = await agent(input({ round }), {
         agentType: "test-extender",
         schema: EXTENDED,
@@ -179,7 +184,7 @@ let verdict = await agent(
 
 // Step 6: the reviewer starts fresh every time; the author cannot change what it is given.
 phase("Leak review");
-for (let attempt = 1; verdict.has_feedback && attempt <= 5; attempt += 1) {
+for (let attempt = 1; verdict.has_feedback && attempt <= params.max_leak_reviews; attempt += 1) {
   const review = await agent(input({}), {
     agentType: "leak-reviewer",
     schema: LEAK,
@@ -220,4 +225,4 @@ const optimized = await agent(
 );
 return { ...submission, published: true, verdict: published.verdict, optimized: optimized.summary };
 
-// contrejour-loop-definition-sha256: 205d3e2dfb82cd15a830ad07928671216f17dacfc153d04b3b279092bf4a9148
+// contrejour-loop-definition-sha256: e5ae4e4565f6d39b8240ab078d6e61ac41127247f1ee5b36b9815dacfc4ec756

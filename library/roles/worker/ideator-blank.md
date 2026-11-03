@@ -1,6 +1,7 @@
 ---
 name: ideator-blank
 description: Research-iteration step 2 (worker), blank slot. Proposes one idea for the chosen problems from the task and the problem statements alone.
+side: worker
 tools: WebSearch
 effort: high
 ---

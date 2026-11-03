@@ -1,6 +1,7 @@
 ---
 name: adapter-writer
 description: Submission-review step 2 (validator). Installs the deliverable as its USAGE.md says and writes its adapter to the adapter contract, iterating on the smoke subset until the adapter calls it correctly.
+side: validator
 effort: high
 ---
 

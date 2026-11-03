@@ -4,10 +4,10 @@ This repository contains Contrejour: an agent-loop framework on Claude Code — 
 
 Read `docs/` before non-trivial changes. Package conventions are in [docs/packaging.md](docs/packaging.md), coding rules in [docs/coding-standards.md](docs/coding-standards.md), testing in [docs/testing.md](docs/testing.md), and system constraints in [ARCHITECTURE_GUIDE.md](ARCHITECTURE_GUIDE.md).
 
-The library of loops and roles lives in `library/`. Projects sync their loops and roles back to it on a branch once their task ends; maintainers merge those branches by pull request. Check it with `npm run build && node tools/library-check.mjs`, adding `--stamp` after regenerating a library script from its definition.
+The library of loops and roles lives in `library/`. Once one of its tasks has finished, a project contributes its new and changed loops and roles through the `library-contributor` role, as a pull request; maintainers review and merge them. Check it with `npm run build && node tools/library-check.mjs`, adding `--stamp` after regenerating a library script from its definition.
 
 - Preserve the adversarial worker/validator separation, test counts measured by the helper, finalize's checks, and the leak review bound to the feedback's digest. The default validation loop's append-only benchmark (registered layers never change; new tests derive from existing ones) stays mechanically checked by the helper.
-- Loops only schedule roles; how a step is done lives in its role file. Every operation belongs to a role; helpers are tools of roles.
+- Sessions run loops, loops schedule roles, roles do the steps: no flow lives outside a loop, a role never runs another role, and an owner decision is an `owner-review` step of a loop. How a step is done lives in its role file. Every operation belongs to a role; helpers are tools of roles.
 - Keep project installation independent of global configuration.
 - Keep helpers compatible with Node.js 22.12+ and Windows; launch configured commands as argv arrays.
 - Run `npm run typecheck` and `npm run lint` after changes, and `npm run format` before committing.

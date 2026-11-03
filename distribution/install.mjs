@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -96,7 +97,9 @@ const skills = ".claude/skills";
  * Loops and roles from the library are seeded: written when the project has
  * none of that name, then owned by the project (the optimizer fixes roles, the
  * owner changes loops) and never replaced or removed by an update. A project
- * gets the framework roles and its own side's roles and loops.
+ * gets the framework roles and its own side's roles and loops. A copy of what was
+ * seeded stays under .contrejour/seeded/: the baseline that later tells what this
+ * project changed from what the library changed, when it contributes back.
  */
 function seededTarget(relative) {
   const role_ = /^library\/roles\/(framework|worker|validator)\/([^/]+\.md)$/.exec(relative);
@@ -109,6 +112,7 @@ function seededTarget(relative) {
 }
 const seeded = [];
 const kept = [];
+const baselines = [];
 const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
 if (manifest.format !== 1 || !Array.isArray(manifest.files))
   throw new Error("Invalid Contrejour archive manifest");
@@ -123,10 +127,16 @@ for (const entry of manifest.files) {
     const relative = seededTarget(entry.path);
     if (!relative) continue;
     const target = destination(relative);
-    if (fs.existsSync(target)) kept.push(relative);
-    else {
+    const baseline = destination(`.contrejour/seeded/${relative.slice(".claude/".length)}`);
+    if (fs.existsSync(target)) {
+      kept.push(relative);
+      // From a release that kept no baseline, only an unedited copy has a known one.
+      if (!fs.existsSync(baseline) && digest(fs.readFileSync(target)) === digest(bytes))
+        baselines.push({ target: baseline, contents: bytes });
+    } else {
       seeded.push(relative);
       planned.push({ target, contents: bytes, relative });
+      baselines.push({ target: baseline, contents: bytes });
     }
     continue;
   }
@@ -172,7 +182,7 @@ for (const [relative, oldHash] of Object.entries(previous?.files ?? {})) {
   removed.push(target);
 }
 if (!values["dry-run"]) {
-  for (const { target, contents } of planned) {
+  for (const { target, contents } of [...planned, ...baselines]) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const temp = `${target}.contrejour-${process.pid}`;
     fs.writeFileSync(temp, contents);
@@ -202,6 +212,16 @@ if (!values["dry-run"]) {
     ) + "\n",
   );
   fs.renameSync(temp, manifestFile);
+  // The hooks check, among other things, that every answer a session passes to a loop is the owner's own.
+  const hooks = spawnSync(
+    process.execPath,
+    [path.join(root, ".contrejour/dist/tools/setup-cli.js"), "hooks", "--project", root],
+    { encoding: "utf8" },
+  );
+  if (hooks.status !== 0)
+    throw new Error(
+      `Could not register Contrejour's hooks in .claude/settings.json: ${hooks.stderr || hooks.stdout}`,
+    );
 }
 console.log(
   JSON.stringify(
@@ -220,7 +240,7 @@ console.log(
   ),
 );
 console.log(
-  `Next: in ${root}, run \`claude --agent ${role}-setup\` and accept the folder trust prompt the first time; ${
+  `Next: in ${root}, run \`claude --agent ${role}-setup "start"\` (or put your requirement in place of start) and accept the folder trust prompt the first time; ${
     role === "worker"
       ? "set up the validator machine first."
       : "background review sessions need the trusted folder."

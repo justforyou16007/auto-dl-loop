@@ -19,6 +19,7 @@ import { startValidationService } from "../src/tools/validation/server.js";
 import { createSubmission, updateSubmission, withSubmissionsLock } from "../src/tools/validation/store.js";
 import { facilityConfig } from "./helpers/tester-facility-fixture.js";
 import { environmentSkillDir, projectSlug } from "../src/tools/setup.js";
+import { readSelectedLoop } from "../src/tools/loops.js";
 
 // The service address and token a machine may provide are set only where they are tested.
 delete process.env.CONTREJOUR_URL;
@@ -38,6 +39,17 @@ const installAs = (root: string, role: "worker" | "validator", extra: Record<str
   fs.mkdirSync(path.join(root, ".contrejour"), { recursive: true });
   fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify({ role, ...extra }));
 };
+const librarySource = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../library/loops");
+/** The side's loops from the library, where the installer seeds them. */
+const seedLoops = (root: string, side: "worker" | "validator") => {
+  fs.mkdirSync(path.join(root, ".claude/loops"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".claude/workflows"), { recursive: true });
+  for (const entry of fs.readdirSync(path.join(librarySource, side)))
+    fs.copyFileSync(
+      path.join(librarySource, side, entry),
+      path.join(root, entry.endsWith(".md") ? ".claude/loops" : ".claude/workflows", entry),
+    );
+};
 const ROLE_BEGIN = "<!-- CONTREJOUR ROLE BEGIN -->";
 const ENVIRONMENT_BEGIN = "<!-- CONTREJOUR ENVIRONMENT BEGIN -->";
 const issueFields = (root: string) => refreshSetupReview(root).issues.map((issue) => issue.field);
@@ -55,8 +67,10 @@ async function startValidator(task: string) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-setup-service-"));
   process.once("exit", () => fs.rmSync(root, { recursive: true, force: true }));
   installAs(root, "validator");
+  seedLoops(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), task);
   const review = refreshSetupReview(root, {
+    loop: { name: "submission-review" },
     validation: {
       benchmark: facilityConfig(root),
       pass_rule: { metric: "score", op: ">=", threshold: 1 },
@@ -90,10 +104,52 @@ await project("worker", async (root) => {
   assert.equal(review.role, "worker");
   assert.deepEqual(
     review.modules.map((module) => module.id),
-    ["project", "environment", "connection"],
+    ["loop", "project", "environment", "connection"],
   );
   assert.ok(issueFields(root).includes("task.md"));
   assert.ok(issueFields(root).includes("connection.url"));
+
+  // Setup starts from the loop the requirement calls for. With none installed, one has to be generated.
+  const loopIssue = () => refreshSetupReview(root).issues.find((issue) => issue.field === "loop.name")?.message;
+  assert.match(loopIssue()!, /no loop for this side is installed: have loop-editor generate one/);
+  seedLoops(root, "worker");
+  // Only task loops are a project's loop: setup, contribution and authoring loops are not offered.
+  assert.ok(fs.existsSync(path.join(root, ".claude/loops/project-setup.md")));
+  assert.ok(fs.existsSync(path.join(root, ".claude/loops/library-contribution.md")));
+  assert.match(loopIssue()!, /choose the loop this project runs, one of \["research-iteration"\]/);
+  assert.match(refreshSetupReview(root, { loop: { name: "library-contribution" } }).issues.find((issue) => issue.field === "loop.name")!.message, /choose one of \["research-iteration"\]/);
+  // A loop of the other side is not a choice here.
+  fs.copyFileSync(path.join(librarySource, "validator/submission-review.md"), path.join(root, ".claude/loops/submission-review.md"));
+  const fieldOf = (sheet: { modules: { fields: { path: string; value: unknown; options?: readonly unknown[]; recommendation: string }[] }[] }, name: string) =>
+    sheet.modules.flatMap((module) => module.fields).find((row) => row.path === name);
+  assert.deepEqual(fieldOf(refreshSetupReview(root), "loop.name")?.options, ["research-iteration"]);
+  review = refreshSetupReview(root, { loop: { name: "submission-review" } });
+  assert.match(review.issues.find((issue) => issue.field === "loop.name")!.message, /choose one of/);
+  fs.rmSync(path.join(root, ".claude/loops/submission-review.md"));
+  // Once chosen, its parameters are on the sheet with their defaults, ranges and meanings.
+  review = refreshSetupReview(root, { loop: { name: "research-iteration" } });
+  assert.equal(review.issues.some((issue) => issue.field.startsWith("loop.")), false);
+  const ideators = fieldOf(review, "loop.params.informed_ideators")!;
+  assert.equal(ideators.value, 3);
+  assert.match(ideators.recommendation, /Default 3 \(min 0, max 6\)/);
+  assert.equal(fieldOf(review, "loop.params.ucb_c")?.value, 1);
+  assert.ok(fs.readFileSync(review.review_path, "utf8").includes("loop.params.failures_only_ideators"));
+  // A value outside its range, one of the wrong type and a parameter the loop does not have are all reported.
+  review = refreshSetupReview(root, { loop: { params: { informed_ideators: 7, blank_ideators: 1.5, ucb_c: "high", rounds: 9 } } });
+  assert.deepEqual(
+    review.issues.filter((issue) => issue.field.startsWith("loop.")).map((issue) => [issue.field, issue.message]),
+    [
+      ["loop.params.rounds", "not a parameter of this loop"],
+      ["loop.params.informed_ideators", "must be at most 6"],
+      ["loop.params.blank_ideators", "must be an integer"],
+      ["loop.params.ucb_c", "must be a number"],
+    ],
+  );
+  review = refreshSetupReview(root, { loop: { params: { informed_ideators: 2, blank_ideators: 1, ucb_c: 1.5, rounds: null } } });
+  assert.equal(review.issues.some((issue) => issue.field.startsWith("loop.")), false);
+  // A parameter's value is part of what the owner confirms: changing one changes the digest.
+  assert.notEqual(refreshSetupReview(root, { loop: { params: { ucb_c: 2 } } }).configuration_sha256, review.configuration_sha256);
+  refreshSetupReview(root, { loop: { params: { ucb_c: 1.5 } } });
 
   // The task is fetched through the connection in the sheet. A proxy may serve the service under a sub-path.
   await assert.rejects(fetchTask(root), SetupReviewIncompleteError);
@@ -140,7 +196,7 @@ await project("worker", async (root) => {
   );
   fs.writeFileSync(path.join(root, "CLAUDE.md"), "# Owner notes\n");
   // The owner's own settings and hooks survive; Contrejour owns only the entry role, its hooks and background editing.
-  fs.mkdirSync(path.join(root, ".claude"));
+  fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
   fs.writeFileSync(
     path.join(root, ".claude/settings.json"),
     JSON.stringify({ permissions: { allow: ["Bash(ls)"] }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo owner" }] }] } }),
@@ -148,6 +204,15 @@ await project("worker", async (root) => {
   const applied = await applySetup(root);
   if (applied.role !== "worker") throw new Error("unreachable");
   assert.equal(applied.entry_role, "worker-task-manager");
+  // The chosen loop and the confirmed values are what the task manager runs.
+  assert.equal(applied.loop, "research-iteration");
+  const expectedLoop = {
+    schema_version: 1,
+    loop: "research-iteration",
+    params: { informed_ideators: 2, failures_only_ideators: 1, blank_ideators: 1, ucb_c: 1.5 },
+  };
+  assert.deepEqual(read(path.join(root, ".contrejour/loop.json")), expectedLoop);
+  assert.deepEqual(readSelectedLoop(root), { loop: expectedLoop.loop, params: expectedLoop.params });
   assert.equal(applied.mcp_config, path.join(root, ".mcp.json"));
   assert.equal(applied.environment_skill_dir, environmentSkillDir(root));
   assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
@@ -171,7 +236,8 @@ await project("worker", async (root) => {
   const hook = (event: string) => ({ type: "command", command: process.execPath, args: [path.join(root, ".contrejour/dist/tools/hook.js"), event] });
   assert.deepEqual(settings.hooks.SubagentStop, [{ hooks: [hook("SubagentStop")] }]);
   assert.deepEqual(settings.hooks.Stop, [{ hooks: [{ type: "command", command: "echo owner" }] }, { hooks: [hook("Stop")] }]);
-  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: "Write|Edit|NotebookEdit", hooks: [hook("PreToolUse")] }]);
+  // Before a write, and before a loop runs: the answers a session passes in must be the owner's own.
+  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: "Write|Edit|NotebookEdit|Workflow", hooks: [hook("PreToolUse")] }]);
   const claude = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
   assert.ok(claude.startsWith("# Owner notes\n"));
   assert.equal(claude.split(ROLE_BEGIN).length, 2);
@@ -189,6 +255,28 @@ await project("worker", async (root) => {
   assert.match(fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"), /# Owner notes\n/);
   assert.throws(() => environmentNotes(root, `${ROLE_BEGIN}\nx`), /markers/);
   assert.throws(() => environmentNotes(root, "x".repeat(9000)), /under 8000 characters/);
+
+  // Changing the parameters later goes through the sheet again, and the new values reach loop.json only on apply.
+  const changed = refreshSetupReview(root, { loop: { params: { blank_ideators: 3 } } });
+  assert.deepEqual(read(path.join(root, ".contrejour/loop.json")), expectedLoop);
+  await assert.rejects(applySetup(root), /SETUP_CONFIGURATION_CONFIRMATION_REQUIRED|confirm/);
+  confirmSetupReview(root, changed.configuration_sha256);
+  await applySetup(root);
+  assert.equal(readSelectedLoop(root).params.blank_ideators, 3);
+
+  // Moving to another loop: the old loop's values are not this loop's, and clearing them brings this loop's defaults.
+  fs.writeFileSync(
+    path.join(root, ".claude/loops/narrow.md"),
+    '---\nname: narrow\ndescription: one role\nside: worker\n---\n\n# Narrow\n\n## Parameters\n\n```json\n[{"name": "rounds", "type": "integer", "default": 4, "min": 1, "description": "How many rounds."}]\n```\n',
+  );
+  review = refreshSetupReview(root, { loop: { name: "narrow" } });
+  assert.deepEqual(
+    review.issues.filter((issue) => issue.field.startsWith("loop.")).map((issue) => issue.field),
+    ["loop.params.informed_ideators", "loop.params.failures_only_ideators", "loop.params.blank_ideators", "loop.params.ucb_c"],
+  );
+  review = refreshSetupReview(root, { loop: { params: null } });
+  assert.deepEqual(review.issues, []);
+  assert.deepEqual(review.modules[0]!.fields.map((row) => [row.path, row.value]), [["loop.name", "narrow"], ["loop.params.rounds", 4]]);
 });
 
 // Projects installed for Codex by an earlier release are refused, not migrated.
@@ -202,10 +290,12 @@ assert.match(projectSlug(path.join(os.tmpdir(), "项目")), /^project-[0-9a-f]{8
 // Validator: the benchmark is installed, the terms frozen, and the review sessions' Claude Code command checked.
 await project("validator", async (root) => {
   installAs(root, "validator");
+  seedLoops(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
   fs.writeFileSync(path.join(root, "CLAUDE.md"), "Owner instructions.\n");
   const benchmark = facilityConfig(root);
   let review = refreshSetupReview(root, {
+    loop: { name: "submission-review", params: { max_extension_rounds: 1 } },
     validation: { benchmark, pass_rule: { metric: "missing", threshold: 1 } },
   });
   assert.equal(review.role, "validator");
@@ -239,6 +329,12 @@ await project("validator", async (root) => {
   assert.equal(applied.role, "validator");
   if (applied.role !== "validator") throw new Error("unreachable");
   assert.equal(applied.entry_role, "validator-task-manager");
+  // The service starts each review with the chosen loop and the confirmed values.
+  assert.equal(applied.loop, "submission-review");
+  assert.deepEqual(readSelectedLoop(root), {
+    loop: "submission-review",
+    params: { max_adapter_fixes: 2, max_extension_rounds: 1, max_leak_reviews: 5 },
+  });
   assert.deepEqual(applied.service_command, ["node", ".contrejour/dist/tools/validation-cli.js", "serve", "--project", "."]);
   assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
   assert.equal(applied.worker_connection.url, "https://validation.example/mcp");
@@ -307,6 +403,7 @@ await project("validator", async (root) => {
 // A validator machine that provides the service's address and token: setup uses them instead of the sheet's address and a new token.
 await project("validator-environment", async (root) => {
   installAs(root, "validator");
+  seedLoops(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), "# Task\nAnswer the questions.\n");
   const validation = {
     benchmark: facilityConfig(root),
@@ -318,7 +415,7 @@ await project("validator-environment", async (root) => {
   process.env.CONTREJOUR_URL = "https://contrejour.example/";
   process.env.CONTREJOUR_TOKEN = "too short";
   try {
-    let review = refreshSetupReview(root, { validation });
+    let review = refreshSetupReview(root, { loop: { name: "submission-review" }, validation });
     const field = review.modules.flatMap((module) => module.fields).find((row) => row.path === "validation.service.public_url");
     assert.equal(field?.value, "https://contrejour.example");
     assert.deepEqual(field?.options, ["https://contrejour.example"]);
@@ -370,8 +467,13 @@ await project("distribution", async (sandbox) => {
     const install = (...extra: string[]) => execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, ...extra], { cwd: sandbox, encoding: "utf8" });
     install("--dry-run");
     assert.equal(fs.existsSync(root), false);
-    assert.ok(install().includes(`claude --agent ${role}-setup`));
+    assert.ok(install().includes(`claude --agent ${role}-setup "start"`));
     const manifest = read(path.join(root, ".contrejour/install.json"));
+    // The hooks are registered at installation, so they already guard setup's own loop; the entry role comes with setup.
+    const installedSettings = read(path.join(root, ".claude/settings.json"));
+    assert.equal(installedSettings.agent, undefined);
+    assert.equal(installedSettings.hooks.PreToolUse[0].matcher, "Write|Edit|NotebookEdit|Workflow");
+    assert.ok(fs.existsSync(installedSettings.hooks.PreToolUse[0].hooks[0].args[0]));
     assert.equal(manifest.role, role);
     assert.equal(manifest.provider, "claude");
     assert.deepEqual(fs.readdirSync(path.join(root, skillDir)).sort(), ["browser-act", "research-wiki", "shared-references"]);
@@ -379,9 +481,13 @@ await project("distribution", async (sandbox) => {
       fs.readdirSync(path.join(root, ".claude/agents")).sort(),
       [...libraryFiles("roles/framework"), ...libraryFiles(`roles/${role}`)].sort(),
     );
-    const loops = libraryFiles(`loops/${role}`);
+    const loops = [...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)].sort();
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/loops")).sort(), loops.filter((file) => file.endsWith(".md")));
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/workflows")).sort(), loops.filter((file) => file.endsWith(".js")));
+    // Owner decisions are a loop step, and setup itself is a loop the setup role runs.
+    assert.ok(loops.includes("loop-authoring.js") && loops.includes("project-setup.js"));
+    assert.ok(fs.existsSync(path.join(root, ".claude/agents/owner-review.md")));
+    assert.ok(fs.existsSync(path.join(root, ".claude/skills/shared-references/running-loops.md")));
     assert.ok(manifest.seeded.includes(`.claude/agents/${role}-task-manager.md`));
     // The installed loops pass the compile check and the roles their check.
     for (const command of ["check", "roles"]) {
@@ -392,13 +498,13 @@ await project("distribution", async (sandbox) => {
     const setup = async (...args: string[]) => JSON.parse((await execFileAsync(process.execPath, [path.join(root, ".contrejour/dist/tools/setup-cli.js"), ...args, "--project", root], { cwd: sandbox, encoding: "utf8" })).stdout);
     const patch = path.join(root, "patch.json");
     if (role === "worker") {
-      fs.writeFileSync(patch, JSON.stringify({ environment: { secrets: { API_KEY: "k" } }, connection: { url: validator.url, token: validator.token } }));
+      fs.writeFileSync(patch, JSON.stringify({ loop: { name: "research-iteration" }, environment: { secrets: { API_KEY: "k" } }, connection: { url: validator.url, token: validator.token } }));
       assert.deepEqual((await setup("review", "--input", patch)).issues.map((issue: { field: string }) => issue.field), ["task.md"]);
       assert.equal((await setup("fetch-task")).sha256, sha256(validatorTask));
     } else {
       fs.writeFileSync(path.join(root, "task.md"), "An isolated installed task.\n");
       const benchmark = facilityConfig(root);
-      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { claude_command: CLAUDE }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
+      fs.writeFileSync(patch, JSON.stringify({ loop: { name: "submission-review" }, validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { claude_command: CLAUDE }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
       await setup("review", "--input", patch);
     }
     const review = await setup("review");
@@ -407,6 +513,12 @@ await project("distribution", async (sandbox) => {
     const applied = await setup("apply");
     assert.equal(applied.role, role);
     assert.equal(applied.entry_role, `${role}-task-manager`);
+    // The seeded loop chosen in the sheet is recorded, with its definition's defaults.
+    const chosen = read(path.join(root, ".contrejour/loop.json"));
+    assert.equal(chosen.loop, applied.loop);
+    assert.equal(chosen.loop, role === "worker" ? "research-iteration" : "submission-review");
+    assert.ok(fs.existsSync(path.join(root, ".claude/workflows", `${chosen.loop}.js`)));
+    assert.ok(Object.keys(chosen.params).length > 0);
     assert.equal(applied.environment_skill_dir, path.join(root, skillDir, `${projectSlug(root)}-environment`));
     // Apply declares the expected skill output; it does not pretend the setup role has written it.
     assert.equal(fs.existsSync(applied.environment_skill_dir), false);

@@ -1,6 +1,7 @@
 ---
 name: ideator-informed
 description: Research-iteration step 2 (worker), informed slot. Proposes one idea for the chosen problems from the query pack, the wiki and the latest result.
+side: worker
 tools: Read, Grep, Glob, WebSearch, WebFetch
 effort: high
 ---

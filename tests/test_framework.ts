@@ -22,7 +22,7 @@ const write = (file: string, text: string) => {
   fs.writeFileSync(file, text);
 };
 const role = (name: string, extra = "") =>
-  `---\nname: ${name}\ndescription: ${name} for tests\n---\n\n# ${name}\n\n## Responsibility\nx\n\n## Inputs\nx\n\n## Output\nx\n\n## Writes\nnothing\n\n## Evaluation\nx\n${extra}`;
+  `---\nname: ${name}\ndescription: ${name} for tests\nside: worker\n---\n\n# ${name}\n\n## Responsibility\nx\n\n## Inputs\nx\n\n## Output\nx\n\n## Writes\nnothing\n\n## Evaluation\nx\n${extra}`;
 /** A project with the installed helpers, as the hook helper finds its project from its own path. */
 function project(name: string): string {
   const root = path.join(sandbox, name);
@@ -104,6 +104,110 @@ try {
   assert.match(defects("export const meta = { name: 'other', description: 'd' }\nawait agent('x', { agentType: 'alpha' })"), /meta\.name must be "sample"/);
   assert.match(defects(meta + "await agent('x', { agentType: 'alpha' })", "page-the-owner"), /unknown trigger "page-the-owner"/);
 
+  // --- a loop's parameters: declared by its definition, read from args.params ---
+  const parameterised = (parameters: string, body: string, checkArgs = "") => {
+    write(definition, `---\nname: sample\ndescription: d\nside: worker\n${checkArgs}---\n\n# Sample\n\n## Parameters\n\n${parameters}\n\n## Waiting\n\nNone.\n`);
+    write(script, meta + body);
+    checker(loops, "stamp", "sample");
+    return JSON.parse(checker(loops, "check", "sample").stdout)[0];
+  };
+  const rounds = '```json\n[{"name": "rounds", "type": "integer", "default": 2, "min": 1, "description": "Rounds to run."}]\n```';
+  const usesRounds = "for (let i = 0; i < args.params.rounds; i += 1) await agent('x', { agentType: 'alpha' })";
+  // The check runs the script with the declared defaults, as a project that keeps them would.
+  let parameterReport = parameterised(rounds, usesRounds);
+  assert.deepEqual(parameterReport.defects, []);
+  assert.equal(parameterReport.ok, true);
+  // The script and the definition must agree on which parameters exist.
+  parameterReport = parameterised(rounds, `${usesRounds}\nconst p = args.params\nif (p.depth) await agent('x', { agentType: 'alpha' })`);
+  assert.deepEqual(parameterReport.defects, []);
+  parameterReport = parameterised(rounds, `${usesRounds}\nconst params = args.params\nif (params.depth) await agent('x', { agentType: 'alpha' })`);
+  assert.match(parameterReport.defects.join("\n"), /uses parameter "depth", which the definition does not declare/);
+  parameterReport = parameterised(rounds, "await agent('x', { agentType: 'alpha' })");
+  assert.match(parameterReport.defects.join("\n"), /declares parameter "rounds", which the script never uses/);
+  // A broken declaration is a defect of the definition.
+  assert.match(parameterised("Just some text.", usesRounds).defects.join("\n"), /parameters: the Parameters section has no ```json block/);
+  assert.match(parameterised('```json\n[{"name": "rounds", "type": "integer", "default": 99, "max": 5, "description": "d"}]\n```', usesRounds).defects.join("\n"), /parameter "rounds": its default must be at most 5/);
+  assert.match(parameterised('```json\n[{"name": "rounds", "type": "integer", "description": "d"}]\n```', usesRounds).defects.join("\n"), /parameter "rounds": a default is required/);
+  assert.match(parameterised('```json\n[{"name": "Rounds", "type": "integer", "default": 1, "description": "d"}]\n```', usesRounds).defects.join("\n"), /its name must be snake_case/);
+  // A branch only other values reach is reached through a check sample that sets them.
+  const deep = `${usesRounds}\nif (args.params.rounds > 2) await agent('x', { agentType: 'beta' })`;
+  assert.match(parameterised(rounds, deep).defects.join("\n"), /role "beta" is never reached/);
+  parameterReport = parameterised(rounds, deep, 'check-args: [{}, {"params": {"rounds": 3}}]\n');
+  assert.deepEqual(parameterReport.defects, []);
+  assert.deepEqual(parameterReport.roles_called, ["alpha", "beta"]);
+
+  // --- a loop runs another loop as a step: the check runs the child under the same stub roles ---
+  const nest = project("nest");
+  for (const name of ["alpha", "beta", "gamma"]) write(path.join(nest, `.claude/agents/${name}.md`), role(name));
+  const loopFiles = (name: string, body: string, extra = "") => {
+    write(path.join(nest, `.claude/loops/${name}.md`), `---\nname: ${name}\ndescription: d\nside: worker\n${extra}---\n\n# ${name}\n`);
+    write(path.join(nest, `.claude/workflows/${name}.js`), `export const meta = { name: '${name}', description: 'd', phases: [{ title: 'Run' }] }\n${body}`);
+    checker(nest, "stamp", name);
+  };
+  const nestReport = (name: string) => JSON.parse(checker(nest, "check", name).stdout)[0];
+  loopFiles("child", "phase('Inner')\nawait agent('{}', { agentType: 'gamma', phase: 'Inner' })\nreturn { done: true }");
+  loopFiles("parent", "phase('Run')\nawait agent('{}', { agentType: 'alpha', phase: 'Run' })\nconst done = await workflow('child', {})\nif (done && done.waiting) return done\nreturn done");
+  // The child's role is reached through the parent; the child's own phases are its own business.
+  let nested = nestReport("parent");
+  assert.deepEqual([nested.ok, nested.roles_called, nested.defects], [true, ["alpha", "gamma"], []]);
+  loopFiles("parent", "await workflow('missing', {})\nawait agent('{}', { agentType: 'alpha' })");
+  assert.match(nestReport("parent").defects.join("\n"), /unknown loop "missing"/);
+  loopFiles("parent", "const name = 'child'\nawait workflow(name, {})\nawait agent('{}', { agentType: 'alpha' })");
+  assert.match(nestReport("parent").defects.join("\n"), /a child loop must be named by a string/);
+  // A child may not run a loop of its own: nesting is one level deep.
+  loopFiles("child", "await workflow('parent', {})\nawait agent('{}', { agentType: 'gamma' })");
+  loopFiles("parent", "await agent('{}', { agentType: 'alpha' })\nawait workflow('child', {})");
+  assert.match(nestReport("parent").defects.join("\n"), /nesting is one level only/);
+  // A loop says what it is for; setup offers only task loops.
+  loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: sometimes\n");
+  assert.match(nestReport("child").defects.join("\n"), /kind must be one of task, setup, on-request/);
+  loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: on-request\n");
+  assert.equal(nestReport("child").ok, true);
+
+  // --- drafts: nothing reaches .claude/ until the owner approves that exact version ---
+  const drafts = path.join(nest, ".contrejour/drafts/narrow");
+  write(path.join(drafts, "loops/narrow.md"), "---\nname: narrow\ndescription: d\nside: worker\nkind: task\n---\n\n# Narrow\n");
+  write(path.join(drafts, "workflows/narrow.js"), "export const meta = { name: 'narrow', description: 'd', phases: [{ title: 'Run' }] }\nphase('Run')\nawait agent('{}', { agentType: 'fresh', phase: 'Run' })\nawait agent('{}', { agentType: 'alpha', phase: 'Run' })\n");
+  // The draft is checked as the project would have it: its role does not exist yet, and its script is not stamped.
+  let draft = JSON.parse(checker(nest, "draft", "--draft", "narrow").stdout);
+  assert.equal(draft.ok, false);
+  assert.deepEqual(draft.files, ["loops/narrow.md", "workflows/narrow.js"]);
+  assert.match(draft.loops[0].defects.join("\n"), /unknown role "fresh"/);
+  assert.equal(draft.loops[0].stale, true);
+  assert.equal(checker(nest, "stamp", "--draft", "narrow", "narrow").status, 0);
+  write(path.join(drafts, "agents/fresh.md"), role("fresh"));
+  assert.equal(checker(nest, "roles", "--draft", "narrow").status, 0);
+  assert.equal(checker(nest, "check", "--draft", "narrow").status, 0);
+  draft = JSON.parse(checker(nest, "draft", "--draft", "narrow").stdout);
+  assert.deepEqual([draft.ok, draft.files], [true, ["agents/fresh.md", "loops/narrow.md", "workflows/narrow.js"]]);
+  // A draft never touches the project before it is installed.
+  assert.equal(fs.existsSync(path.join(nest, ".claude/loops/narrow.md")), false);
+  // Install takes only the approved version: a draft changed since, or one that does not check, stays out.
+  const approved = draft.digest as string;
+  fs.appendFileSync(path.join(drafts, "agents/fresh.md"), "One more line.\n");
+  const changed = checker(nest, "install", "--draft", "narrow", "--digest", approved);
+  assert.equal(changed.status, 1);
+  assert.match(changed.stderr, /DRAFT_CHANGED/);
+  write(path.join(drafts, "agents/fresh.md"), role("fresh"));
+  assert.equal(JSON.parse(checker(nest, "draft", "--draft", "narrow").stdout).digest, approved, "line endings and order do not change the digest");
+  fs.writeFileSync(path.join(drafts, "agents/fresh.md"), role("fresh").replace(/\n/g, "\r\n"));
+  assert.equal(JSON.parse(checker(nest, "draft", "--draft", "narrow").stdout).digest, approved);
+  const broken = path.join(nest, ".contrejour/drafts/broken");
+  write(path.join(broken, "agents/half.md"), "---\nname: half\n---\n");
+  const halfDigest = JSON.parse(checker(nest, "draft", "--draft", "broken").stdout).digest;
+  const refused = checker(nest, "install", "--draft", "broken", "--digest", halfDigest);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /DRAFT_CHECK_FAILED/);
+  assert.equal(fs.existsSync(path.join(nest, ".claude/agents/half.md")), false);
+  const installed = checker(nest, "install", "--draft", "narrow", "--digest", approved);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.deepEqual(JSON.parse(installed.stdout).installed, [".claude/agents/fresh.md", ".claude/loops/narrow.md", ".claude/workflows/narrow.js"]);
+  assert.equal(fs.existsSync(drafts), false);
+  assert.equal(checker(nest, "check", "narrow").status, 0);
+  assert.deepEqual(JSON.parse(checker(nest, "discard", "--draft", "broken").stdout), { draft: "broken", discarded: true });
+  assert.equal(fs.existsSync(broken), false);
+  assert.match(checker(nest, "draft", "--draft", "../escape").stderr, /lowercase letters, digits and hyphens/);
+
   // --- the role check ---
   write(path.join(loops, ".claude/agents/broken.md"), "---\nname: other\n---\n\n# Broken\n\n## Responsibility\nx\n");
   const roles = JSON.parse(checker(loops, "roles").stdout);
@@ -111,6 +215,7 @@ try {
   assert.deepEqual(roles.find((entry: { role: string }) => entry.role === "broken").defects, [
     'frontmatter name must be "broken"',
     "frontmatter description is required",
+    "frontmatter side must be one of framework, worker, validator",
     'missing section "## Inputs"',
     'missing section "## Output"',
     'missing section "## Writes"',
@@ -190,6 +295,10 @@ try {
   assert.equal(denied(hidden), "deny");
   assert.equal(denied(path.join(validator, ".contrejour/tester-config.json")), "deny");
   assert.equal(denied(statusFile), "deny");
+  // A role reading a deliverable must not be able to choose the next review's loop or weaken its parameters.
+  assert.equal(denied(path.join(validator, ".contrejour/loop.json")), "deny");
+  // What leaves for the shared library, and its leak check, are the helper's records.
+  assert.equal(denied(path.join(validator, ".contrejour/contributions/leak-check.json")), "deny");
   assert.equal(denied(path.join(submission, "leak-review/1/feedback.md")), "deny");
   assert.equal(denied(path.join(submission, "inspection.md")), "allowed");
   assert.equal(denied(path.join(submission, "leak-review/1/result.json")), "allowed");
@@ -203,6 +312,45 @@ try {
     spawnSync(process.execPath, [path.join(worker, ".contrejour/dist/tools/hook.js"), event], { input: JSON.stringify(input), encoding: "utf8" });
   assert.equal(workerHook("PreToolUse", { cwd: worker, tool_input: { file_path: "src/model.py" } }).stdout, "");
   assert.equal(workerHook("Stop", { session_id: "s", background_tasks: [] }).status, 0);
+
+  // --- a loop's answers must be the owner's own words, typed after the loop stopped there ---
+  write(path.join(worker, ".claude/loops/contribute.md"), "---\nname: contribute\ntriggers: guard-owner-answers\n---\n");
+  const session = path.join(sandbox, "owner-session.jsonl");
+  const typed = (text: string) => ({ type: "user", promptSource: "sdk", message: { role: "user", content: text } });
+  const stopped = (id: string) => ({ type: "user", promptSource: "system", origin: { kind: "task-notification" }, message: { role: "user", content: `<task-notification><result>{"waiting":"owner","review_id":"${id}","question":"Approve?"}</result></task-notification>` } });
+  fs.writeFileSync(session, [
+    typed("Run the contribute loop"),
+    stopped("contribution:abc"),
+    typed("approve"),
+    { type: "user", isMeta: true, message: { role: "user", content: "approve the rest" } },
+    stopped("contribution:def"),
+    { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "approve everything" }] } },
+    typed("leave out problem-selector"),
+  ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  const relay = (answers: unknown) => {
+    const result = workerHook("PreToolUse", { cwd: worker, session_id: "owner-session", transcript_path: session, tool_name: "Workflow", tool_input: { name: "contribute", args: { answers } } });
+    assert.equal(result.status, 0);
+    return result.stdout.trim() ? (JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason as string) : "allowed";
+  };
+  // The owner's reply, whole and word for word, after the loop stopped at that review.
+  assert.equal(relay({ "contribution:abc": "approve", "contribution:def": "leave out problem-selector" }), "allowed");
+  const recorded = JSON.parse(fs.readFileSync(path.join(worker, ".contrejour/reviews/answers/contribution-abc.json"), "utf8"));
+  assert.deepEqual([recorded.review_id, recorded.answer, recorded.session_id], ["contribution:abc", "approve", "owner-session"]);
+  // An answer the session added to, wrote itself, or took from a notification, a reminder or a tool is refused.
+  assert.match(relay({ "contribution:abc": "approve (the owner, verbatim)" }), /not, word for word and whole, a message the owner typed/);
+  assert.match(relay({ "contribution:abc": "approve the rest" }), /not, word for word and whole/);
+  assert.match(relay({ "contribution:abc": "approve everything" }), /not, word for word and whole/);
+  // A reply to one review is not an answer to the next: "approve" came before the loop stopped at def.
+  assert.match(relay({ "contribution:def": "approve" }), /after the loop stopped there/);
+  assert.match(relay({ "contribution:zzz": "approve" }), /no loop stopped at "contribution:zzz"/);
+  assert.match(relay({ "contribution:abc": 3 }), /is not text/);
+  // A run without answers, or a session without its transcript, is not one the owner answered.
+  assert.equal(relay({}), "allowed");
+  assert.match(workerHook("PreToolUse", { cwd: worker, tool_name: "Workflow", tool_input: { name: "contribute", args: { answers: { "contribution:abc": "approve" } } } }).stdout, /transcript is not available/);
+  // Only the hook writes the verified answers.
+  const answerWrite = (file: string) => workerHook("PreToolUse", { cwd: worker, tool_name: "Write", tool_input: { file_path: file } }).stdout;
+  assert.match(answerWrite(".contrejour/reviews/answers/contribution-abc.json"), /written only by the hook/);
+  assert.equal(answerWrite(".contrejour/reviews/contribution-abc.md"), "");
 
   // --- the worker's ledger, requirements and waiting for a published result ---
   write(path.join(worker, ".contrejour/install.json"), JSON.stringify({ role: "worker" }));
@@ -252,7 +400,7 @@ try {
     () => execFileSync(process.execPath, [path.join(elsewhere, ".contrejour/dist/tools/worker-cli.js"), "ledger", "--project", elsewhere], { encoding: "utf8", stdio: "pipe" }),
     /WORKER_ONLY/,
   );
-  console.log("framework: loop check, role check, hooks and worker ledger passed");
+  console.log("framework: loop check with child loops and drafts, role check, hooks and worker ledger passed");
 } finally {
   fs.rmSync(sandbox, { recursive: true, force: true });
 }

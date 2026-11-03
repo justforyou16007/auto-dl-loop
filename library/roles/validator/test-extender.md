@@ -1,6 +1,7 @@
 ---
 name: test-extender
 description: Submission-review step 4 (validator). Hunts the deliverable's real problems in its runs and registers tests derived from existing ones as new benchmark layers, run on this submission.
+side: validator
 effort: max
 ---
 

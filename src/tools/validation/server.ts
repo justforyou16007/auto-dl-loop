@@ -22,9 +22,10 @@ import {
   tokenMatches,
   type ValidationConfig,
 } from "./config.js";
+import { readSelectedLoop, type SelectedLoop } from "../loops.js";
 import {
-  REVIEW_LOOP,
   claudeDispatcher,
+  reviewArgs,
   claudeSessionControl,
   type Dispatcher,
   type SessionControl,
@@ -263,6 +264,8 @@ export async function startValidationService(
   const root = path.resolve(projectRoot);
   const config = readValidationConfig(root);
   assertBenchmarkIntact(root, config);
+  // Reviews run the loop setup chose; without one there is nothing to start.
+  readSelectedLoop(root);
   const token = readValidationToken(root);
   const dispatch = options.dispatcher ?? claudeDispatcher(config.agent);
   const sessions = options.sessions ?? claudeSessionControl(config.agent, root);
@@ -471,12 +474,18 @@ export async function startValidationService(
     if (!next) return;
     const id = next.submission_id;
     try {
+      // Read at each dispatch: setup applied again changes the next review, not one under way.
+      const selected = readSelectedLoop(root);
       const session = await dispatch({
         root,
         submission_id: id,
         submission_dir: submissionDir(root, id),
+        loop: selected.loop,
+        params: selected.params,
       });
-      withSubmissionsLock(root, () => updateSubmission(root, id, { session }));
+      withSubmissionsLock(root, () =>
+        updateSubmission(root, id, { session, review_loop: selected }),
+      );
       log(`submission ${id}: review session ${session.id}`);
     } catch (error) {
       log(`submission ${id}: dispatch failed: ${String(error)}`);
@@ -503,12 +512,15 @@ export async function startValidationService(
   }
 
   /**
-   * The message a stopped session continues with. Every role of the loop it
-   * restarts receives this text, so it carries the loop and its arguments only.
+   * The message a stopped session continues with: the loop this review started
+   * with. Every role of the loop it restarts receives this text, so it carries the
+   * loop and its arguments only.
    */
-  function reminder(id: string): string {
-    const args = JSON.stringify({ submission_id: id, submission_dir: submissionDir(root, id) });
-    return `Contrejour validation service: submission ${id} is still under review and nothing reaches the worker until it is finalized, but this session stopped. Continue the ${REVIEW_LOOP} loop with args ${args}: resume this session's last run of it if there is one, otherwise run it again.`;
+  function reminder(id: string, { loop, params }: SelectedLoop): string {
+    const args = JSON.stringify(
+      reviewArgs({ submission_id: id, submission_dir: submissionDir(root, id), params }),
+    );
+    return `Contrejour validation service: submission ${id} is still under review and nothing reaches the worker until it is finalized, but this session stopped. Continue the ${loop} loop with args ${args}: resume this session's last run of it if there is one, otherwise run it again.`;
   }
 
   /**
@@ -559,7 +571,7 @@ export async function startValidationService(
         continue;
       let session = record.session;
       try {
-        session = await sessions.resume(record.session, reminder(id));
+        session = await sessions.resume(record.session, reminder(id, record.review_loop!));
       } catch (error) {
         log(`submission ${id}: could not continue review session: ${String(error)}`);
         failReview(

@@ -4,7 +4,7 @@
 
 [中文](README.zh-CN.md) · [Quick start](#quick-start) · [Setup guide](SETUP_GUIDE.md) · [Architecture](ARCHITECTURE_GUIDE.md)
 
-Contrejour runs agent work as **loops** of **roles** on Claude Code. A loop's definition, written in natural language, is the authority on what it does: which role does each step, what passes between them, where it branches and how often it may repeat. A Claude Code workflow script generated from that definition runs it. Each role is a Claude Code agent file holding everything about how its step is done. Every role's run is recorded as a **trajectory**, and the `trajectory-optimizer` role learns from them by fixing the roles. Loops and roles are shared through a **library** that projects install from and sync back to.
+Contrejour runs agent work as **loops** of **roles** on Claude Code. A loop's definition, written in natural language, is the authority on what it does: which role does each step, what passes between them, where it branches and how often it may repeat. A Claude Code workflow script generated from that definition runs it. Each role is a Claude Code agent file holding everything about how its step is done. Every role's run is recorded as a **trajectory**, and the `trajectory-optimizer` role learns from them by fixing the roles. Loops and roles are shared through a **library** that projects install from and contribute back to.
 
 Its first application is a research task on two machines. The **worker** builds deliverables for a task and submits them. The **validator** owns a hidden benchmark that only grows, judges each submission as the worker's adversary, and publishes a verdict, how many tests passed out of how many, and leak-reviewed feedback. The worker improves from that feedback until the submissions run out.
 
@@ -29,10 +29,12 @@ Models also still judge their own results badly: tests written by the agent that
 - **Loops in natural language, run as scripts.** A loop's definition (`.claude/loops/<loop>.md`) names, for each step, the role that does it, what the role receives and returns, the condition it branches on, the bound of each repetition and where the loop waits. `loop-editor` generates the workflow script (`.claude/workflows/<loop>.js`) from it. A script only calls roles, orders and branches on their structured output, passes inputs between them and loops within a bound. It never says in a prompt how a step is done and never does the work in code, so a fix to a role file is never overridden by the script.
 - **A compile check.** `loop-check` runs a script against stub roles, without calling a model, several times with different stub answers so every branch is reached. It reports unknown roles, loops that never stop, undeclared phases, roles no answer reaches, use of the clock or randomness (which breaks resuming a run) and a script older than its definition.
 - **Roles are Claude Code agent files** (`.claude/agents/<role>.md`): responsibility, inputs, structured output, what the role may write, model and effort, and an Evaluation section with the signals by which it is judged. Tool lists isolate for real: a role given no file tools cannot read the wiki. A role with Bash relies on the rules in its file.
-- **Trajectories teach the roles.** A hook copies every finished role's transcript into the project. After each worker round and each validator review, `trajectory-optimizer` judges each role against its own Evaluation section and fixes the role file where a problem recurs. Validator roles change only through proposals the owner approves.
-- **Hooks only record, notify or block.** Setup registers them once; which actions run is declared in the loop definitions.
-- **A shared library.** Installation seeds a project's roles and loops from the `library/` directory of the Contrejour repository; from then on they are the project's own. When the task ends, `loop-query` syncs them back on a branch for the maintainers to review and merge.
-- **Roles for the owner.** `loop-editor` creates and changes loops, only at the owner's request; `loop-query` finds an existing loop before a new one is written; `role-creator` adds a role when a step is missing; `trajectory-optimizer` fixes roles.
+- **Trajectories teach the roles.** A hook copies every finished role's transcript into the project. After each worker round and each validator review, `trajectory-optimizer` judges each role against its own Evaluation section and fixes the role file where a problem recurs. Validator roles change only through proposals the owner accepts in the `proposal-review` loop.
+- **Hooks only record, notify or block.** The installer registers them once; which actions run is declared in the loop definitions. One checks, before any loop runs, that every answer a session passes in is a message the owner typed after the loop asked, unchanged.
+- **A shared library.** Installation seeds a project's roles and loops from the `library/` directory of the Contrejour repository; from then on they are the project's own. Once one of its submissions has finished, the owner can run the `library-contribution` loop, which sends what the project added or changed as a pull request. A copy of what was seeded tells the project's changes from the library's, so a contribution never undoes anyone else's work, and the owner approves exactly what leaves.
+- **No flow outside a loop.** A session only starts loops and carries the owner's answers into them; loops schedule roles; roles do the steps. A role never runs another role, and a decision of the owner's is an `owner-review` step of a loop. Workflow agents cannot ask a person anything, so a loop stops at that step, the session shows the owner a review note, and the loop resumes with the reply.
+- **Setup starts from a requirement, as a loop.** The owner says what the project needs, and the side's setup role runs the `project-setup` loop: it reuses a loop that fits, or has `loop-authoring` build one on the closest existing loop, and the owner then sets that loop's parameters, its hyperparameters, on one configuration sheet. A loop declares its parameters with defaults, so reusing a loop means choosing values, not editing it.
+- **New loops and roles start from existing ones.** `loop-authoring` has `loop-query` find the loops a requested loop can be built on, and `loop-editor` builds it on the closest; `role-authoring` has `role-creator` find the roles that already do the work and build on the closest. Either writes from scratch only when the owner asks. Drafts reach the project only once the owner approves that exact version. `trajectory-optimizer` fixes roles from their trajectories; on the validator, the owner accepts its proposals in `proposal-review`.
 
 ### Independent, measured validation
 
@@ -46,7 +48,7 @@ Models also still judge their own results badly: tests written by the agent that
 
 ### Research rounds with memory
 
-- **One round, seven steps.** The worker's `research-iteration` loop chooses open problems; has five ideators propose one idea each (three see the wiki, one knows only the ideas that failed, one knows only the task and the problems); scores the ideas and ranks the whole pool with `rank_ideas`, which adds an exploration bonus for directions tried less; implements the top idea with its experiments; and submits one commit. Once the result is published, it records the result and fixes the roles. Rounds repeat until the task closes.
+- **One round, seven steps.** The worker's `research-iteration` loop chooses open problems; has ideators propose one idea each (by default five: three see the wiki, one knows only the ideas that failed, one knows only the task and the problems); scores the ideas and ranks the whole pool with `rank_ideas`, which adds an exploration bonus for directions tried less; implements the top idea with its experiments; and submits one commit. Once the result is published, it records the result and fixes the roles. Rounds repeat until the task closes.
 - **Research wiki.** Each machine's `research-wiki` records, for one or more problems, what existing work did, which ideas and experiments were tried, and which were effective or ineffective, linked by typed evidence edges. Only the memory role writes it. Every round starts from its query pack, a summary of at most 1000 characters. The validator's wiki records which problems each submission solved and which persist, never test content.
 - **Environment section and environment skill.** Facts about the machine (hosts, paths, environments, resources, where metrics land, verified pitfalls) live in the environment section of `CLAUDE.md`. Every role reads that file, so the section holds the environment only. Fixed procedures (sync code, launch a named run, check it, fetch results, stop it) are verified scripts in the project's environment skill, and each run has its own name, so several experiments run at once. Keys and tokens stay in `.contrejour/environment.json`.
 
@@ -56,12 +58,12 @@ The installer copies the compiled helpers, the `research-wiki` and `browser-act`
 
 ## How it works
 
-1. **Define the task.** On the validator machine, write `task.md` and confirm one configuration sheet with the setup role: the benchmark, the per-sample pass rule, the submission budget, how review sessions start and the service address. Apply freezes it; then start the service.
-2. **Build.** On the worker machine, the setup role fetches `task.md` through the service. A Claude Code session opened in the project runs as the task manager and, when asked, runs the `research-iteration` loop round after round.
+1. **Define the task.** On the validator machine, tell the setup role what you need. Its setup loop writes `task.md` with you, reuses a loop that fits or has one built, and has you confirm one configuration sheet: the loop's parameters, the benchmark, the per-sample pass rule, the submission budget, how review sessions start and the service address. Apply freezes the terms; then start the service.
+2. **Build.** On the worker machine, the setup role settles the loop and its parameters from your requirement in the same way and fetches `task.md` through the service. A Claude Code session opened in the project runs as the task manager and runs the chosen loop, `research-iteration` by default, round after round.
 3. **Submit.** Each round ends with one commit, built into a zip with `USAGE.md` and uploaded to a one-time URL.
-4. **Review.** The service starts a review session for the submission, which runs the `submission-review` loop and publishes the verdict, the test counts and leak-reviewed feedback.
+4. **Review.** The service starts a review session for the submission, which runs the chosen loop, `submission-review` by default, and publishes the verdict, the test counts and leak-reviewed feedback.
 5. **Learn.** The worker's memory records the result and the problems it names, `trajectory-optimizer` fixes the roles on both sides, and the next round starts from the open problems.
-6. **Finish.** When the submissions are used up the task closes, and each side syncs its loops and roles to the library; the validator's go only after a leak review and the owner's approval.
+6. **Contribute and finish.** Once a submission has finished, either side's owner can contribute that project's new and changed loops and roles to the library as a pull request; the validator's go only after a leak review. When the submissions are used up the task closes.
 
 Keep the two projects on separate machines with no shared or synchronized directory: that is what keeps the hidden benchmark out of the worker's reach. See the [architecture guide](ARCHITECTURE_GUIDE.md) for the boundaries of evaluation and feedback.
 
@@ -106,9 +108,11 @@ The validator comes first, because the worker's setup fetches `task.md` from the
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup                                   # accept the folder trust prompt the first time
+claude --agent validator-setup "start"                           # accept the folder trust prompt the first time
 node .contrejour/dist/tools/validation-cli.js serve --project .  # once setup is done; keep it running
 ```
+
+The text in quotes is the session's first message: a session does nothing until it gets one, so without it the role would sit waiting for you to type. If you already know what you need, write that in place of `start`. Setup starts from that requirement: it reuses a loop that fits or has one generated from it, and you set the loop's parameters along with the rest of the configuration on one sheet.
 
 Review sessions are Claude Code background sessions, which only start in a trusted folder; hence the trust prompt. Setup returns the worker connection, a URL and a token; pass it to the worker machine privately. If the validator machine already provides `CONTREJOUR_URL` and `CONTREJOUR_TOKEN`, setup uses them instead of asking for an address and creating a token.
 
@@ -116,11 +120,11 @@ Then the worker:
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup     # enter the connection; setup fetches task.md
-claude                          # runs as worker-task-manager
+claude --agent worker-setup "start"     # your requirement, the loop and its parameters, the connection; setup fetches task.md
+claude --permission-mode bypassPermissions "start"   # runs as worker-task-manager and starts the chosen loop
 ```
 
-In that last session, ask it to start the `research-iteration` loop, and leave the session open.
+Leave that last session open: it runs round after round on its own, which is why it needs a permission mode that does not wait for approvals (`auto` is the more cautious choice; see the setup guide). Keep its first message to "start", because every role of the loop receives the message that started the run.
 
 Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETUP_GUIDE_CN.md)** for the configuration sheet, networking, how a submission is reviewed, updates and troubleshooting.
 
@@ -128,9 +132,9 @@ Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETU
 
 | Side | Roles | Loop |
 | --- | --- | --- |
-| Framework, in every project | `loop-editor`, `loop-query`, `role-creator`, `trajectory-optimizer` | — |
-| Worker | `worker-setup`, `worker-task-manager` (entry), `worker-memory`, `problem-selector`, `ideator-informed`, `ideator-failures-only`, `ideator-blank`, `idea-assessor`, `implementer` | `research-iteration` |
-| Validator | `validator-setup`, `validator-task-manager` (entry), `validator-memory`, `inspector`, `adapter-writer`, `regression-runner`, `test-extender`, `verdict-writer`, `leak-reviewer` | `submission-review` |
+| Framework, in every project | `loop-editor`, `loop-query`, `role-creator`, `trajectory-optimizer`, `library-contributor`, `owner-review` | `loop-authoring`, `role-authoring` |
+| Worker | `worker-setup`, `worker-task-manager` (entry), `worker-memory`, `problem-selector`, `ideator-informed`, `ideator-failures-only`, `ideator-blank`, `idea-assessor`, `implementer` | `research-iteration` (task), `project-setup`, `library-contribution` |
+| Validator | `validator-setup`, `validator-task-manager` (entry), `validator-memory`, `inspector`, `adapter-writer`, `regression-runner`, `test-extender`, `verdict-writer`, `leak-reviewer` | `submission-review` (task), `project-setup`, `library-contribution`, `proposal-review` |
 
 Their sources are in [`library/`](library/), and the [agent guide](AGENT_GUIDE.md) says what each role does. Two skills ship with them, as operating manuals the roles refer to: [`research-wiki`](skills/research-wiki/SKILL.md), the long-term memory, and [`browser-act`](skills/browser-act/SKILL.md), for rendered pages and browser sessions through the external browser-act CLI. Setup writes a third, the project's `<project>-environment` skill. Optional literature, GPU platform and notification integrations stay in the source repository and are not in the standalone package.
 

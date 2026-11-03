@@ -1,6 +1,7 @@
 ---
 name: problem-selector
 description: Research-iteration step 1 (worker). Chooses the open problems a round attacks, lists the ineffective ideas already tried and surveys existing work the wiki lacks.
+side: worker
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 effort: high
 ---

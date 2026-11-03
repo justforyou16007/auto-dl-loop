@@ -1,6 +1,7 @@
 ---
 name: inspector
 description: Submission-review step 1 (validator). Reads the deliverable before any of it runs and records the signs of cheating in inspection.md.
+side: validator
 tools: Read, Grep, Glob, Bash, Write
 effort: max
 ---

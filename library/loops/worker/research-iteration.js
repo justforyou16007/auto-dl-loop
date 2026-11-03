@@ -195,45 +195,30 @@ if (chosen.surveys.length)
 
 // Step 2: what each ideator sees is decided here and enforced by its role's tools.
 phase("Ideate");
+const params = input.params;
 const brief = { task: input.task, problems: chosen.problems };
-const slots = ["informed", "informed", "informed", "failures-only", "blank"];
-const proposed = await parallel([
-  () =>
-    agent(JSON.stringify({ ...brief, ideator: 1 }), {
-      agentType: "ideator-informed",
-      schema: IDEA,
-      label: "informed 1",
-      phase: "Ideate",
-    }),
-  () =>
-    agent(JSON.stringify({ ...brief, ideator: 2 }), {
-      agentType: "ideator-informed",
-      schema: IDEA,
-      label: "informed 2",
-      phase: "Ideate",
-    }),
-  () =>
-    agent(JSON.stringify({ ...brief, ideator: 3 }), {
-      agentType: "ideator-informed",
-      schema: IDEA,
-      label: "informed 3",
-      phase: "Ideate",
-    }),
-  () =>
-    agent(JSON.stringify({ ...brief, ineffective: chosen.ineffective }), {
-      agentType: "ideator-failures-only",
-      schema: IDEA,
-      label: "failures-only",
-      phase: "Ideate",
-    }),
-  () =>
-    agent(JSON.stringify(brief), {
-      agentType: "ideator-blank",
-      schema: IDEA,
-      label: "blank",
-      phase: "Ideate",
-    }),
-]);
+const ideator = (role, slot, index, extra) => () =>
+  agent(JSON.stringify({ ...brief, ...extra, ideator: index + 1 }), {
+    agentType: role,
+    schema: IDEA,
+    label: `${slot} ${index + 1}`,
+    phase: "Ideate",
+  });
+const informed = Array.from({ length: params.informed_ideators }, (_, i) =>
+  ideator("ideator-informed", "informed", i, {}),
+);
+const failuresOnly = Array.from({ length: params.failures_only_ideators }, (_, i) =>
+  ideator("ideator-failures-only", "failures-only", i, { ineffective: chosen.ineffective }),
+);
+const blank = Array.from({ length: params.blank_ideators }, (_, i) =>
+  ideator("ideator-blank", "blank", i, {}),
+);
+const slots = [
+  ...informed.map(() => "informed"),
+  ...failuresOnly.map(() => "failures-only"),
+  ...blank.map(() => "blank"),
+];
+const proposed = await parallel([...informed, ...failuresOnly, ...blank]);
 const ideas = proposed
   .map((idea, i) => (idea ? { ...idea, slot: slots[i] } : null))
   .filter(Boolean);
@@ -251,6 +236,7 @@ const top = await agent(
     ideas: assessed.ideas,
     rescored: assessed.rescored,
     problems: chosen.problems,
+    ucb_c: params.ucb_c,
   }),
   {
     agentType: "worker-memory",
@@ -296,4 +282,4 @@ return {
   reason: submitted.reason,
 };
 
-// contrejour-loop-definition-sha256: 87039fb7d7ac6f0d5324ac36d081a6e1a9b2654ede3b2307ff35871a6f7f98d3
+// contrejour-loop-definition-sha256: a09a09a8c2dac8f63745c051c0117d27d29727f024d6e08adf043ecf892e36fb

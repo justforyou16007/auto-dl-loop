@@ -17,7 +17,7 @@
 
 ## 角色和流程
 
-一步怎么做，只写在对应角色的文件里，不写进脚本或提示：每项操作都归某个角色，helper 是角色的工具。必须机械保证的事（测试计数、finalize 的各项检查、只增不改的 benchmark）留在 helper 里。格式由负责写它们的角色规定：角色的格式见 [`role-creator`](library/roles/framework/role-creator.md)（frontmatter 的 `name` 与文件名一致、有 `description`；包含 Responsibility、Inputs、Output、Writes、Evaluation 几节），流程定义和脚本规则见 [`loop-editor`](library/roles/framework/loop-editor.md)。脚本只调度角色，每次调用都给出 `schema` 和已声明的 `phase`，循环有固定上限，不使用当前时间和随机数。
+会话负责启动流程、把 owner 的回答带进流程，流程负责调度角色，角色负责完成一步：没有流程之外的调度，角色不直接调用别的角色，owner 的决定是流程里的 `owner-review` 一步（见 [running-loops.md](skills/shared-references/running-loops.md)）。一步怎么做，只写在对应角色的文件里，不写进脚本或提示：每项操作都归某个角色，helper 是角色的工具。必须机械保证的事（测试计数、finalize 的各项检查、只增不改的 benchmark）留在 helper 里。格式由负责写它们的角色规定：角色的格式见 [`role-creator`](library/roles/framework/role-creator.md)（frontmatter 的 `name` 与文件名一致，有 `description` 和 `side`，`side` 要与所在目录一致；包含 Responsibility、Inputs、Output、Writes、Evaluation 几节），流程定义和脚本规则见 [`loop-editor`](library/roles/framework/loop-editor.md)。脚本只调度角色，每次调用都给出 `schema` 和已声明的 `phase`，循环有固定上限，不使用当前时间和随机数。
 
 按两端项目各自看到的样子检查流程库：
 
@@ -27,7 +27,7 @@ npm run build && node tools/library-check.mjs
 
 它在临时项目里摆好框架角色以及每一端的角色和流程，运行流程检查和角色检查；退出码非零表示有缺陷，报告里写明是哪个。根据改过的流程定义重新生成脚本后，加 `--stamp` 运行，它把每个定义的摘要记进对应的脚本。打上摘要等于宣布脚本是最新的，所以只在重新生成之后才加。
 
-项目在任务结束后把流程和角色推送到名为 `library/<项目>-<yyyymmdd>` 的分支，由维护者通过 PR 合并。合并后的角色会进入之后安装的每一个项目，所以要像审代码一样审它。验证端的角色可以写测试的构造方法，但绝不能包含实际测试用例。
+项目有一次提交完成后，就可以通过 [`library-contributor`](library/roles/framework/library-contributor.md) 角色贡献新增和改动的内容，以名为 `library/<项目>-<端>-<yyyymmdd>` 的分支开 PR，由维护者审核合并。CI 会对它跑流程库检查。合并后的角色会进入之后安装的每一个项目，所以要像审代码一样审它；已有项目重新运行安装器也能拿到，除非已有同名文件。验证端的角色可以写测试的构造方法，但绝不能包含实际测试用例。
 
 新增或修改角色、流程、技能或 helper 时，同步更新 [AGENT_GUIDE.md](AGENT_GUIDE.md) 和 [integration contract](skills/shared-references/integration-contract.md)；在让角色调用新 helper 的同一次改动里，就在 contract 中加上它的一行。helper 保持兼容 Node.js 22.12+ 和 Windows，配置的命令一律以 argv 数组启动，不经过 shell。加新功能前，先过一遍[架构说明](ARCHITECTURE_GUIDE.md)最后一节的问题。
 

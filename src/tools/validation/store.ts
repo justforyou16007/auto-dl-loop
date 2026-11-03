@@ -34,6 +34,8 @@ export interface SubmissionRecord {
   deliverable?: { sha256: string; bytes: number; files: number };
   /** The Claude Code background session reviewing this submission. */
   session?: ReviewSession;
+  /** The loop and parameter values this review started with, written with `session`. */
+  review_loop?: { loop: string; params: Record<string, unknown> };
   review_started_at?: string;
   /** Latest full run of each benchmark layer, by layer id; finalize counts these. */
   evaluations?: Record<string, string>;
@@ -102,6 +104,10 @@ export const FINAL: readonly SubmissionStatus[] = [
   "invalid",
   "failed",
 ];
+/** The review ended and its result was published: the submission's task is finished. */
+export const FINISHED: readonly SubmissionStatus[] = FINAL.filter((status) =>
+  COUNTED.includes(status),
+);
 const SUBMISSION_ID = /^s\d{3,}$/;
 
 export const submissionsDir = (root: string): string =>

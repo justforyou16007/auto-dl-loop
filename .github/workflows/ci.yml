@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [arl]
+    branches: [main]
   pull_request:
-    branches: [arl]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,8 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run pack:contrejour
+      - run: npm run build
+      - run: node tools/library-check.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: contrejour
@@ -40,6 +42,7 @@ jobs:
             test_setup.ts,
             test_validation.ts,
             test_framework.ts,
+            test_contribution.ts,
           ]
     steps:
       - uses: actions/checkout@v4

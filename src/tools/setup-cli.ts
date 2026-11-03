@@ -13,6 +13,7 @@ import {
   applySetup,
   confirmSetupReview,
   environmentNotes,
+  registerHooks,
   fetchTask,
   refreshSetupReview,
   SetupReviewIncompleteError,
@@ -100,6 +101,20 @@ program
       console.log(JSON.stringify(environmentNotes(options.project, text), null, 2));
     } catch (error) {
       reject("setup_environment_failed", error);
+    }
+  });
+
+program
+  .command("hooks")
+  .description(
+    "Register Contrejour's hooks in .claude/settings.json, keeping every other setting; the installer runs it",
+  )
+  .requiredOption("--project <dir>")
+  .action((options: { project: string }) => {
+    try {
+      console.log(JSON.stringify({ settings: registerHooks(options.project) }, null, 2));
+    } catch (error) {
+      reject("setup_hooks_failed", error);
     }
   });
 

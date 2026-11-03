@@ -39,6 +39,7 @@ for (const relative of [
   "dist/tools/hook.js",
   "dist/tools/loop-check.js",
   "dist/tools/worker-cli.js",
+  "dist/tools/library-cli.js",
 ]) {
   if (!fs.existsSync(path.join(root, relative))) {
     throw new Error(
@@ -57,7 +58,7 @@ try {
   if (staged.error) throw staged.error;
   if (staged.status !== 0)
     throw new Error(`Could not assemble the local Contrejour runtime. ${staged.stderr}`);
-  // The checkout is the library a project syncs its loops and roles back to.
+  // The checkout is the library a project contributes its loops and roles back to.
   const result = spawnSync(
     process.execPath,
     [path.join(temp, "contrejour/install.mjs"), ...args, "--library", root],
