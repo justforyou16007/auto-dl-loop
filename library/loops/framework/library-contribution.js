@@ -1,9 +1,9 @@
 export const meta = {
   name: "library-contribution",
   description:
-    "Send what this worker project added or changed to the shared library as a pull request, with the owner's review of exactly that plan",
+    "Send what this project added or changed to the shared library as a pull request, with the owner's review of exactly that plan",
   whenToUse:
-    "Worker, when the owner asks, once a submission has finished. Run with {}, then again with the owner's replies in answers.",
+    "When the owner asks, once a task has finished. Run with {}, then again with the owner's replies in answers.",
   phases: [{ title: "Plan" }, { title: "Review" }, { title: "Contribute" }],
 };
 
@@ -127,9 +127,9 @@ for (let attempt = 1; attempt <= 6; attempt += 1) {
     // Step 2
     const id = `clone:${plan.upstream}`;
     const decided = await review(id, {
-      subject: "a checkout of the Contrejour repository",
+      subject: "a checkout of the library's repository",
       request:
-        "This project has no checkout of the Contrejour repository, which a contribution needs. Fetch one from the address below?",
+        "This project has no checkout of the library's repository, which a contribution needs. Fetch one from the address below?",
       materials: { upstream: plan.upstream, reason: plan.reason },
       approvable: true,
     });
@@ -180,4 +180,4 @@ for (let attempt = 1; attempt <= 6; attempt += 1) {
 }
 return { contributed: false, reason: "no plan was approved within 6 rounds" };
 
-// contrejour-loop-definition-sha256: 299987bded5cdecacd9d0fd813a3ec3802eb82348dd1f7f071d599b8122daf3a
+// contrejour-loop-definition-sha256: 3ad75bc2f9b3213694b8dd3c9adca4f3253ef9940987748179aaeb1e90c5ec6f

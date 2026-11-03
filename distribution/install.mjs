@@ -127,8 +127,27 @@ if (manifest.format !== 1 || !Array.isArray(manifest.files))
   throw new Error("Invalid Contrejour archive manifest");
 const planned = [];
 const hashes = {};
+// A side's loop or role of the same name as the framework's takes its place: the project's own version.
+const chosenSource = new Map();
+for (const entry of manifest.files) {
+  if (!entry.path.startsWith("library/")) continue;
+  const target = seededTarget(entry.path);
+  if (!target) continue;
+  const known = chosenSource.get(target);
+  if (
+    !known ||
+    known.startsWith("library/loops/framework/") ||
+    known.startsWith("library/roles/framework/")
+  )
+    chosenSource.set(target, entry.path);
+}
 for (const entry of manifest.files) {
   if (!safeRelative(entry.path)) throw new Error("Invalid archive path");
+  if (
+    entry.path.startsWith("library/") &&
+    chosenSource.get(seededTarget(entry.path) ?? "") !== entry.path
+  )
+    continue;
   const bytes = fs.readFileSync(path.join(source, entry.path));
   if (digest(bytes) !== entry.sha256)
     throw new Error(`Archive integrity check failed: ${entry.path}`);

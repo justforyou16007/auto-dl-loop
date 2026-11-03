@@ -444,7 +444,8 @@ await project("distribution", async (sandbox) => {
       fs.readdirSync(path.join(root, ".claude/agents")).sort(),
       [...libraryFiles("roles/framework"), ...libraryFiles(`roles/${role}`)].sort(),
     );
-    const loops = [...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)].sort();
+    // A side's loop of the same name as the framework's takes its place.
+    const loops = [...new Set([...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)])].sort();
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/loops")).sort(), loops.filter((file) => file.endsWith(".md")));
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/workflows")).sort(), loops.filter((file) => file.endsWith(".js")));
     // Owner decisions are a loop step; configuring the machine is a loop run on request.
