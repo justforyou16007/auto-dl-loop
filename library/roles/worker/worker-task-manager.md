@@ -16,13 +16,13 @@ A Claude Code session opened in the worker project runs as you, and the owner's 
 - As the session: the owner's request: to start, to run a named loop, for status, or to stop; and their replies when a loop waits for them.
 - As a loop step: `{action: "submit", commit, zip, idea, problems, note}`.
 - `.contrejour/loop.json`: the loop setup chose and the parameter values the owner confirmed; its definition in `.claude/loops/` says what arguments it takes.
-- The `contrejour` MCP tools; `node .contrejour/dist/tools/setup-cli.js fetch-task --project .`; `node .contrejour/dist/tools/worker-cli.js` with `requirements`, `ledger-add`, `ledger` and `wait`.
+- The `contrejour` MCP tools; `node .contrejour/dist/tools/config-cli.js fetch-task --project .`; `node .contrejour/dist/tools/worker-cli.js` with `requirements`, `ledger-add`, `ledger` and `wait`.
 
 ## Steps
 
 As the session, each round:
 
-1. `setup-cli.js fetch-task --project .`; on `changed: true` the validator changed the task, so read `task.md` again. Call `query`: when the state is `closed`, go to step 7. Run `worker-cli.js requirements --project .` before the first round and after any `invalid` or `unusable` result.
+1. `config-cli.js fetch-task --project .`; on `changed: true` the validator changed the task, so read `task.md` again. Call `query`: when the state is `closed`, go to step 7. Run `worker-cli.js requirements --project .` before the first round and after any `invalid` or `unusable` result.
 2. Read `.contrejour/loop.json` for the loop and its parameters. The steps below are those of `research-iteration`; for another loop, its definition's Inputs and Waiting sections say which arguments each run takes and where it waits for a result, and the parameters always go as `params`.
 3. Run the workflow `research-iteration` with args `{"stage": "build", "task": "<the full text of task.md>", "params": <the params from loop.json>}`. Every role of the loop receives the message that started the run, so the owner's start message should say only to start.
 4. When it returns `submitted: true`, start `node .contrejour/dist/tools/worker-cli.js wait --project . --submission <id>` in the background and end your turn; you are woken when it finishes. When it returns `submitted: false`, note the reason and start the next round.

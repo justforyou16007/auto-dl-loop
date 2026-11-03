@@ -15,7 +15,7 @@ const version = pkg.version;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-package-"));
 const stage = path.join(temp, "contrejour");
 const skills = ["research-wiki", "browser-act", "shared-references"];
-const entries = ["tools/setup-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view", "tools/studio"];
+const entries = ["tools/config-cli", "tools/validation-cli", "tools/research-wiki", "tools/capture-filter", "tools/ensure-browser-act", "tools/hook", "tools/loop-check", "tools/worker-cli", "tools/library-cli", "tools/loop-view", "tools/studio", "tools/project-cli", "tools/research-extension"];
 const visited = new Set();
 
 function copy(relative) {
@@ -40,6 +40,8 @@ try {
   for (const skill of skills) copy(`skills/${skill}`);
   copy("library");
   copy("templates");
+  // What the package tells the installer and the framework about itself: its profiles and extension.
+  copy("project.json");
   copy("LICENSE");
   copy("SETUP_GUIDE_CN.md");
   copy("SETUP_GUIDE.md");

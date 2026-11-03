@@ -33,7 +33,7 @@ Contrejour 只运行在 Claude Code 上：不支持 Codex，也不使用 Paseo�
 - **hooks 只做记录、通知或拦截。** 安装器只登记一次；哪些动作执行，写在流程定义里。其中一个在每个流程启动前核对：会话带进去的每个回答，都是 owner 在流程提问之后亲手输入、没有改动的消息。
 - **共享的流程库。** 安装时从 Contrejour 仓库的 `library/` 目录给项目放入角色和流程，此后它们归项目所有。只要有一次提交完成，owner 就可以运行 `library-contribution` 流程，把项目新增和改动的内容作为 PR 送回去。安装时保留的副本能分清项目改了什么、流程库改了什么，所以贡献不会改回别人的改进；发出去的内容也由 owner 批准。
 - **没有流程之外的调度。** 会话只负责启动流程、把 owner 的回答带进流程；流程调度角色；角色完成各自那一步。角色从不直接调用别的角色，owner 的决定是流程里的 `owner-review` 一步。workflow 里的 agent 没法向人提问，所以流程在这一步停下，会话给 owner 看审核说明，拿到回答后流程接着运行。
-- **setup 从需求出发，本身也是流程。** owner 说明项目需要什么，本端的 setup 角色就运行 `project-setup` 流程：有合适的流程就复用，没有就由 `loop-authoring` 在最接近的已有流程上构建一个，然后 owner 在一张配置表上设置这个流程的超参数。流程自己声明超参数和默认值，所以复用流程只需要选取值，不用改流程。
+- **setup 从需求出发，本身也是流程。** owner 说明项目需要什么，本端的 setup 角色就运行 `machine-config` 流程：有合适的流程就复用，没有就由 `loop-authoring` 在最接近的已有流程上构建一个，然后 owner 在一张配置表上设置这个流程的超参数。流程自己声明超参数和默认值，所以复用流程只需要选取值，不用改流程。
 - **新流程、新角色从已有的出发。** `loop-authoring` 先让 `loop-query` 找可以作为基础的流程，再由 `loop-editor` 在最接近的那个上构建；`role-authoring` 先让 `role-creator` 找已经能做这件事的角色，再以最接近的为基础构建。只有 owner 要求时才从头写。草稿只有在 owner 批准了确切版本后才装进项目。`trajectory-optimizer` 根据轨迹修复角色；验证端的修改要 owner 在 `proposal-review` 里接受。
 - **Studio。** `studio.js` 是 owner 在本机浏览器里用的控制台：说出想要的流程，它马上列出相近的流程，每个都能预览流程图，并把最接近的画到画布上，超参数排在旁边、用虚线连到它们影响的步骤；点步骤或箭头、说要怎么改，`loop-authoring` 就在后台会话里起草修改并停下请你审核，草稿画在画布上。只有用一次性链接登录的浏览器才能使用它。
 - **流程页面。** `loop-view.js` 在本机浏览器里给 owner 展示每个流程：每一步由哪些角色来做、在哪里停下等 owner 决定、超参数和本项目的取值、检查结果和最近的运行。它只读，也可以把页面写成一个文件。
@@ -110,7 +110,7 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup "start"                           # 第一次打开时接受目录信任提示
+claude --agent validator-config "start"                           # 第一次打开时接受目录信任提示
 node .contrejour/dist/tools/validation-cli.js serve --project .  # setup 完成后运行，保持运行
 ```
 
@@ -122,7 +122,7 @@ node .contrejour/dist/tools/validation-cli.js serve --project .  # setup 完成�
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup "start"     # 你的需求、流程及其超参数、连接信息；setup 会取回 task.md
+claude --agent worker-config "start"     # 你的需求、流程及其超参数、连接信息；setup 会取回 task.md
 claude --permission-mode bypassPermissions "start"   # 以 worker-task-manager 身份运行，开始运行选定的流程
 ```
 
@@ -135,8 +135,8 @@ claude --permission-mode bypassPermissions "start"   # 以 worker-task-manager �
 | 端 | 角色 | 流程 |
 | --- | --- | --- |
 | 框架，每个项目都有 | `loop-editor`、`loop-query`、`role-creator`、`trajectory-optimizer`、`library-contributor`、`owner-review` | `loop-authoring`、`role-authoring` |
-| worker | `worker-setup`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration`（主任务）、`project-setup`、`library-contribution` |
-| validator | `validator-setup`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review`（主任务）、`project-setup`、`library-contribution`、`proposal-review` |
+| worker | `worker-config`、`worker-task-manager`（入口）、`worker-memory`、`problem-selector`、`ideator-informed`、`ideator-failures-only`、`ideator-blank`、`idea-assessor`、`implementer` | `research-iteration`（主任务）、`machine-config`、`library-contribution` |
+| validator | `validator-config`、`validator-task-manager`（入口）、`validator-memory`、`inspector`、`adapter-writer`、`regression-runner`、`test-extender`、`verdict-writer`、`leak-reviewer` | `submission-review`（主任务）、`machine-config`、`library-contribution`、`proposal-review` |
 
 它们的源文件在 [`library/`](library/)，每个角色做什么见 [Agent 指南](AGENT_GUIDE.md)。随附两个技能，作为角色引用的操作手册：[`research-wiki`](skills/research-wiki/SKILL.md) 是长期记忆，[`browser-act`](skills/browser-act/SKILL.md) 通过外部的 browser-act CLI 访问渲染后的页面和浏览器会话。setup 会再写入第三个：项目自己的 `<项目>-environment` 技能。文献检索、GPU 平台和通知等可选集成留在源码仓库中，不进入独立安装包。
 

@@ -382,32 +382,35 @@ try {
   fs.rmSync(path.join(vAgents, "token-role.md"));
   fs.rmSync(path.join(vAgents, "hidden-role.md"));
   planned = plan(validator);
-  assert.equal(planned.leak_check, "required");
+  assert.equal(planned.check, "required");
   const needsCheck = cli(validator, "contribute", "--digest", planned.digest);
-  assert.equal(reply(needsCheck).reason, "LEAK_CHECK_REQUIRED");
+  assert.equal(reply(needsCheck).reason, "CHECK_REQUIRED");
   // A verdict binds to its digest: a pass on another list does not count.
-  const verdict = (digest: string, value: string, ...extra: string[]) => cli(validator, "record-leak-check", "--digest", digest, "--verdict", value, ...extra);
+  const verdict = (digest: string, value: string, ...extra: string[]) => cli(validator, "record-check", "--digest", digest, "--verdict", value, ...extra);
   assert.equal(verdict("f".repeat(64), "pass").status, 0);
-  assert.equal(plan(validator).leak_check, "required");
-  assert.equal(verdict(planned.digest, "leak").status, 1, "a leak needs a finding");
-  assert.equal(verdict(planned.digest, "leak", "--finding", "probe-writer.md: an example close to a test").status, 0);
-  assert.equal(plan(validator).leak_check, "failed");
-  assert.equal(reply(cli(validator, "contribute", "--digest", planned.digest)).reason, "LEAK_CHECK_FAILED");
+  assert.equal(plan(validator).check, "required");
+  assert.equal(verdict(planned.digest, "fail").status, 1, "a failed check needs a finding");
+  assert.equal(verdict(planned.digest, "fail", "--finding", "probe-writer.md: an example close to a test").status, 0);
+  assert.equal(plan(validator).check, "failed");
+  assert.equal(reply(cli(validator, "contribute", "--digest", planned.digest)).reason, "CHECK_FAILED");
   assert.equal(verdict(planned.digest, "pass").status, 0);
-  assert.equal(plan(validator).leak_check, "passed");
+  assert.equal(plan(validator).check, "passed");
   fs.rmSync(ghLog, { force: true });
   run = cli(validator, "contribute", "--digest", planned.digest);
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.match(prCalls()[0]!.body!, /`leak-reviewer` role checked them/);
-  assert.equal(cli(worker, "record-leak-check", "--digest", "a".repeat(64), "--verdict", "pass").status, 1);
+  assert.match(prCalls()[0]!.body!, /project's own check of what leaves passed/);
+  assert.equal(cli(worker, "record-check", "--digest", "a".repeat(64), "--verdict", "pass").status, 1, "a worker's contributions need no check of their own");
 
   // --- a new role reaches every project only when it says so ---
   const shared = path.join(sandbox, "shared-role");
   fs.cpSync(path.join(source, "library"), shared, { recursive: true });
   const { checkLibrary } = await import(pathToFileURL(path.join(dist, "tools/library-cli.js")).href);
-  assert.equal((await checkLibrary(shared)).ok, true);
+  // This package's library is checked with its manifest, which names the hook actions its loops add.
+  const researchManifest = JSON.parse(fs.readFileSync(path.join(source, "project.json"), "utf8"));
+  assert.equal((await checkLibrary(shared, researchManifest)).ok, true);
+  assert.equal((await checkLibrary(shared)).ok, false, "without it, only the framework's hook actions are known");
   write(path.join(shared, "roles/worker/misfiled.md"), role("misfiled", "framework"));
-  const misfiled = await checkLibrary(shared);
+  const misfiled = await checkLibrary(shared, researchManifest);
   assert.equal(misfiled.ok, false);
   assert.match(JSON.stringify(misfiled.reports.worker.roles), /declares side framework, but lives under worker/);
   fs.rmSync(path.join(shared, "roles/worker/misfiled.md"));

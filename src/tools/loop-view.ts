@@ -102,7 +102,6 @@ export interface ViewData {
   roles: RoleView[];
 }
 
-const SIDES = ["framework", "worker", "validator"];
 const RUNS_SHOWN = 20;
 const normal = (text: string): string => text.replace(/\r\n/g, "\n");
 const readText = (file: string): string | null =>
@@ -228,7 +227,11 @@ function libraryFiles(library: string | null, side: string) {
   const loops: LoopFile[] = [];
   const roles: RoleFile[] = [];
   if (!library) return { loops, roles };
-  const sides = SIDES.includes(side) && side !== "framework" ? ["framework", side] : SIDES;
+  // The framework's files and the project's own side's; without a profile, every side the library has.
+  const present = fs.existsSync(path.join(library, "library", "loops"))
+    ? fs.readdirSync(path.join(library, "library", "loops"))
+    : ["framework"];
+  const sides = present.includes(side) ? ["framework", side] : present;
   for (const dir of sides) {
     const loopDir = path.join(library, "library", "loops", dir);
     for (const file of markdownFiles(loopDir))
@@ -596,7 +599,10 @@ export function fingerprint(root: string): string {
   );
   if (library)
     for (const kind of ["loops", "roles"])
-      for (const side of SIDES) dirs.push(path.join(library, "library", kind, side));
+      for (const side of fs.existsSync(path.join(library, "library", kind))
+        ? fs.readdirSync(path.join(library, "library", kind))
+        : [])
+        dirs.push(path.join(library, "library", kind, side));
   const files = [
     selectedLoopPath(root),
     path.join(root, ".contrejour", "trajectories", "index.jsonl"),

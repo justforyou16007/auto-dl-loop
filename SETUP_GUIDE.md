@@ -58,14 +58,14 @@ The worker's setup fetches `task.md` from the running validation service, so set
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup "start"
+claude --agent validator-config "start"
 ```
 
 The text in quotes is the session's first message. A Claude Code session does nothing until it gets one: with `--agent` alone the role is loaded but waits for you to type, and with a first message it starts at once. If you already know what you need, write that in place of `start`.
 
 The first time you open Claude Code in the project it asks whether to trust the folder. Accept: the service reviews each submission in a Claude Code background session, and background sessions only start in a trusted folder.
 
-The session runs as `validator-setup`, which runs the `project-setup` loop: the steps below. Whenever the loop needs you, it stops, and the session shows you a review note and a question. Your next message is the answer: the session hands it to the loop unchanged, and the loop continues where it stopped. Every decision below is made that way, by the `owner-review` step of the loop. (A role running inside a loop cannot ask you anything itself: Claude Code gives workflow agents no way to talk to the person, which is why the session carries the question and the answer. A hook checks that every answer reaching the loop is a message you typed, unchanged, after the loop asked that question.)
+The session runs as `validator-config`, which runs the `machine-config` loop: the steps below. Whenever the loop needs you, it stops, and the session shows you a review note and a question. Your next message is the answer: the session hands it to the loop unchanged, and the loop continues where it stopped. Every decision below is made that way, by the `owner-review` step of the loop. (A role running inside a loop cannot ask you anything itself: Claude Code gives workflow agents no way to talk to the person, which is why the session carries the question and the answer. A hook checks that every answer reaching the loop is a message you typed, unchanged, after the loop asked that question.)
 
 ### 2. Say what you need and settle the loop
 
@@ -141,7 +141,7 @@ The service reads the frozen configuration and the token when it starts, so rest
 node .contrejour/dist/tools/validation-cli.js status --project .
 ```
 
-Give the `worker_connection` URL and token to the worker's owner over a private channel. You start no review yourself: the service starts one per submission. To change the loop, its parameters or the terms later, run `claude --agent validator-setup "change the configuration"` again.
+Give the `worker_connection` URL and token to the worker's owner over a private channel. You start no review yourself: the service starts one per submission. To change the loop, its parameters or the terms later, run `claude --agent validator-config "change the configuration"` again.
 
 ### The benchmark only grows
 
@@ -204,12 +204,12 @@ Check that the validator's service is running and that you have its `worker_conn
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup "start"
+claude --agent worker-config "start"
 ```
 
-Accept the folder trust prompt the first time. As on the validator, setup starts from your requirement, here how this machine should work on the validator's task: the kind of work (exploring and iterating over many rounds, or something narrower), the compute and time it may use, and any constraint on approaches; the task itself comes from the validator. Write that in place of `start` if you already know it. The session runs the worker's `project-setup` loop and carries your answers in, as on the validator. A loop that fits is reused once you approve it; otherwise `loop-authoring` builds one on the closest existing loop, shown to you for approval. Whatever loop you settle on, `worker-task-manager` runs it and stays the only role that talks to the validation service.
+Accept the folder trust prompt the first time. As on the validator, setup starts from your requirement, here how this machine should work on the validator's task: the kind of work (exploring and iterating over many rounds, or something narrower), the compute and time it may use, and any constraint on approaches; the task itself comes from the validator. Write that in place of `start` if you already know it. The session runs the worker's `machine-config` loop and carries your answers in, as on the validator. A loop that fits is reused once you approve it; otherwise `loop-authoring` builds one on the closest existing loop, shown to you for approval. Whatever loop you settle on, `worker-task-manager` runs it and stays the only role that talks to the validation service.
 
-The sheet starts with the loop and its parameters, each with its default, range and meaning; a parameter you do not set keeps its default. `research-iteration` has `informed_ideators` (3), `failures_only_ideators` (1) and `blank_ideators` (1), how many ideators of each kind a round runs, and `ucb_c` (1), the weight of the exploration bonus when ideas are ranked. The sheet also has `project.name`, `project.language`, `environment.secrets`, `connection.url` (the `worker_connection` URL, ending in `/mcp`) and `connection.token`. Once the connection is in the sheet, the setup role fetches `task.md` from the validator with `setup-cli.js fetch-task`, byte for byte; never write or copy it by hand. The fetched task is part of what you approve when you confirm the digest the review note shows.
+The sheet starts with the loop and its parameters, each with its default, range and meaning; a parameter you do not set keeps its default. `research-iteration` has `informed_ideators` (3), `failures_only_ideators` (1) and `blank_ideators` (1), how many ideators of each kind a round runs, and `ucb_c` (1), the weight of the exploration bonus when ideas are ranked. The sheet also has `project.name`, `project.language`, `environment.secrets`, `connection.url` (the `worker_connection` URL, ending in `/mcp`) and `connection.token`. Once the connection is in the sheet, the setup role fetches `task.md` from the validator with `config-cli.js fetch-task`, byte for byte; never write or copy it by hand. The fetched task is part of what you approve when you confirm the digest the review note shows.
 
 Apply first checks that `task.md` is still the validator's: if the validator changed it since your review, apply stops with `TASK_CHANGED`, and the loop fetches it again and shows you the sheet for a new confirmation. Apply then records the chosen loop and its parameter values in `.contrejour/loop.json`; writes `environment.secrets` to `.contrejour/environment.json` (mode 0600); the `contrejour` server to `.mcp.json`, replacing only that entry; `.contrejour/` and `.mcp.json` to `.gitignore`, because they hold credentials; `.claude/settings.json` with the entry role `worker-task-manager`, the hook registrations and `worktree.bgIsolation: "none"`; and the role block and an empty environment section in `CLAUDE.md`. The setup role then creates `research-wiki/`, writes the environment skill's scripts and runs each once for real, writes the environment section, checks the installed loop, and hands off.
 
@@ -280,7 +280,7 @@ Experience is kept where it is used, by the role responsible for it:
 
 **Research wiki.** Survey, idea, experiment, claim and problem nodes joined by evidence edges record, for each problem, what existing work did, what was tried and what was effective or ineffective. Each round starts from the query pack, a summary of at most 1000 characters with node references; the details stay on the pages. The validator's wiki records the problems found across submissions, which ones each submission solved and which persist, and the testing methods researched. It holds no test content, because `validator-memory` works only from the published result and public sources; which layers probe which problems is recorded in the benchmark's `registry/`, not in the wiki. Read a wiki through the `research-wiki` skill, its command line or its Markdown pages.
 
-**Environment section.** Every role reads `CLAUDE.md`, the blank ideator included, so this section holds the environment and nothing else: machines and SSH aliases; code, data, checkpoint, result and log paths; environment names and how to activate them; resources and their limits; where metrics land; verified pitfalls. One line per verified fact, under 8000 characters; research conclusions stay in the wiki. `node .contrejour/dist/tools/setup-cli.js environment --project .` shows it.
+**Environment section.** Every role reads `CLAUDE.md`, the blank ideator included, so this section holds the environment and nothing else: machines and SSH aliases; code, data, checkpoint, result and log paths; environment names and how to activate them; resources and their limits; where metrics land; verified pitfalls. One line per verified fact, under 8000 characters; research conclusions stay in the wiki. `node .contrejour/dist/tools/config-cli.js environment --project .` shows it.
 
 **Environment skill.** `.claude/skills/<project>-environment/` holds the fixed procedures as Bash scripts (sync code, prepare the environment, launch a named run, check it, fetch its logs and results, stop it; on the validator also, for example, checking the GPU, memory and disk a run needs), each run once for real when written. Every run gets its own name, log and result path, so several experiments can run at once. On the validator, `validator-memory` also adds the reusable testing tools a review built, once it has checked that they hold no test content. Keys and tokens are read from `.contrejour/environment.json`, never written into the scripts. The tools the scripts use, such as SSH, rsync, conda or a container runtime, are not bundled.
 
@@ -290,7 +290,7 @@ Experience is kept where it is used, by the role responsible for it:
 
 ## Changing loops and roles
 
-Loops and roles change through loops too, each with your review. Run one in the project with `claude "Run the <loop> loop"` and say what you want; the task manager runs it and carries your answers in. To choose another loop for the project, or set its parameters to other values, run the side's setup again: `claude --agent worker-setup "change the configuration"` (on the validator, `validator-setup`).
+Loops and roles change through loops too, each with your review. Run one in the project with `claude "Run the <loop> loop"` and say what you want; the task manager runs it and carries your answers in. To choose another loop for the project, or set its parameters to other values, run the side's setup again: `claude --agent worker-config "change the configuration"` (on the validator, `validator-config`).
 
 - **`loop-authoring`** creates or changes a loop from your description. `loop-query` first finds the loops it could be built on, in the project and the library; if one already does exactly what you want, you are offered that one instead. `loop-editor` then builds the new loop on the closest one, keeping what it does well and changing what you asked for (it writes from scratch only when you ask for that), and `role-creator` adds any role it needs, built on the closest existing role. Everything is drafted in `.contrejour/drafts/` and checked; you see the definition, the script, the new roles and what differs from the base, and only the version you approve is installed. No running loop changes itself, and no other loop edits loops.
 - **`role-authoring`** creates or changes a role from your description (what it does in which step, what it receives and returns, what it may read and write, how to tell it did well). `role-creator` first finds the roles that already do this, in the project and the library, and offers an existing one that fits; otherwise it builds the new role on the closest one, from scratch only when you ask, checks it, and installs the version you approve. When work needs a step no role does, add a role rather than code that belongs to no role.
@@ -357,7 +357,7 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 
 The installer assembles and verifies a temporary bundle from the current checkout, restores missing files, updates the helpers, runtime, templates and installed skills, and removes the ones dropped from the package. A local edit to one of them stops the update before anything is written: save your edit, then rerun with `--force` to replace it. Seeded loops and roles are kept as the project has them, listed under `kept_project_versions`. To take the library's newer version of one, remove the project's copy (for a loop, both its definition and its script) and rerun the installer. `task.md`, the wiki, the benchmark, submissions, setup state, `.contrejour/environment.json`, the environment skill and `.claude/settings.json` are never touched.
 
-If setup was applied, rerun `node .contrejour/dist/tools/setup-cli.js apply --project .` to refresh the role block and the settings (entry role and hook registrations); an unchanged configuration keeps its confirmation. Claude Code reads roles and skills when a session starts, so open new sessions afterwards. On the validator, restart the service so it runs the updated helpers.
+If setup was applied, rerun `node .contrejour/dist/tools/config-cli.js apply --project .` to refresh the role block and the settings (entry role and hook registrations); an unchanged configuration keeps its confirmation. Claude Code reads roles and skills when a session starts, so open new sessions afterwards. On the validator, restart the service so it runs the updated helpers.
 
 ## Troubleshooting
 

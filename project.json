@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "name": "auto-dl-loop",
+  "description": "An adversarial two-machine research task: a worker builds the deliverable, a validator judges it against a benchmark that only grows.",
+  "profiles": {
+    "worker": {
+      "description": "The machine that researches and builds, round after round, and submits to the validator.",
+      "entry_role": "worker-task-manager",
+      "sides": ["worker"],
+      "next": [
+        "Configure the validator machine first. Then configure this one: in the Studio's chat, or in a session here, run the machine-config loop; it connects to the validator and fetches task.md."
+      ]
+    },
+    "validator": {
+      "description": "The machine that reviews each submission against the benchmark and the hidden tests, and publishes the result.",
+      "entry_role": "validator-task-manager",
+      "sides": ["validator"],
+      "next": [
+        "Configure this machine: in the Studio's chat, or in a session here, run the machine-config loop (task.md, the benchmark, the terms, the service), then start the service it names."
+      ]
+    }
+  },
+  "extension": "research-extension.js",
+  "hook_actions": {
+    "notify-stopped-review": ["Stop"],
+    "guard-protected-paths": ["PreToolUse"]
+  }
+}

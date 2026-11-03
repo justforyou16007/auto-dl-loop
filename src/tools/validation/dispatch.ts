@@ -7,7 +7,7 @@
  * framework's (`sessions.ts`); this file names the review's session and its
  * first message.
  */
-import { TASK_MANAGER } from "../installation.js";
+import { TASK_MANAGER } from "../research-profiles.js";
 import {
   backgroundedId,
   listArgv,

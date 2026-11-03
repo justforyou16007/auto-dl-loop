@@ -33,7 +33,7 @@ Models also still judge their own results badly: tests written by the agent that
 - **Hooks only record, notify or block.** The installer registers them once; which actions run is declared in the loop definitions. One checks, before any loop runs, that every answer a session passes in is a message the owner typed after the loop asked, unchanged.
 - **A shared library.** Installation seeds a project's roles and loops from the `library/` directory of the Contrejour repository; from then on they are the project's own. Once one of its submissions has finished, the owner can run the `library-contribution` loop, which sends what the project added or changed as a pull request. A copy of what was seeded tells the project's changes from the library's, so a contribution never undoes anyone else's work, and the owner approves exactly what leaves.
 - **No flow outside a loop.** A session only starts loops and carries the owner's answers into them; loops schedule roles; roles do the steps. A role never runs another role, and a decision of the owner's is an `owner-review` step of a loop. Workflow agents cannot ask a person anything, so a loop stops at that step, the session shows the owner a review note, and the loop resumes with the reply.
-- **Setup starts from a requirement, as a loop.** The owner says what the project needs, and the side's setup role runs the `project-setup` loop: it reuses a loop that fits, or has `loop-authoring` build one on the closest existing loop, and the owner then sets that loop's parameters, its hyperparameters, on one configuration sheet. A loop declares its parameters with defaults, so reusing a loop means choosing values, not editing it.
+- **Setup starts from a requirement, as a loop.** The owner says what the project needs, and the side's setup role runs the `machine-config` loop: it reuses a loop that fits, or has `loop-authoring` build one on the closest existing loop, and the owner then sets that loop's parameters, its hyperparameters, on one configuration sheet. A loop declares its parameters with defaults, so reusing a loop means choosing values, not editing it.
 - **New loops and roles start from existing ones.** `loop-authoring` has `loop-query` find the loops a requested loop can be built on, and `loop-editor` builds it on the closest; `role-authoring` has `role-creator` find the roles that already do the work and build on the closest. Either writes from scratch only when the owner asks. Drafts reach the project only once the owner approves that exact version. `trajectory-optimizer` fixes roles from their trajectories; on the validator, the owner accepts its proposals in `proposal-review`.
 - **The Studio.** `studio.js` is the owner's console in a browser on the same machine: say what loop you want and it lists the close ones, each previewable as a flow, and draws the closest on a canvas with its parameters beside the steps they affect; point at steps or arrows and say what to change, and `loop-authoring` drafts it in a background session and stops for your review, with the draft on the canvas. Only the browser signed in with its one-time link can use it.
 - **A page of the loops.** `loop-view.js` shows the owner, in a browser on the same machine, each loop's steps with the roles that do them and the points where it waits for the owner, its parameters with this project's values, its check and its recent runs. It only reads, and can also write the page as one file.
@@ -110,7 +110,7 @@ The validator comes first, because the worker's setup fetches `task.md` from the
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup "start"                           # accept the folder trust prompt the first time
+claude --agent validator-config "start"                           # accept the folder trust prompt the first time
 node .contrejour/dist/tools/validation-cli.js serve --project .  # once setup is done; keep it running
 ```
 
@@ -122,7 +122,7 @@ Then the worker:
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup "start"     # your requirement, the loop and its parameters, the connection; setup fetches task.md
+claude --agent worker-config "start"     # your requirement, the loop and its parameters, the connection; setup fetches task.md
 claude --permission-mode bypassPermissions "start"   # runs as worker-task-manager and starts the chosen loop
 ```
 
@@ -135,8 +135,8 @@ Follow the **[full setup guide](SETUP_GUIDE.md)** or **[中文部署指南](SETU
 | Side | Roles | Loop |
 | --- | --- | --- |
 | Framework, in every project | `loop-editor`, `loop-query`, `role-creator`, `trajectory-optimizer`, `library-contributor`, `owner-review` | `loop-authoring`, `role-authoring` |
-| Worker | `worker-setup`, `worker-task-manager` (entry), `worker-memory`, `problem-selector`, `ideator-informed`, `ideator-failures-only`, `ideator-blank`, `idea-assessor`, `implementer` | `research-iteration` (task), `project-setup`, `library-contribution` |
-| Validator | `validator-setup`, `validator-task-manager` (entry), `validator-memory`, `inspector`, `adapter-writer`, `regression-runner`, `test-extender`, `verdict-writer`, `leak-reviewer` | `submission-review` (task), `project-setup`, `library-contribution`, `proposal-review` |
+| Worker | `worker-config`, `worker-task-manager` (entry), `worker-memory`, `problem-selector`, `ideator-informed`, `ideator-failures-only`, `ideator-blank`, `idea-assessor`, `implementer` | `research-iteration` (task), `machine-config`, `library-contribution` |
+| Validator | `validator-config`, `validator-task-manager` (entry), `validator-memory`, `inspector`, `adapter-writer`, `regression-runner`, `test-extender`, `verdict-writer`, `leak-reviewer` | `submission-review` (task), `machine-config`, `library-contribution`, `proposal-review` |
 
 Their sources are in [`library/`](library/), and the [agent guide](AGENT_GUIDE.md) says what each role does. Two skills ship with them, as operating manuals the roles refer to: [`research-wiki`](skills/research-wiki/SKILL.md), the long-term memory, and [`browser-act`](skills/browser-act/SKILL.md), for rendered pages and browser sessions through the external browser-act CLI. Setup writes a third, the project's `<project>-environment` skill. Optional literature, GPU platform and notification integrations stay in the source repository and are not in the standalone package.
 

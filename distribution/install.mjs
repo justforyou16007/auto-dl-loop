@@ -16,12 +16,22 @@ const { values } = parseArgs({
     help: { type: "boolean", default: false },
   },
 });
+const source = path.dirname(fileURLToPath(import.meta.url));
+// The package says which profiles a project can be installed as, and how each starts. In a package
+// project.json sits next to this installer; in a checkout, one level up from distribution/.
+const manifestPath = [
+  path.join(source, "project.json"),
+  path.join(source, "..", "project.json"),
+].find((file) => fs.existsSync(file));
+if (!manifestPath) throw new Error("This package has no project.json naming its profiles.");
+const packageManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const profiles = Object.keys(packageManifest.profiles ?? {});
 if (values.help) {
-  console.log("bash install.sh --role worker|validator --project PATH [--dry-run] [--force]");
+  console.log(`bash install.sh --role ${profiles.join("|")} --project PATH [--dry-run] [--force]`);
   process.exit(0);
 }
-if (!values.project || !["worker", "validator"].includes(values.role)) {
-  throw new Error("Specify --role worker|validator and --project PATH. See --help.");
+if (!values.project || !profiles.includes(values.role)) {
+  throw new Error(`Specify --role ${profiles.join("|")} and --project PATH. See --help.`);
 }
 if (values.provider !== undefined) {
   throw new Error("Contrejour runs on Claude Code only; --provider was removed. See --help.");
@@ -29,7 +39,6 @@ if (values.provider !== undefined) {
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 12)) throw new Error("Node.js 22.12+ required");
 
-const source = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(values.project);
 const role = values.role;
 const manifestFile = path.join(root, ".contrejour/install.json");
@@ -78,9 +87,9 @@ if (fs.existsSync(path.join(root, ".aris/install.json"))) {
 const previous = fs.existsSync(manifestFile)
   ? JSON.parse(fs.readFileSync(manifestFile, "utf8"))
   : null;
-if (previous && !["worker", "validator"].includes(previous.role)) {
+if (previous && !profiles.includes(previous.role)) {
   throw new Error(
-    "This project's installation record names no worker/validator role; install into a fresh project.",
+    `This project's installation record names no profile of this package (${profiles.join(", ")}); install into a fresh project.`,
   );
 }
 if (previous && previous.role !== role) {
@@ -101,12 +110,12 @@ const skills = ".claude/skills";
  * seeded stays under .contrejour/seeded/: the baseline that later tells what this
  * project changed from what the library changed, when it contributes back.
  */
+const sides = new Set(["framework", ...(packageManifest.profiles[role].sides ?? [])]);
 function seededTarget(relative) {
-  const role_ = /^library\/roles\/(framework|worker|validator)\/([^/]+\.md)$/.exec(relative);
-  if (role_)
-    return role_[1] === "framework" || role_[1] === role ? `.claude/agents/${role_[2]}` : null;
-  const loop = /^library\/loops\/(framework|worker|validator)\/([^/]+)\.(md|js)$/.exec(relative);
-  if (loop && (loop[1] === "framework" || loop[1] === role))
+  const role_ = /^library\/roles\/([a-z0-9-]+)\/([^/]+\.md)$/.exec(relative);
+  if (role_) return sides.has(role_[1]) ? `.claude/agents/${role_[2]}` : null;
+  const loop = /^library\/loops\/([a-z0-9-]+)\/([^/]+)\.(md|js)$/.exec(relative);
+  if (loop && sides.has(loop[1]))
     return `.claude/${loop[3] === "md" ? "loops" : "workflows"}/${loop[2]}.${loop[3]}`;
   return null;
 }
@@ -144,7 +153,8 @@ for (const entry of manifest.files) {
   if (
     !isSkill &&
     !/^(dist|templates|node_modules)\//.test(entry.path) &&
-    entry.path !== "package.json"
+    entry.path !== "package.json" &&
+    entry.path !== "project.json"
   )
     continue;
   const relative = isSkill ? `${skills}/${entry.path.slice(7)}` : `.contrejour/${entry.path}`;
@@ -168,7 +178,8 @@ for (const [relative, oldHash] of Object.entries(previous?.files ?? {})) {
   if (Object.hasOwn(hashes, relative)) continue;
   if (
     !relative.startsWith(`${skills}/`) &&
-    !/^\.contrejour\/(dist|templates|node_modules)\//.test(relative)
+    !/^\.contrejour\/(dist|templates|node_modules)\//.test(relative) &&
+    relative !== ".contrejour/project.json"
   ) {
     throw new Error(`Invalid managed path: ${relative}`);
   }
@@ -215,7 +226,7 @@ if (!values["dry-run"]) {
   // The hooks check, among other things, that every answer a session passes to a loop is the owner's own.
   const hooks = spawnSync(
     process.execPath,
-    [path.join(root, ".contrejour/dist/tools/setup-cli.js"), "hooks", "--project", root],
+    [path.join(root, ".contrejour/dist/tools/project-cli.js"), "hooks", "--project", root],
     { encoding: "utf8" },
   );
   if (hooks.status !== 0)
@@ -239,10 +250,11 @@ console.log(
     2,
   ),
 );
-console.log(
-  `Next: in ${root}, run \`claude --agent ${role}-setup "start"\` (or put your requirement in place of start) and accept the folder trust prompt the first time; ${
-    role === "worker"
-      ? "set up the validator machine first."
-      : "background review sessions need the trusted folder."
-  } Loops and roles already in the project were kept as they are.`,
-);
+// What to do next: open the Studio; then whatever the package says this profile needs.
+const next = [
+  `Next: open the Studio, node ${path.join(root, ".contrejour/dist/tools/studio.js")} --project ${root}, to choose the loop this project runs and set its parameters (or project-cli.js use).`,
+  "Open claude in the project once and accept the folder trust prompt: background sessions start only in a trusted folder.",
+  ...(packageManifest.profiles[role].next ?? []),
+  "Loops and roles already in the project were kept as they are.",
+];
+console.log(next.join("\n"));

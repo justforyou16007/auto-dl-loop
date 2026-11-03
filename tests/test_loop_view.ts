@@ -167,7 +167,7 @@ try {
       "research-iteration": ["task", "project"],
       "library-contribution": ["on-request", "project"],
       "loop-authoring": ["on-request", "project"],
-      "project-setup": ["setup", "project"],
+      "machine-config": ["on-request", "project"],
       "role-authoring": ["on-request", "library"],
     },
   );
@@ -192,7 +192,7 @@ try {
   const contribution = loopOf(view, "library-contribution");
   assert.ok(contribution.steps.some((step) => step.roles.includes("owner-review")));
   assert.ok(view.roles.find((role) => role.name === "owner-review")?.used_by.includes("library-contribution"));
-  assert.ok(loopOf(view, "project-setup").children.includes("loop-authoring"));
+  assert.ok(loopOf(view, "machine-config").children.includes("loop-authoring"));
 
   // Runs, newest first: which roles finished in each (a role that ran twice, twice) and the submission.
   assert.deepEqual(

@@ -4,6 +4,7 @@
  * background sessions that may edit a git checkout without a worktree. Every
  * other setting and hook stays as it is.
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { writeStateJsonAtomic } from "./state-file.js";
@@ -89,4 +90,15 @@ export function writeEntryRole(projectRoot: string, role: string): string {
 export function entryRole(projectRoot: string): string | null {
   const agent = readJson(settingsPath(projectRoot)).agent;
   return typeof agent === "string" && agent ? agent : null;
+}
+
+/** The project's name as a slug: its folder's name in lowercase words joined by hyphens. */
+export function projectSlug(projectRoot: string): string {
+  const name = path.basename(path.resolve(projectRoot));
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-/, "")
+    .replace(/-$/, "");
+  return slug || `project-${crypto.createHash("sha256").update(name).digest("hex").slice(0, 8)}`;
 }

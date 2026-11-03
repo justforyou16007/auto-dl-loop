@@ -58,14 +58,14 @@ worker 的 setup 要从运行中的验证服务取回 `task.md`，所以先配�
 
 ```bash
 cd /path/to/validator-project
-claude --agent validator-setup "start"
+claude --agent validator-config "start"
 ```
 
 引号里是会话的第一句话。Claude Code 会话收到第一句话才开始工作：只写 `--agent` 时角色已经加载，但会一直等你输入；带上第一句话就立即开始。需求已经想好的话，直接写在 `start` 的位置。
 
 第一次在项目里打开 Claude Code 时，它会询问是否信任这个目录。请接受：服务在 Claude Code 后台会话中评审每次提交，而后台会话只能在已信任的目录里启动。
 
-会话以 `validator-setup` 身份运行，它运行 `project-setup` 这个流程，也就是下面这些步骤。流程每次需要你时就停下来，会话给你看一份审核说明和一个问题；你的下一句话就是回答，会话把它原样交给流程，流程从停下的地方接着运行。下面每一个决定都是这样做的，由流程里的 `owner-review` 这一步负责。（在流程里运行的角色自己没法问你：Claude Code 不给 workflow 里的 agent 向人提问的工具，所以由会话来传问题和回答。hook 会核对进入流程的每个回答，都是你在流程提出那个问题之后亲手输入、没有改动的消息。）
+会话以 `validator-config` 身份运行，它运行 `machine-config` 这个流程，也就是下面这些步骤。流程每次需要你时就停下来，会话给你看一份审核说明和一个问题；你的下一句话就是回答，会话把它原样交给流程，流程从停下的地方接着运行。下面每一个决定都是这样做的，由流程里的 `owner-review` 这一步负责。（在流程里运行的角色自己没法问你：Claude Code 不给 workflow 里的 agent 向人提问的工具，所以由会话来传问题和回答。hook 会核对进入流程的每个回答，都是你在流程提出那个问题之后亲手输入、没有改动的消息。）
 
 ### 2. 说明需求，定下流程
 
@@ -141,7 +141,7 @@ node .contrejour/dist/tools/validation-cli.js serve --project .
 node .contrejour/dist/tools/validation-cli.js status --project .
 ```
 
-通过私密渠道把 `worker_connection` 的地址和 token 交给 worker 端的 owner。评审不用你启动：服务为每次提交启动一次。之后要改流程、超参数或条款，再次运行 `claude --agent validator-setup "change the configuration"`。
+通过私密渠道把 `worker_connection` 的地址和 token 交给 worker 端的 owner。评审不用你启动：服务为每次提交启动一次。之后要改流程、超参数或条款，再次运行 `claude --agent validator-config "change the configuration"`。
 
 ### benchmark 只增不改
 
@@ -204,12 +204,12 @@ worker 的任务管理角色调用 `submit`，拿到一次性上传地址，用 
 
 ```bash
 cd /path/to/worker-project
-claude --agent worker-setup "start"
+claude --agent worker-config "start"
 ```
 
-第一次打开时接受目录信任提示。和验证端一样，setup 从你的需求开始，这里是这台机器怎样做验证端的任务：工作方式（多轮探索迭代，还是更窄的工作）、可用的算力和时间、对做法有没有限制；任务本身来自验证端。需求已经想好的话，直接写在 `start` 的位置。和验证端一样，会话运行 worker 的 `project-setup` 流程并替你传话。合适的流程经你批准后直接复用；没有合适的，就由 `loop-authoring` 在最接近的已有流程上构建一个，经你批准后使用。无论定下哪个流程，都由 `worker-task-manager` 运行，也只有它能访问验证服务。
+第一次打开时接受目录信任提示。和验证端一样，setup 从你的需求开始，这里是这台机器怎样做验证端的任务：工作方式（多轮探索迭代，还是更窄的工作）、可用的算力和时间、对做法有没有限制；任务本身来自验证端。需求已经想好的话，直接写在 `start` 的位置。和验证端一样，会话运行 worker 的 `machine-config` 流程并替你传话。合适的流程经你批准后直接复用；没有合适的，就由 `loop-authoring` 在最接近的已有流程上构建一个，经你批准后使用。无论定下哪个流程，都由 `worker-task-manager` 运行，也只有它能访问验证服务。
 
-配置表最前面是流程和它的超参数，每个都带默认值、取值范围和含义；没有设置的超参数保持默认值。`research-iteration` 有 `informed_ideators`（3）、`failures_only_ideators`（1）、`blank_ideators`（1），即每轮各类出想法角色的个数，还有 `ucb_c`（1），即给想法排序时探索奖励的权重。配置表还包括 `project.name`、`project.language`、`environment.secrets`、`connection.url`（`worker_connection` 的地址，以 `/mcp` 结尾）和 `connection.token`。连接信息填进配置表后，setup 角色用 `setup-cli.js fetch-task` 从验证端逐字节取回 `task.md`；不要手工编写或复制它。你确认审核说明给出的摘要时，取回的任务也在确认范围内。
+配置表最前面是流程和它的超参数，每个都带默认值、取值范围和含义；没有设置的超参数保持默认值。`research-iteration` 有 `informed_ideators`（3）、`failures_only_ideators`（1）、`blank_ideators`（1），即每轮各类出想法角色的个数，还有 `ucb_c`（1），即给想法排序时探索奖励的权重。配置表还包括 `project.name`、`project.language`、`environment.secrets`、`connection.url`（`worker_connection` 的地址，以 `/mcp` 结尾）和 `connection.token`。连接信息填进配置表后，setup 角色用 `config-cli.js fetch-task` 从验证端逐字节取回 `task.md`；不要手工编写或复制它。你确认审核说明给出的摘要时，取回的任务也在确认范围内。
 
 apply 先核对 `task.md` 是否仍与验证端一致：如果在你审阅之后验证端改过任务，apply 以 `TASK_CHANGED` 停止，流程会重新取回任务，再请你确认配置表。随后 apply 把选定的流程和超参数取值记入 `.contrejour/loop.json`；把 `environment.secrets` 写入 `.contrejour/environment.json`（权限 0600）；把 `contrejour` 服务写入 `.mcp.json`，只替换这一项；把 `.contrejour/` 和 `.mcp.json` 加进 `.gitignore`，因为其中有凭据；写入 `.claude/settings.json`，包括入口角色 `worker-task-manager`、hooks 登记和 `worktree.bgIsolation: "none"`；并在 `CLAUDE.md` 中写入角色段和空的环境段。之后 setup 角色新建 `research-wiki/`，写好环境技能的脚本并把每个实际运行一次，写入环境段，检查装好的流程，然后交接。
 
@@ -280,7 +280,7 @@ claude "Run the library-contribution loop"
 
 **研究 wiki。** 用 survey、idea、experiment、claim、problem 五类节点和证据边，按问题记录已有工作做了什么、试过什么、哪些有效、哪些无效。每一轮从 query pack 开始，那是一份不超过 1000 字符、带节点引用的摘要；细节留在各页面里。验证端的 wiki 记录各次提交暴露的问题、每次提交解决了哪些、哪些仍在，以及调研过的测试方法。它不含任何测试内容，因为 `validator-memory` 只依据已发布的结果和公开来源工作；哪些层针对哪些问题记录在 benchmark 的 `registry/` 里，不在 wiki 里。通过 `research-wiki` 技能、它的命令行或 Markdown 页面阅读 wiki。
 
-**环境段。** 每个角色都读 `CLAUDE.md`，包括"空白"出想法角色，所以这一段只写环境：机器和 SSH 别名；代码、数据、checkpoint、结果和日志路径；环境名及激活方式；资源及其限制；指标输出到哪里；验证过的坑。每行一条验证过的事实，不超过 8000 字符；研究结论留在 wiki 里。`node .contrejour/dist/tools/setup-cli.js environment --project .` 可以查看它。
+**环境段。** 每个角色都读 `CLAUDE.md`，包括"空白"出想法角色，所以这一段只写环境：机器和 SSH 别名；代码、数据、checkpoint、结果和日志路径；环境名及激活方式；资源及其限制；指标输出到哪里；验证过的坑。每行一条验证过的事实，不超过 8000 字符；研究结论留在 wiki 里。`node .contrejour/dist/tools/config-cli.js environment --project .` 可以查看它。
 
 **环境技能。** `.claude/skills/<项目>-environment/` 把固定操作写成 Bash 脚本（同步代码、准备环境、启动命名实验、检查、取回日志和结果、停止；验证端还有例如检查一次运行所需的 GPU、内存和磁盘），每个脚本写好时都实际运行一次。每次运行有自己的名字、日志和结果路径，所以可以同时跑多个实验。在验证端，`validator-memory` 还会把评审中写出的可复用测试工具加进来，前提是它核实过其中不含测试内容。key 和 token 从 `.contrejour/environment.json` 读取，从不写进脚本。脚本用到的工具，例如 SSH、rsync、conda 或容器运行时，不在安装包里。
 
@@ -290,7 +290,7 @@ claude "Run the library-contribution loop"
 
 ## 修改流程和角色
 
-修改流程和角色也通过流程进行，每次都经你审核。在项目里用 `claude "Run the <流程> loop"` 运行其中一个，并说明你要什么；任务管理角色运行它并替你传话。要给项目换一个流程，或者改流程的超参数，再次运行本端的 setup：`claude --agent worker-setup "change the configuration"`（验证端是 `validator-setup`）。
+修改流程和角色也通过流程进行，每次都经你审核。在项目里用 `claude "Run the <流程> loop"` 运行其中一个，并说明你要什么；任务管理角色运行它并替你传话。要给项目换一个流程，或者改流程的超参数，再次运行本端的 setup：`claude --agent worker-config "change the configuration"`（验证端是 `validator-config`）。
 
 - **`loop-authoring`** 按你的描述新建或修改流程。先由 `loop-query` 在本项目和流程库里找可以作为基础的流程；如果已有流程恰好就能做你要的事，会先问你是否直接用它。然后 `loop-editor` 在最接近的流程上构建新流程，保留它做得好的部分，只改你要求改的（只有你要求时才从头写）；缺的角色由 `role-creator` 以最接近的已有角色为基础补上。所有内容先放在 `.contrejour/drafts/` 里并通过检查；你会看到流程定义、脚本、新角色以及和基础流程的区别，只有你批准的那个版本才会装进项目。运行中的流程不会改自己，其他流程也不改流程。
 - **`role-authoring`** 按你的描述（在哪一步做什么、收到什么、交出什么、能读写什么、怎样算做得好）新建或修改角色。`role-creator` 先在本项目和流程库里找已经能做这件事的角色，有合适的就先问你是否直接用；没有就以最接近的角色为基础构建（只有你要求时才从头写），检查后装入你批准的版本。需要一个没有角色负责的步骤时，就加一个角色，而不是加一段不属于任何角色的代码。
@@ -357,7 +357,7 @@ bash distribution/install-contrejour.sh --role worker --project /path/to/project
 
 安装器根据当前仓库生成并校验一个临时文件包，补回缺失的文件，更新 helper、运行依赖、模板和装好的技能，删除包里已移除的文件。其中任何一个有本地修改，更新都会在写入之前停止：保存你的修改，再加 `--force` 重新运行以替换它。放入项目的流程和角色保持项目里的版本，列在 `kept_project_versions` 下。想用流程库里更新的版本，先删除项目里的那份（流程要同时删除定义和脚本），再运行安装器。`task.md`、wiki、benchmark、提交记录、setup 状态、`.contrejour/environment.json`、环境技能和 `.claude/settings.json` 都不会被动。
 
-已经 apply 过的项目，重新运行 `node .contrejour/dist/tools/setup-cli.js apply --project .` 来更新角色段和设置（入口角色和 hooks 登记）；配置没变时，原来的确认仍然有效。Claude Code 在会话开始时读取角色和技能，所以之后要打开新会话。验证端要重启服务，让它运行更新后的 helper。
+已经 apply 过的项目，重新运行 `node .contrejour/dist/tools/config-cli.js apply --project .` 来更新角色段和设置（入口角色和 hooks 登记）；配置没变时，原来的确认仍然有效。Claude Code 在会话开始时读取角色和技能，所以之后要打开新会话。验证端要重启服务，让它运行更新后的 helper。
 
 ## 故障排查
 

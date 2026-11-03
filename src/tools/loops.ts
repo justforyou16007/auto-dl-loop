@@ -13,18 +13,6 @@ import path from "node:path";
 import { LOOPS_DIR, ROLES_DIR, WORKFLOWS_DIR } from "./installation.js";
 import { failA1, isRecord } from "./validate.js";
 
-/**
- * Actions a loop definition may declare under `triggers`, and the events each
- * runs on: a role's trajectory is kept when it finishes, and the session's own
- * (the entry role's) each time the session stops.
- */
-export const TRIGGERS: Readonly<Record<string, readonly string[]>> = {
-  "record-trajectory": ["SubagentStop", "Stop"],
-  "notify-stopped-review": ["Stop"],
-  "guard-protected-paths": ["PreToolUse"],
-  "guard-owner-answers": ["PreToolUse"],
-};
-
 export const DIGEST_LINE = /^\/\/ contrejour-loop-definition-sha256: ([0-9a-f]{64})[ \t]*$/m;
 
 const dir = (root: string, relative: string): string =>
@@ -195,7 +183,8 @@ export const parameterDefaults = (parameters: LoopParameter[]): Record<string, u
  * up; `on-request`, work the owner asks for. A definition without `kind` is a
  * task loop.
  */
-export const LOOP_KINDS = ["task", "setup", "on-request"] as const;
+/** A task loop is the project's work, run again and again; an on-request loop runs when the owner asks. */
+export const LOOP_KINDS = ["task", "on-request"] as const;
 export function loopKind(root: string, name: string): string {
   const file = loopDefinitionPath(root, name);
   return fs.existsSync(file) ? (frontmatter(fs.readFileSync(file, "utf8")).kind ?? "task") : "task";
@@ -219,7 +208,7 @@ export function readSelectedLoop(root: string): SelectedLoop {
   if (!fs.existsSync(file))
     failA1(
       "LOOP_NOT_SELECTED",
-      "run the setup role: it chooses the loop this project runs and its parameters",
+      "choose the loop this project runs and its parameters in the Studio (studio.js), or with project-cli.js use",
     );
   const value: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!isRecord(value) || typeof value.loop !== "string" || !isRecord(value.params))

@@ -20,6 +20,7 @@ import { createSubmission, updateSubmission, withSubmissionsLock } from "../src/
 import { facilityConfig } from "./helpers/tester-facility-fixture.js";
 import { environmentSkillDir, projectSlug } from "../src/tools/setup.js";
 import { readSelectedLoop } from "../src/tools/loops.js";
+import { useLoop } from "../src/tools/project-loop.js";
 
 // The service address and token a machine may provide are set only where they are tested.
 delete process.env.CONTREJOUR_URL;
@@ -28,7 +29,7 @@ const read = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
 const sha256 = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const execFileAsync = promisify(execFile);
 // A stand-in for the Claude Code CLI the service starts review sessions with; setup only runs its --version.
-const fakeClaude = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-setup-cli-")), "claude.mjs");
+const fakeClaude = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "contrejour-config-cli-")), "claude.mjs");
 fs.writeFileSync(fakeClaude, 'console.log("2.1.316 (Claude Code)");\n');
 process.once("exit", () => fs.rmSync(path.dirname(fakeClaude), { recursive: true, force: true }));
 const CLAUDE = [process.execPath, fakeClaude];
@@ -38,6 +39,8 @@ fs.writeFileSync(brokenClaude, 'console.error("not signed in"); process.exit(3);
 const installAs = (root: string, role: "worker" | "validator", extra: Record<string, unknown> = {}) => {
   fs.mkdirSync(path.join(root, ".contrejour"), { recursive: true });
   fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify({ role, ...extra }));
+  // The package's manifest, as the installer lays it out: profiles, entry roles, extension.
+  fs.copyFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../project.json"), path.join(root, ".contrejour/project.json"));
 };
 const librarySource = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../library/loops");
 /** The side's loops from the library, where the installer seeds them. */
@@ -70,7 +73,6 @@ async function startValidator(task: string) {
   seedLoops(root, "validator");
   fs.writeFileSync(path.join(root, "task.md"), task);
   const review = refreshSetupReview(root, {
-    loop: { name: "submission-review" },
     validation: {
       benchmark: facilityConfig(root),
       pass_rule: { metric: "score", op: ">=", threshold: 1 },
@@ -82,6 +84,8 @@ async function startValidator(task: string) {
   confirmSetupReview(root, review.configuration_sha256);
   const applied = await applySetup(root);
   if (applied.role !== "validator") throw new Error("unreachable");
+  // The service runs the loop the owner chose, in the Studio or with project-cli.js use.
+  useLoop(root, { name: "submission-review", params: {} });
   const service = await startValidationService(root, {
     port: 0,
     tick_ms: 3_600_000,
@@ -98,58 +102,23 @@ const validatorTask = path.join(validator.root, "task.md");
 
 // Worker: the installed role decides the modules; task.md comes from the validator and is part of what the owner approves.
 await project("worker", async (root) => {
-  assert.throws(() => refreshSetupReview(root), /--role worker\|validator/);
+  assert.throws(() => refreshSetupReview(root), /install the project first/);
   installAs(root, "worker");
   let review = refreshSetupReview(root);
   assert.equal(review.role, "worker");
   assert.deepEqual(
     review.modules.map((module) => module.id),
-    ["loop", "project", "environment", "connection"],
+    ["project", "environment", "connection"],
   );
   assert.ok(issueFields(root).includes("task.md"));
   assert.ok(issueFields(root).includes("connection.url"));
 
-  // Setup starts from the loop the requirement calls for. With none installed, one has to be generated.
-  const loopIssue = () => refreshSetupReview(root).issues.find((issue) => issue.field === "loop.name")?.message;
-  assert.match(loopIssue()!, /no loop for this side is installed: have loop-editor generate one/);
+  // The sheet configures the machine; the loop the project runs is the owner's choice in the Studio.
   seedLoops(root, "worker");
-  // Only task loops are a project's loop: setup, contribution and authoring loops are not offered.
-  assert.ok(fs.existsSync(path.join(root, ".claude/loops/project-setup.md")));
-  assert.ok(fs.existsSync(path.join(root, ".claude/loops/library-contribution.md")));
-  assert.match(loopIssue()!, /choose the loop this project runs, one of \["research-iteration"\]/);
-  assert.match(refreshSetupReview(root, { loop: { name: "library-contribution" } }).issues.find((issue) => issue.field === "loop.name")!.message, /choose one of \["research-iteration"\]/);
-  // A loop of the other side is not a choice here.
-  fs.copyFileSync(path.join(librarySource, "validator/submission-review.md"), path.join(root, ".claude/loops/submission-review.md"));
+  assert.equal(refreshSetupReview(root).issues.some((issue) => issue.field.startsWith("loop")), false);
   const fieldOf = (sheet: { modules: { fields: { path: string; value: unknown; options?: readonly unknown[]; recommendation: string }[] }[] }, name: string) =>
     sheet.modules.flatMap((module) => module.fields).find((row) => row.path === name);
-  assert.deepEqual(fieldOf(refreshSetupReview(root), "loop.name")?.options, ["research-iteration"]);
-  review = refreshSetupReview(root, { loop: { name: "submission-review" } });
-  assert.match(review.issues.find((issue) => issue.field === "loop.name")!.message, /choose one of/);
-  fs.rmSync(path.join(root, ".claude/loops/submission-review.md"));
-  // Once chosen, its parameters are on the sheet with their defaults, ranges and meanings.
-  review = refreshSetupReview(root, { loop: { name: "research-iteration" } });
-  assert.equal(review.issues.some((issue) => issue.field.startsWith("loop.")), false);
-  const ideators = fieldOf(review, "loop.params.informed_ideators")!;
-  assert.equal(ideators.value, 3);
-  assert.match(ideators.recommendation, /Default 3 \(min 0, max 6\)/);
-  assert.equal(fieldOf(review, "loop.params.ucb_c")?.value, 1);
-  assert.ok(fs.readFileSync(review.review_path, "utf8").includes("loop.params.failures_only_ideators"));
-  // A value outside its range, one of the wrong type and a parameter the loop does not have are all reported.
-  review = refreshSetupReview(root, { loop: { params: { informed_ideators: 7, blank_ideators: 1.5, ucb_c: "high", rounds: 9 } } });
-  assert.deepEqual(
-    review.issues.filter((issue) => issue.field.startsWith("loop.")).map((issue) => [issue.field, issue.message]),
-    [
-      ["loop.params.rounds", "not a parameter of this loop"],
-      ["loop.params.informed_ideators", "must be at most 6"],
-      ["loop.params.blank_ideators", "must be an integer"],
-      ["loop.params.ucb_c", "must be a number"],
-    ],
-  );
-  review = refreshSetupReview(root, { loop: { params: { informed_ideators: 2, blank_ideators: 1, ucb_c: 1.5, rounds: null } } });
-  assert.equal(review.issues.some((issue) => issue.field.startsWith("loop.")), false);
-  // A parameter's value is part of what the owner confirms: changing one changes the digest.
-  assert.notEqual(refreshSetupReview(root, { loop: { params: { ucb_c: 2 } } }).configuration_sha256, review.configuration_sha256);
-  refreshSetupReview(root, { loop: { params: { ucb_c: 1.5 } } });
+  assert.equal(fieldOf(refreshSetupReview(root), "loop.name"), undefined);
 
   // The task is fetched through the connection in the sheet. A proxy may serve the service under a sub-path.
   await assert.rejects(fetchTask(root), SetupReviewIncompleteError);
@@ -204,8 +173,11 @@ await project("worker", async (root) => {
   const applied = await applySetup(root);
   if (applied.role !== "worker") throw new Error("unreachable");
   assert.equal(applied.entry_role, "worker-task-manager");
-  // The chosen loop and the confirmed values are what the task manager runs.
-  assert.equal(applied.loop, "research-iteration");
+  // No loop is chosen yet: configuring the machine does not choose one.
+  assert.equal(applied.loop, null);
+  assert.equal(fs.existsSync(path.join(root, ".contrejour/loop.json")), false);
+  // The owner chooses it, with its values, the way the Studio does; configuring again leaves the choice as it is.
+  useLoop(root, { name: "research-iteration", params: { informed_ideators: 2, ucb_c: 1.5 } });
   const expectedLoop = {
     schema_version: 1,
     loop: "research-iteration",
@@ -213,6 +185,8 @@ await project("worker", async (root) => {
   };
   assert.deepEqual(read(path.join(root, ".contrejour/loop.json")), expectedLoop);
   assert.deepEqual(readSelectedLoop(root), { loop: expectedLoop.loop, params: expectedLoop.params });
+  assert.equal((await applySetup(root)).loop, "research-iteration");
+  assert.deepEqual(read(path.join(root, ".contrejour/loop.json")), expectedLoop);
   assert.equal(applied.mcp_config, path.join(root, ".mcp.json"));
   assert.equal(applied.environment_skill_dir, environmentSkillDir(root));
   assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
@@ -256,27 +230,19 @@ await project("worker", async (root) => {
   assert.throws(() => environmentNotes(root, `${ROLE_BEGIN}\nx`), /markers/);
   assert.throws(() => environmentNotes(root, "x".repeat(9000)), /under 8000 characters/);
 
-  // Changing the parameters later goes through the sheet again, and the new values reach loop.json only on apply.
-  const changed = refreshSetupReview(root, { loop: { params: { blank_ideators: 3 } } });
-  assert.deepEqual(read(path.join(root, ".contrejour/loop.json")), expectedLoop);
-  await assert.rejects(applySetup(root), /SETUP_CONFIGURATION_CONFIRMATION_REQUIRED|confirm/);
-  confirmSetupReview(root, changed.configuration_sha256);
-  await applySetup(root);
+  // Changing the values later is the owner's choice again, at once; a value out of range changes nothing.
+  useLoop(root, { name: "research-iteration", params: { informed_ideators: 2, blank_ideators: 3, ucb_c: 1.5 } });
   assert.equal(readSelectedLoop(root).params.blank_ideators, 3);
-
-  // Moving to another loop: the old loop's values are not this loop's, and clearing them brings this loop's defaults.
+  assert.throws(() => useLoop(root, { name: "research-iteration", params: { informed_ideators: 7 } }), /at most 6/);
+  assert.equal(readSelectedLoop(root).params.informed_ideators, 2);
+  // Another loop takes its own defaults for what the owner leaves unset.
   fs.writeFileSync(
     path.join(root, ".claude/loops/narrow.md"),
     '---\nname: narrow\ndescription: one role\nside: worker\n---\n\n# Narrow\n\n## Parameters\n\n```json\n[{"name": "rounds", "type": "integer", "default": 4, "min": 1, "description": "How many rounds."}]\n```\n',
   );
-  review = refreshSetupReview(root, { loop: { name: "narrow" } });
-  assert.deepEqual(
-    review.issues.filter((issue) => issue.field.startsWith("loop.")).map((issue) => issue.field),
-    ["loop.params.informed_ideators", "loop.params.failures_only_ideators", "loop.params.blank_ideators", "loop.params.ucb_c"],
-  );
-  review = refreshSetupReview(root, { loop: { params: null } });
-  assert.deepEqual(review.issues, []);
-  assert.deepEqual(review.modules[0]!.fields.map((row) => [row.path, row.value]), [["loop.name", "narrow"], ["loop.params.rounds", 4]]);
+  fs.writeFileSync(path.join(root, ".claude/workflows/narrow.js"), "export const meta = { name: 'narrow', description: 'd', phases: [] }\n");
+  useLoop(root, { name: "narrow", params: {} });
+  assert.deepEqual(readSelectedLoop(root), { loop: "narrow", params: { rounds: 4 } });
 });
 
 // Projects installed for Codex by an earlier release are refused, not migrated.
@@ -295,7 +261,6 @@ await project("validator", async (root) => {
   fs.writeFileSync(path.join(root, "CLAUDE.md"), "Owner instructions.\n");
   const benchmark = facilityConfig(root);
   let review = refreshSetupReview(root, {
-    loop: { name: "submission-review", params: { max_extension_rounds: 1 } },
     validation: { benchmark, pass_rule: { metric: "missing", threshold: 1 } },
   });
   assert.equal(review.role, "validator");
@@ -329,12 +294,10 @@ await project("validator", async (root) => {
   assert.equal(applied.role, "validator");
   if (applied.role !== "validator") throw new Error("unreachable");
   assert.equal(applied.entry_role, "validator-task-manager");
-  // The service starts each review with the chosen loop and the confirmed values.
-  assert.equal(applied.loop, "submission-review");
-  assert.deepEqual(readSelectedLoop(root), {
-    loop: "submission-review",
-    params: { max_adapter_fixes: 2, max_extension_rounds: 1, max_leak_reviews: 5 },
-  });
+  // The service reviews with the loop the owner chose and its values, not with anything configured here.
+  assert.equal(applied.loop, null);
+  useLoop(root, { name: "submission-review", params: { max_extension_rounds: 1 } });
+  assert.deepEqual(readSelectedLoop(root).params.max_extension_rounds, 1);
   assert.deepEqual(applied.service_command, ["node", ".contrejour/dist/tools/validation-cli.js", "serve", "--project", "."]);
   assert.match(applied.environment_skill_dir, /\.claude[/\\]skills[/\\].+-environment$/);
   assert.equal(applied.worker_connection.url, "https://validation.example/mcp");
@@ -415,7 +378,7 @@ await project("validator-environment", async (root) => {
   process.env.CONTREJOUR_URL = "https://contrejour.example/";
   process.env.CONTREJOUR_TOKEN = "too short";
   try {
-    let review = refreshSetupReview(root, { loop: { name: "submission-review" }, validation });
+    let review = refreshSetupReview(root, { validation });
     const field = review.modules.flatMap((module) => module.fields).find((row) => row.path === "validation.service.public_url");
     assert.equal(field?.value, "https://contrejour.example");
     assert.deepEqual(field?.options, ["https://contrejour.example"]);
@@ -467,7 +430,7 @@ await project("distribution", async (sandbox) => {
     const install = (...extra: string[]) => execFileSync("bash", [path.join(portable, "install.sh"), "--role", role, "--project", root, ...extra], { cwd: sandbox, encoding: "utf8" });
     install("--dry-run");
     assert.equal(fs.existsSync(root), false);
-    assert.ok(install().includes(`claude --agent ${role}-setup "start"`));
+    assert.ok(install().includes("studio.js --project"), "the next step is the Studio");
     const manifest = read(path.join(root, ".contrejour/install.json"));
     // The hooks are registered at installation, so they already guard setup's own loop; the entry role comes with setup.
     const installedSettings = read(path.join(root, ".claude/settings.json"));
@@ -484,8 +447,9 @@ await project("distribution", async (sandbox) => {
     const loops = [...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)].sort();
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/loops")).sort(), loops.filter((file) => file.endsWith(".md")));
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/workflows")).sort(), loops.filter((file) => file.endsWith(".js")));
-    // Owner decisions are a loop step, and setup itself is a loop the setup role runs.
-    assert.ok(loops.includes("loop-authoring.js") && loops.includes("project-setup.js"));
+    // Owner decisions are a loop step; configuring the machine is a loop run on request.
+    assert.ok(loops.includes("loop-authoring.js") && loops.includes("machine-config.js"));
+    assert.ok(fs.existsSync(path.join(root, ".contrejour/project.json")), "the package's manifest is installed");
     assert.ok(fs.existsSync(path.join(root, ".claude/agents/owner-review.md")));
     assert.ok(fs.existsSync(path.join(root, ".claude/skills/shared-references/running-loops.md")));
     assert.ok(manifest.seeded.includes(`.claude/agents/${role}-task-manager.md`));
@@ -495,16 +459,16 @@ await project("distribution", async (sandbox) => {
       assert.equal(checked.status, 0, checked.stdout + checked.stderr);
     }
     // Asynchronous, so the validation service in this process can answer the installed helper.
-    const setup = async (...args: string[]) => JSON.parse((await execFileAsync(process.execPath, [path.join(root, ".contrejour/dist/tools/setup-cli.js"), ...args, "--project", root], { cwd: sandbox, encoding: "utf8" })).stdout);
+    const setup = async (...args: string[]) => JSON.parse((await execFileAsync(process.execPath, [path.join(root, ".contrejour/dist/tools/config-cli.js"), ...args, "--project", root], { cwd: sandbox, encoding: "utf8" })).stdout);
     const patch = path.join(root, "patch.json");
     if (role === "worker") {
-      fs.writeFileSync(patch, JSON.stringify({ loop: { name: "research-iteration" }, environment: { secrets: { API_KEY: "k" } }, connection: { url: validator.url, token: validator.token } }));
+      fs.writeFileSync(patch, JSON.stringify({ environment: { secrets: { API_KEY: "k" } }, connection: { url: validator.url, token: validator.token } }));
       assert.deepEqual((await setup("review", "--input", patch)).issues.map((issue: { field: string }) => issue.field), ["task.md"]);
       assert.equal((await setup("fetch-task")).sha256, sha256(validatorTask));
     } else {
       fs.writeFileSync(path.join(root, "task.md"), "An isolated installed task.\n");
       const benchmark = facilityConfig(root);
-      fs.writeFileSync(patch, JSON.stringify({ loop: { name: "submission-review" }, validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { claude_command: CLAUDE }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
+      fs.writeFileSync(patch, JSON.stringify({ validation: { benchmark, pass_rule: { metric: "score", op: ">=", threshold: 1 }, hidden_paths: [path.join(root, "bench/labels.json")], agent: { claude_command: CLAUDE }, service: { public_url: "http://validation.example:8790", port: 8790 } } }));
       await setup("review", "--input", patch);
     }
     const review = await setup("review");
@@ -513,10 +477,13 @@ await project("distribution", async (sandbox) => {
     const applied = await setup("apply");
     assert.equal(applied.role, role);
     assert.equal(applied.entry_role, `${role}-task-manager`);
-    // The seeded loop chosen in the sheet is recorded, with its definition's defaults.
+    // Configuring the machine chose no loop; the owner chooses it, here from a terminal, with its defaults.
+    assert.equal(applied.loop, null);
+    const taskLoop = role === "worker" ? "research-iteration" : "submission-review";
+    const used = JSON.parse(execFileSync(process.execPath, [path.join(root, ".contrejour/dist/tools/project-cli.js"), "use", "--project", root, "--loop", taskLoop], { encoding: "utf8" }));
+    assert.equal(used.entry_role, `${role}-task-manager`);
     const chosen = read(path.join(root, ".contrejour/loop.json"));
-    assert.equal(chosen.loop, applied.loop);
-    assert.equal(chosen.loop, role === "worker" ? "research-iteration" : "submission-review");
+    assert.equal(chosen.loop, taskLoop);
     assert.ok(fs.existsSync(path.join(root, ".claude/workflows", `${chosen.loop}.js`)));
     assert.ok(Object.keys(chosen.params).length > 0);
     assert.equal(applied.environment_skill_dir, path.join(root, skillDir, `${projectSlug(root)}-environment`));
@@ -561,7 +528,7 @@ await project("distribution", async (sandbox) => {
     fs.writeFileSync(retired, "old managed review skill\n");
     manifest.files[`${skillDir}/validation-review/SKILL.md`] = crypto.createHash("sha256").update(fs.readFileSync(retired)).digest("hex");
     fs.writeFileSync(path.join(root, ".contrejour/install.json"), JSON.stringify(manifest));
-    const helper = path.join(root, ".contrejour/dist/tools/setup-cli.js");
+    const helper = path.join(root, ".contrejour/dist/tools/config-cli.js");
     fs.unlinkSync(helper);
     const updated = JSON.parse(install().split("\nNext:")[0]!);
     assert.ok(updated.kept_project_versions.includes(`.claude/agents/${role}-task-manager.md`));
@@ -611,7 +578,7 @@ await project("distribution", async (sandbox) => {
   for (const directory of ["distribution", "tools"])
     fs.cpSync(path.join(source, directory), path.join(localRepo, directory), { recursive: true, filter: (file) => path.basename(file) !== "releases" });
   fs.copyFileSync(path.join(source, "package.json"), path.join(localRepo, "package.json"));
-  for (const file of ["LICENSE", "SETUP_GUIDE.md", "SETUP_GUIDE_CN.md"])
+  for (const file of ["LICENSE", "SETUP_GUIDE.md", "SETUP_GUIDE_CN.md", "project.json"])
     fs.copyFileSync(path.join(source, file), path.join(localRepo, file));
   const forbiddenBin = path.join(sandbox, "forbidden commands");
   fs.mkdirSync(forbiddenBin);
@@ -646,7 +613,7 @@ await project("distribution", async (sandbox) => {
     assert.equal(installed.status, 0, installed.stderr);
     assert.equal(read(path.join(root, ".contrejour/install.json")).role, role);
     assert.equal(read(path.join(root, ".contrejour/install.json")).library, localRepo);
-    execFileSync(process.execPath, [path.join(root, ".contrejour/dist/tools/setup-cli.js"), "--help"], { cwd: sandbox });
+    execFileSync(process.execPath, [path.join(root, ".contrejour/dist/tools/config-cli.js"), "--help"], { cwd: sandbox });
   }
   const localSkill = path.join(localRepo, "skills/research-wiki/SKILL.md");
   fs.appendFileSync(localSkill, "\nLocal checkout update.\n");
@@ -665,7 +632,7 @@ await project("distribution", async (sandbox) => {
   // An update from the archive keeps the library the checkout recorded.
   assert.equal(read(path.join(bootstrapped, ".contrejour/install.json")).library, localRepo);
   assert.match(fs.readFileSync(path.join(bootstrapped, ".claude/skills/research-wiki/SKILL.md"), "utf8"), /New upstream instructions/);
-  const damaged = path.join(portable, "dist/tools/setup-cli.js");
+  const damaged = path.join(portable, "dist/tools/config-cli.js");
   fs.appendFileSync(damaged, "\n// changed\n");
   const rejectedRoot = path.join(sandbox, "rejected");
   const rejected = spawnSync("bash", [path.join(portable, "install.sh"), "--role", "worker", "--project", rejectedRoot], { encoding: "utf8" });

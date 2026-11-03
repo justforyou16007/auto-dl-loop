@@ -1,13 +1,12 @@
 export const meta = {
-  name: "project-setup",
+  name: "machine-config",
   description:
-    "Set the validator project up from the owner's requirement: task.md, its loop, the sheet with the loop's parameters and the validation terms, apply, environment, checks, hand-off",
+    "Configure this machine as the validator from the owner's requirement: task.md, the sheet with the validation terms, apply, environment, checks, hand-off",
   whenToUse:
-    'Validator setup. The validator-setup session runs it with {"requirement": "<the owner\'s first message>"}, then again with the owner\'s replies in answers.',
+    'Validator machine configuration, when the owner asks for it. Run it with {"requirement": "<what to validate, or start>"}, then again with the owner\'s replies in answers.',
   phases: [
     { title: "Requirement" },
     { title: "Task" },
-    { title: "Loop" },
     { title: "Sheet" },
     { title: "Apply" },
     { title: "Environment" },
@@ -46,35 +45,6 @@ const TASK = {
     summary: { type: "string" },
   },
   required: ["needs_owner", "task_file", "digest", "summary"],
-};
-const FOUND = {
-  type: "object",
-  properties: {
-    fit: { type: "string", enum: ["fits", "close", "none"] },
-    loop: { type: "string" },
-    why: { type: "string" },
-    parameters: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          value: { type: "string" },
-          why: { type: "string" },
-        },
-        required: ["name", "value", "why"],
-      },
-    },
-    candidates: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { loop: { type: "string" }, fit: { type: "string" }, why: { type: "string" } },
-        required: ["loop", "fit", "why"],
-      },
-    },
-  },
-  required: ["fit", "loop", "why", "parameters", "candidates"],
 };
 const SHEET = {
   type: "object",
@@ -132,7 +102,7 @@ const waiting = (id, decided) => ({
   question: decided.question,
   document: decided.document,
 });
-const stopped = { done: false, reason: "the owner stopped setup" };
+const stopped = { done: false, reason: "the owner stopped the configuration" };
 
 // Step 1
 phase("Requirement");
@@ -141,7 +111,7 @@ let read = null;
 for (let round = 1; round <= 3; round += 1) {
   read = await agent(
     JSON.stringify({ action: "requirement", requirement: input.requirement, notes }),
-    { agentType: "validator-setup", schema: REQUIREMENT, phase: "Requirement" },
+    { agentType: "validator-config", schema: REQUIREMENT, phase: "Requirement" },
   );
   if (!read.needs_owner) break;
   const id = `requirement:${round}`;
@@ -160,7 +130,7 @@ for (let round = 1; round <= 3; round += 1) {
   notes = [notes, decided.notes].filter(Boolean).join("\n");
 }
 if (read.needs_owner)
-  return { done: false, reason: "the requirement is still not clear enough to choose a loop" };
+  return { done: false, reason: "the requirement is still not clear enough to write the task" };
 const requirement = read.requirement;
 
 // Step 2: task.md is the whole task the worker gets; one the owner wrote needs no review.
@@ -169,7 +139,7 @@ let taskNotes = "";
 let taskSettled = false;
 for (let round = 1; round <= 6 && !taskSettled; round += 1) {
   const task = await agent(JSON.stringify({ action: "task", requirement, notes: taskNotes }), {
-    agentType: "validator-setup",
+    agentType: "validator-config",
     schema: TASK,
     phase: "Task",
   });
@@ -195,65 +165,15 @@ for (let round = 1; round <= 6 && !taskSettled; round += 1) {
 }
 if (!taskSettled) return { done: false, reason: "task.md was not approved within 6 rounds" };
 
-// Steps 3 to 5
-phase("Loop");
-const found = await agent(
-  JSON.stringify({ action: "find-task-loop", requirement, side: "validator" }),
-  { agentType: "loop-query", schema: FOUND, phase: "Loop" },
-);
-let loop = "";
-let description = requirement;
-// The parameter values the owner approved with the loop become the sheet's first values.
-let suggested = [];
-if (found.fit !== "none") {
-  const id = `setup-loop:${found.loop}`;
-  const decided = await review(
-    id,
-    {
-      subject: "the loop this project runs",
-      request:
-        "Is this your requirement, and is this the loop to run? Approve, or say what to change.",
-      materials: { requirement, found },
-      approvable: true,
-    },
-    "Loop",
-  );
-  if (decided.decision === "ask") return waiting(id, decided);
-  if (decided.decision === "cancel") return stopped;
-  if (decided.decision === "approve") {
-    loop = found.loop;
-    suggested = found.parameters;
-  } else description = `${requirement}\n\nThe owner adds: ${decided.notes}`;
-}
-if (!loop) {
-  // A new task loop is built on the closest existing one, with the owner's review of the draft.
-  const built = await workflow("loop-authoring", {
-    description,
-    side: "validator",
-    kind: "task",
-    answers,
-  });
-  if (built && built.waiting) return built;
-  if (!built || !built.loop || !(built.installed || built.reused))
-    return { done: false, reason: (built && built.reason) || "no loop was settled" };
-  loop = built.loop;
-}
-
-// Steps 6 and 7
+// Steps 3 and 4
 let applied = null;
 let sheetNotes = "";
 let sheetReason = "";
 for (let round = 1; round <= 12 && !applied; round += 1) {
   phase("Sheet");
   const sheet = await agent(
-    JSON.stringify({
-      action: "sheet",
-      loop,
-      suggested: round === 1 ? suggested : [],
-      notes: sheetNotes,
-      reason: sheetReason,
-    }),
-    { agentType: "validator-setup", schema: SHEET, phase: "Sheet" },
+    JSON.stringify({ action: "sheet", notes: sheetNotes, reason: sheetReason }),
+    { agentType: "validator-config", schema: SHEET, phase: "Sheet" },
   );
   sheetReason = "";
   const id = `sheet:${round}:${sheet.digest}`;
@@ -275,7 +195,7 @@ for (let round = 1; round <= 12 && !applied; round += 1) {
   }
   phase("Apply");
   const result = await agent(JSON.stringify({ action: "apply", digest: sheet.digest }), {
-    agentType: "validator-setup",
+    agentType: "validator-config",
     schema: APPLIED,
     phase: "Apply",
   });
@@ -286,13 +206,13 @@ for (let round = 1; round <= 12 && !applied; round += 1) {
 }
 if (!applied) return { done: false, reason: "no configuration was applied within 12 rounds" };
 
-// Step 8
+// Step 5
 phase("Environment");
 let environmentNotes = "";
 let environment = null;
 for (let round = 1; round <= 3; round += 1) {
   environment = await agent(JSON.stringify({ action: "environment", notes: environmentNotes }), {
-    agentType: "validator-setup",
+    agentType: "validator-config",
     schema: ENVIRONMENT,
     phase: "Environment",
   });
@@ -313,10 +233,10 @@ for (let round = 1; round <= 3; round += 1) {
   environmentNotes = [environmentNotes, decided.notes].filter(Boolean).join("\n");
 }
 
-// Step 9
+// Step 6
 phase("Check");
 let checked = await agent(JSON.stringify({ action: "check" }), {
-  agentType: "validator-setup",
+  agentType: "validator-config",
   schema: CHECKED,
   phase: "Check",
 });
@@ -325,26 +245,25 @@ if (checked.stale.length) {
   for (const stale of checked.stale.slice(0, 4))
     await workflow("loop-authoring", { regenerate: stale });
   checked = await agent(JSON.stringify({ action: "check" }), {
-    agentType: "validator-setup",
+    agentType: "validator-config",
     schema: CHECKED,
     phase: "Check",
   });
 }
 
-// Step 10
+// Step 7
 phase("Hand off");
 const handoff = await agent(
   JSON.stringify({
     action: "handoff",
     requirement,
-    loop,
     applied: applied.summary,
     environment: environment.summary,
     incomplete: environment.incomplete,
     check: checked,
   }),
-  { agentType: "validator-setup", schema: HANDOFF, phase: "Hand off" },
+  { agentType: "validator-config", schema: HANDOFF, phase: "Hand off" },
 );
-return { done: true, loop, report: handoff.report };
+return { done: true, report: handoff.report };
 
-// contrejour-loop-definition-sha256: aeb2d216844eed7cded7ce41ed1df287f44007e536bd5c9d0cb69b6d2c1a3957
+// contrejour-loop-definition-sha256: ca658328d0c085bf3427dcf2002358f5783a51c4db531f109e1a703dc1648f88

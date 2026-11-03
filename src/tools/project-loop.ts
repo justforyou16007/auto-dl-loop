@@ -9,7 +9,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { installedLibrary, installedRole, TASK_MANAGER, type Role } from "./installation.js";
+import { entryRoleOf, installedLibrary, sidesOf } from "./installation.js";
 import {
   frontmatter,
   loopDefinitionPath,
@@ -23,7 +23,6 @@ import { writeEntryRole } from "./project-settings.js";
 import { writeStateJsonAtomic } from "./state-file.js";
 import { failA1 } from "./validate.js";
 
-const SIDES = ["framework", "worker", "validator"];
 const LOOP_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 /** Where the library keeps a loop or role of a side this project may use. */
@@ -35,8 +34,7 @@ function libraryFile(
 ): string | null {
   const library = installedLibrary(root);
   if (!library) return null;
-  const side = installedRole(root);
-  for (const dir of SIDES.filter((entry) => entry === "framework" || entry === side)) {
+  for (const dir of sidesOf(root)) {
     const file = path.join(library, "library", kind, dir, `${name}${extension}`);
     if (fs.existsSync(file)) return file;
   }
@@ -112,7 +110,7 @@ export function useLoop(
     params[parameter.name] = value;
   }
   writeStateJsonAtomic(selectedLoopPath(root), { schema_version: 1, loop: name, params });
-  const role: Role = installedRole(root);
-  writeEntryRole(root, TASK_MANAGER[role]);
-  return { loop: name, params, added, entry_role: TASK_MANAGER[role] };
+  const role = entryRoleOf(root);
+  writeEntryRole(root, role);
+  return { loop: name, params, added, entry_role: role };
 }

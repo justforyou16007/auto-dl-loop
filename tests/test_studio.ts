@@ -111,7 +111,7 @@ try {
   assert.equal(loops.get("research-iteration")?.kind, "task");
   assert.equal(loops.get("research-iteration")?.chosen, true);
   assert.equal(loops.get("research-iteration")?.check, "ok");
-  assert.equal(loops.get("project-setup")?.kind, "setup");
+  assert.equal(loops.get("machine-config")?.kind, "on-request", "configuring the machine is run when asked; there is no setup");
 
   const flow = async (name: string) => JSON.parse((await request(at(`api/flow?name=${name}&source=project`), { cookie })).body);
   const arrows = (graph: { edges: { from: string; to: string; kind: string; label: string }[] }) =>
@@ -149,8 +149,9 @@ try {
   for (const expected of ["start>s1:next:regenerate", "start>s2:branch:otherwise", "s7>s4:back:revise", "s7>s9:branch:cancel", "s8>end:end:"])
     assert.ok(authoringArrows.includes(expected), `${expected} in ${authoringArrows.join(", ")}`);
   assert.ok(!authoringArrows.some((arrow) => arrow.startsWith("s8>s9")), "installing ends the loop");
-  const setup = await flow("project-setup");
-  assert.ok(setup.nodes.find((node: { number: number }) => node.number === 4).loops.includes("loop-authoring"));
+  // Configuring the machine regenerates stale scripts through loop-authoring, run as one of its steps.
+  const configure = await flow("machine-config");
+  assert.ok(configure.nodes.find((node: { title: string }) => node.title === "Check").loops.includes("loop-authoring"));
   assert.equal((await request(at("api/flow?name=no-such-loop"), { cookie })).status, 404);
 
   // The quick search: a Chinese request finds the English definition it describes.

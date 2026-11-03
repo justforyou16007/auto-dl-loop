@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { flowOf } from "./flow.js";
-import { installedRole, TASK_MANAGER } from "./installation.js";
+import { entryRoleOf } from "./installation.js";
 import { collectDraftView } from "./loop-view.js";
 import {
   lastAssistantText,
@@ -132,12 +132,12 @@ async function begin(
   request: { purpose: Purpose; loop: string; base: Conversation["base"]; prompt: string },
 ): Promise<Conversation> {
   const root = path.resolve(projectRoot);
-  const side = installedRole(root);
   const id = crypto.randomBytes(4).toString("hex");
   const prompt = request.prompt;
   const session = await startSession(options, root, {
     name: `contrejour-studio-${id}`,
-    agent: TASK_MANAGER[side],
+    // The role that runs loops and relays the owner's answers.
+    agent: entryRoleOf(root),
     prompt,
   });
   const conversation: Conversation = {

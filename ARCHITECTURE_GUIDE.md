@@ -123,7 +123,7 @@ Contrejour 是运行在 Claude Code 上的 agent 流程框架：用固定的流�
 
 - **任务管理**（两端各一个）：会话的入口。它运行 setup 选定的主任务流程（验证端由服务逐次指定），也运行 owner 点名的其他流程，并在流程停下等 owner 时传话；它从不直接调用别的角色。它负责每一次 MCP 提交的统计：次数（已用、剩余、是否计次）、内容范围（交了什么、针对哪些问题）和路径。服务算出的数（状态、剩余次数、测试计数）一律从服务读取，不另存一份，否则两份数字可能对不上；服务不知道的事（某次提交对应哪个 commit、哪个想法），由它记录。已发布的结果不会再变，所以它在后台等到结果后，原样存进 `.contrejour/results/`，供不能访问服务的角色读取。worker 端所有 MCP 调用（取任务、查提交要求、提交、查询）只由它做；验证端的 `finalize` 也由它做。
 - **记忆**（两端各一个）：唯一调用 wiki 写入命令的角色，也负责维护 `CLAUDE.md` 的环境段和环境技能（第八节）。验证端只把已发布的结论、计数和通过泄漏审查的反馈交给它，所以测试内容进不了 wiki。
-- **setup**（两端各一个）：作为会话，它运行本端的 setup 流程（`project-setup`）并传话；作为这个流程的步骤，它读需求、维护配置表、写入配置、准备环境、检查流程并写交接说明（第十节）。
+- **setup**（两端各一个）：作为会话，它运行本端的 setup 流程（`machine-config`）并传话；作为这个流程的步骤，它读需求、维护配置表、写入配置、准备环境、检查流程并写交接说明（第十节）。
 - 两个默认流程中各步骤的角色，见第五、六节。
 
 入口写在 `.claude/settings.json` 的 `agent` 字段里，由 setup 写入：在项目里打开 Claude Code，主线程就是任务管理角色。入口不写在 `CLAUDE.md` 里，因为 `CLAUDE.md` 会进入每一个角色的上下文；`CLAUDE.md` 只放所有角色都该知道的项目事实和环境经验。
@@ -249,7 +249,7 @@ owner 在 worker 项目里打开 Claude Code，主线程就是 worker 的任务�
 | 文件 | 唯一写入方 |
 | --- | --- |
 | `.contrejour/install.json`、helper、从流程库装入的初始流程和角色 | 安装器 |
-| `.contrejour/setup-*.json`、`.contrejour/loop.json`（本项目运行的流程和 owner 确认的超参数取值）、`.contrejour/tester-config.json`、`.contrejour/environment.json`、worker 的 `.mcp.json` 里的 `contrejour` 条目、`.claude/settings.json`（入口角色、hooks 登记、后台会话设置） | setup 角色，通过 `setup-cli.js` |
+| `.contrejour/setup-*.json`、`.contrejour/loop.json`（本项目运行的流程和 owner 确认的超参数取值）、`.contrejour/tester-config.json`、`.contrejour/environment.json`、worker 的 `.mcp.json` 里的 `contrejour` 条目、`.claude/settings.json`（入口角色、hooks 登记、后台会话设置） | setup 角色，通过 `config-cli.js` |
 | 项目根目录的 `task.md` | 验证端：owner；worker 端：任务管理角色，通过 `fetch-task`（逐字节复制验证端的版本） |
 | `.contrejour/validation/` 下的提交记录、发布结果、benchmark 仓库及其 head 记录、泄漏审查的反馈快照 | `validation-cli.js`，由服务和各步骤的角色调用 |
 | 提交目录里的 `inspection.md` | 检查角色 |
@@ -279,9 +279,9 @@ owner 在 worker 项目里打开 Claude Code，主线程就是 worker 的任务�
 
 以下要求以 Claude Code 2.1.316 验证。
 
-**安装与 setup。** 安装器从准备好的本地 Contrejour 源码仓库复制 helper、运行依赖，以及流程库里本端用到的流程和角色，不下载任何东西，只写项目目录，不碰全局配置。流程和角色装好后归项目所有：更新安装时不覆盖它们，之后由优化角色修复，由贡献角色送回流程库。owner 在项目里运行 `claude --agent worker-setup "start"`（验证端是 `validator-setup`）开始 setup。引号里是会话的第一句话：交互式会话收到第一句话才开始工作，只写 `--agent` 时角色已经加载，但会一直等 owner 输入。需求已经想好的话，直接写在 `start` 的位置。第一次在项目里打开 Claude Code 时要接受信任提示，因为后台会话只能在已信任的项目里启动。
+**安装与 setup。** 安装器从准备好的本地 Contrejour 源码仓库复制 helper、运行依赖，以及流程库里本端用到的流程和角色，不下载任何东西，只写项目目录，不碰全局配置。流程和角色装好后归项目所有：更新安装时不覆盖它们，之后由优化角色修复，由贡献角色送回流程库。owner 在项目里运行 `claude --agent worker-config "start"`（验证端是 `validator-config`）开始 setup。引号里是会话的第一句话：交互式会话收到第一句话才开始工作，只写 `--agent` 时角色已经加载，但会一直等 owner 输入。需求已经想好的话，直接写在 `start` 的位置。第一次在项目里打开 Claude Code 时要接受信任提示，因为后台会话只能在已信任的项目里启动。
 
-**setup 是一个流程。** setup 的输入是 owner 提出的需求。setup 角色作为会话运行本端的 setup 流程（`project-setup`），流程的步骤是：
+**setup 是一个流程。** setup 的输入是 owner 提出的需求。setup 角色作为会话运行本端的 setup 流程（`machine-config`），流程的步骤是：
 
 1. **读需求。** setup 角色判断需求够不够用来选流程；不够时由人审核角色问 owner。
 2. **找流程。** 流程查询角色在本端的主任务流程里找能满足需求的。
@@ -312,7 +312,7 @@ owner 在 worker 项目里打开 Claude Code，主线程就是 worker 的任务�
 判断标准：某件事若是某个角色的职责，就写进那个角色；若是必须机械保证的规则，就写进 helper；脚本只做调度。
 
 - **保留**：两机分离和唯一的通道（四个 MCP 工具加上传）；由 helper 计算的测试计数、`finalize` 的各项检查、绑定反馈摘要的泄漏审查；`task.md` 以验证端为准、逐字节取回；默认流程的只增不改 benchmark 和"次数用完才停"（第七节）；两端各自的研究 wiki；从本地仓库安装、不下载任何东西。
-- **删除**：Codex 后端（`--provider`、`.agents/skills`、`AGENTS.md`、`.codex/config.toml`）；Paseo（服务脚本、`paseo run` 启动和监督、代理地址）；跨项目的 `Experience.md` 及其 `experience` 分支；`CLAUDE.md` 角色段里的编号步骤（改为流程定义和角色文件）；`validation-review` 技能和 `leak-review.md`（拆成验证端的角色和提交评审流程）；`worker-setup`、`validator-setup` 技能（改为 setup 角色，setup 的调度改为 setup 流程）；角色之间直接调用（改为由流程调度），单独启动、自己串起整个过程的贡献会话和提案应用会话（改为贡献流程和提案审核流程）。
+- **删除**：Codex 后端（`--provider`、`.agents/skills`、`AGENTS.md`、`.codex/config.toml`）；Paseo（服务脚本、`paseo run` 启动和监督、代理地址）；跨项目的 `Experience.md` 及其 `experience` 分支；`CLAUDE.md` 角色段里的编号步骤（改为流程定义和角色文件）；`validation-review` 技能和 `leak-review.md`（拆成验证端的角色和提交评审流程）；`worker-config`、`validator-config` 技能（改为 setup 角色，setup 的调度改为 setup 流程）；角色之间直接调用（改为由流程调度），单独启动、自己串起整个过程的贡献会话和提案应用会话（改为贡献流程和提案审核流程）。
 - GPU 平台、文献检索、飞书、Overleaf 等技能仍留在源码中，不进入安装包。
 
 ## 十二、加新功能前先问

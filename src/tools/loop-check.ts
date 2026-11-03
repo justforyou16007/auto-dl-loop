@@ -25,7 +25,6 @@ import { failA1 } from "./validate.js";
 import {
   DIGEST_LINE,
   LOOP_KINDS,
-  TRIGGERS,
   definitionDigest,
   frontmatter,
   listLoops,
@@ -39,6 +38,7 @@ import {
   roleNames,
   rolesDir,
 } from "./loops.js";
+import { knownSides, triggersOf } from "./project-manifest.js";
 
 /** Sections every role file has, so its work, its inputs and how it is judged are explicit. */
 export const ROLE_SECTIONS = ["Responsibility", "Inputs", "Output", "Writes", "Evaluation"];
@@ -454,9 +454,10 @@ export async function checkLoop(root: string, name: string): Promise<LoopReport>
   const fields = frontmatter(definition.toString("utf8"));
   if (fields.kind !== undefined && !(LOOP_KINDS as readonly string[]).includes(fields.kind))
     defects.push(`kind must be one of ${LOOP_KINDS.join(", ")}`);
+  const triggers = triggersOf(root);
   for (const action of parseTriggers(fields.triggers))
-    if (!TRIGGERS[action])
-      defects.push(`unknown trigger "${action}"; known: ${Object.keys(TRIGGERS).join(", ")}`);
+    if (!triggers[action])
+      defects.push(`unknown trigger "${action}"; known: ${Object.keys(triggers).join(", ")}`);
   let samples: unknown[] = [{}];
   if (fields["check-args"]) {
     try {
@@ -578,8 +579,8 @@ export interface RoleReport {
   ok: boolean;
   defects: string[];
 }
-/** Who receives a role or loop from the library: every project, or one side's. */
-export const SIDES = ["framework", "worker", "validator"];
+/** Who receives a role or loop from the library: every project (`framework`), or the projects of one side. */
+export const sidesKnown = (root: string): string[] => knownSides(root);
 /** Every role file names itself after its file, describes itself, says who it serves and has the required sections. */
 export function checkRoles(root: string, only?: string[]): RoleReport[] {
   const dir = rolesDir(root);
@@ -595,8 +596,9 @@ export function checkRoles(root: string, only?: string[]): RoleReport[] {
       if (fields.name !== file.slice(0, -3))
         defects.push(`frontmatter name must be "${file.slice(0, -3)}"`);
       if (!fields.description) defects.push("frontmatter description is required");
-      if (!SIDES.includes(fields.side ?? ""))
-        defects.push(`frontmatter side must be one of ${SIDES.join(", ")}`);
+      const sides = knownSides(root);
+      if (!sides.includes(fields.side ?? ""))
+        defects.push(`frontmatter side must be one of ${sides.join(", ")}`);
       for (const section of ROLE_SECTIONS)
         if (!new RegExp(`^##\\s+${section}\\b`, "mi").test(text))
           defects.push(`missing section "## ${section}"`);
@@ -662,6 +664,12 @@ async function withDraft<T>(
           for (const file of fs.readdirSync(from))
             if (fs.statSync(path.join(from, file)).isFile())
               fs.copyFileSync(path.join(from, file), path.join(target, file));
+    }
+    // The project's manifest too: it names the sides and hook actions the draft may use.
+    const manifest = path.join(path.resolve(root), ".contrejour", "project.json");
+    if (fs.existsSync(manifest)) {
+      fs.mkdirSync(path.join(merged, ".contrejour"), { recursive: true });
+      fs.copyFileSync(manifest, path.join(merged, ".contrejour", "project.json"));
     }
     return await action(merged);
   } finally {

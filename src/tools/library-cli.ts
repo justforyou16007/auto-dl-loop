@@ -22,14 +22,26 @@ import {
   installedRole,
   type Role,
 } from "./installation.js";
-import { SIDES, checkLoop, checkRoles, type LoopReport, type RoleReport } from "./loop-check.js";
-import { frontmatter, listLoops, loopDefinitionPath, loopScriptPath, rolesDir } from "./loops.js";
-import { projectSlug } from "./setup.js";
+import { checkLoop, checkRoles, type LoopReport, type RoleReport } from "./loop-check.js";
+import {
+  frontmatter,
+  listLoops,
+  loopDefinitionPath,
+  loopScriptPath,
+  rolesDir,
+  selectedLoopPath,
+} from "./loops.js";
+import {
+  hasManifest,
+  loadExtension,
+  readManifest,
+  type ProjectExtension,
+  type ProjectManifest,
+} from "./project-manifest.js";
+import { projectSlug } from "./project-settings.js";
 import { writeStateJsonAtomic } from "./state-file.js";
 import { scanForThreats } from "./threat-scan.js";
 import { A1Error, failA1, isRecord } from "./validate.js";
-import { readValidationConfig, validationTokenPath } from "./validation/config.js";
-import { FINISHED, listSubmissions, type SubmissionStatus } from "./validation/store.js";
 
 type State =
   /** Sent: the library does not have it. */
@@ -88,7 +100,7 @@ type LibraryView =
 interface PublicPlan {
   project: string;
   side: Role;
-  /** At least one task finished: one submission whose review ended and whose result was published. */
+  /** At least one task finished, as the project counts them (a run of its task loop, unless it says otherwise). */
   eligible: boolean;
   finished_tasks: string[];
   library: LibraryView;
@@ -98,7 +110,8 @@ interface PublicPlan {
   /** Exactly what the pull request will show. */
   changes_file: string | null;
   library_check: { ok: boolean; defects: string[] } | null;
-  leak_check: "not-needed" | "required" | "passed" | "failed";
+  /** The project's own check of what leaves, when it has one, on this plan's digest. */
+  check: "not-needed" | "required" | "passed" | "failed";
   digest: string | null;
 }
 interface LibrarySource {
@@ -154,28 +167,40 @@ const seededFile = (root: string, source: string): string =>
   path.join(root, ".contrejour", "seeded", ...source.split("/").slice(1));
 const clonePath = (root: string): string => path.join(contributionsDir(root), "library-checkout");
 const logPath = (root: string): string => path.join(contributionsDir(root), "log.json");
-const leakCheckPath = (root: string): string =>
-  path.join(contributionsDir(root), "leak-check.json");
+const checkPath = (root: string): string => path.join(contributionsDir(root), "check.json");
 const previewDir = (root: string): string => path.join(contributionsDir(root), "preview");
 
-/** The tasks of this project that finished: a review ended and its result was published. */
-function finishedTasks(root: string, side: Role): string[] {
-  const finished = (status: unknown) => FINISHED.includes(status as SubmissionStatus);
-  if (side === "validator")
-    return listSubmissions(root)
-      .filter((record) => finished(record.status))
-      .map((record) => record.submission_id);
-  const results = path.join(root, ".contrejour", "results");
-  if (!fs.existsSync(results)) return [];
-  return fs
-    .readdirSync(results)
-    .filter((file) => file.endsWith(".json"))
-    .filter((file) => {
-      const result = readJson(path.join(results, file));
-      return isRecord(result) && finished(result.status);
-    })
-    .map((file) => file.slice(0, -5))
-    .sort();
+/**
+ * The tasks of this project that finished. The project's extension says what
+ * counts; otherwise a task is a run of the project's task loop that a role of it
+ * finished, as the trajectory index records.
+ */
+function finishedTasks(root: string, side: Role, extension: ProjectExtension): string[] {
+  if (extension.finishedTasks) return extension.finishedTasks(root, side);
+  const chosen = readJson(selectedLoopPath(root));
+  const loop = isRecord(chosen) && typeof chosen.loop === "string" ? chosen.loop : null;
+  if (!loop) return [];
+  const script = readText(loopScriptPath(root, loop)) ?? "";
+  const description = /description:\s*(['"`])((?:(?!\1).)*)\1/.exec(script)?.[2];
+  const names = new Set([loop, ...(description ? [description] : [])]);
+  const index = readText(path.join(root, ".contrejour", "trajectories", "index.jsonl")) ?? "";
+  const runs = new Set<string>();
+  for (const line of index.split("\n")) {
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (!isRecord(entry) || !Array.isArray(entry.workflows)) continue;
+      for (const workflow of entry.workflows)
+        if (
+          isRecord(workflow) &&
+          names.has(String(workflow.name)) &&
+          typeof workflow.id === "string"
+        )
+          runs.add(workflow.id);
+    } catch {
+      // A line being written is skipped.
+    }
+  }
+  return [...runs].sort();
 }
 
 /** Where a project without a checkout can get one: the repository this release came from. */
@@ -321,20 +346,18 @@ function secretsOf(root: string): { label: string; value: string }[] {
     if (isRecord(server) && isRecord(server.headers))
       for (const value of Object.values(server.headers))
         add(`the token of the ${name} server`, String(value).replace(/^Bearer\s+/, ""));
-  const token = validationTokenPath(root);
-  if (fs.existsSync(token))
-    add("the validation service token", fs.readFileSync(token, "utf8").trim());
-  add("CONTREJOUR_TOKEN", process.env.CONTREJOUR_TOKEN);
+  // And what the project itself knows to be secret, such as a service's token.
+  for (const secret of extensionOf(root).secrets?.(root, installedRole(root)) ?? [])
+    add(secret.label, secret.value);
   return secrets;
 }
 function hiddenPathsOf(root: string, side: Role): string[] {
-  if (side !== "validator") return [];
-  try {
-    return readValidationConfig(root).hidden_paths;
-  } catch {
-    return [];
-  }
+  return extensionOf(root).hiddenPaths?.(root, side) ?? [];
 }
+
+/** The project's extension, loaded once when a command starts. */
+let loadedExtension: ProjectExtension = {};
+const extensionOf = (_root: string): ProjectExtension => loadedExtension;
 
 /** Why a file may not leave at all, naming what it holds and never repeating it. */
 function blockingProblems(
@@ -381,7 +404,21 @@ function nameTakenElsewhere(
   unitSide: string,
   file: string,
 ) {
-  const others = unitSide === "framework" ? ["worker", "validator"] : ["framework"];
+  const sides = (directory: string) =>
+    (
+      git(
+        context.source.checkout,
+        "ls-tree",
+        "--name-only",
+        `${context.source.ref}:library/${directory}`,
+      ).stdout || ""
+    )
+      .split("\n")
+      .filter(Boolean);
+  const others =
+    unitSide === "framework"
+      ? sides(directory).filter((side) => side !== "framework")
+      : ["framework"];
   return others.find((other) => showAtBase(context, `library/${directory}/${other}/${file}`));
 }
 
@@ -581,8 +618,16 @@ function writeFinals(dir: string, units: Classified[]): void {
     }
 }
 
-/** Check a library as a project of each side sees it, each file against the side it declares. */
-export async function checkLibrary(library: string): Promise<{
+/**
+ * Check a library as a project of each side sees it, each file against the side
+ * it declares. `manifest` is the package whose library it is: it names the hook
+ * actions its loops may declare. A library without one (the shared one) may use
+ * only the framework's.
+ */
+export async function checkLibrary(
+  library: string,
+  manifest?: ProjectManifest,
+): Promise<{
   ok: boolean;
   reports: Record<string, { check: LoopReport[]; roles: RoleReport[] }>;
 }> {
@@ -596,9 +641,29 @@ export async function checkLibrary(library: string): Promise<{
       : [];
   const declaredSide = (file: string) => frontmatter(fs.readFileSync(file, "utf8")).side;
   let ok = true;
-  for (const side of ["worker", "validator"]) {
+  const sidesIn = (kind: string) =>
+    fs.existsSync(path.join(library, kind))
+      ? fs
+          .readdirSync(path.join(library, kind))
+          .filter((entry) => fs.statSync(path.join(library, kind, entry)).isDirectory())
+      : [];
+  const sides = [...new Set([...sidesIn("loops"), ...sidesIn("roles")])]
+    .filter((side) => side !== "framework")
+    .sort();
+  // A library with only the framework's files is checked as one project of its own.
+  for (const side of sides.length ? sides : ["framework"]) {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), `contrejour-library-${side}-`));
     try {
+      const declared: ProjectManifest = {
+        format: 1,
+        name: manifest?.name ?? "library",
+        profiles: {
+          [side]: { entry_role: "task-manager", sides: side === "framework" ? [] : [side] },
+        },
+        hook_actions: manifest?.hook_actions ?? {},
+      };
+      fs.mkdirSync(path.join(project, ".contrejour"), { recursive: true });
+      fs.writeFileSync(path.join(project, ".contrejour", "project.json"), JSON.stringify(declared));
       for (const [from, to, extension] of [
         ["roles/framework", "agents", ".md"],
         [`roles/${side}`, "agents", ".md"],
@@ -634,7 +699,7 @@ export async function checkLibrary(library: string): Promise<{
         if (fs.existsSync(path.join(library, "roles", "framework", file)) && directory === side)
           report.defects.push("the same role name is also under framework");
         const declared = declaredSide(path.join(rolesDir(project), file));
-        if (SIDES.includes(declared ?? "") && declared !== directory)
+        if ([...sides, "framework"].includes(declared ?? "") && declared !== directory)
           report.defects.push(`it declares side ${declared}, but lives under ${directory}`);
         report.ok = !report.defects.length;
       }
@@ -655,7 +720,10 @@ async function checkResult(
 ): Promise<{ ok: boolean; defects: string[] }> {
   return inWorktree(root, source, ["--detach"], async (dir) => {
     writeFinals(dir, selected);
-    const { reports } = await checkLibrary(path.join(dir, "library"));
+    const { reports } = await checkLibrary(
+      path.join(dir, "library"),
+      hasManifest(root) ? readManifest(root) : undefined,
+    );
     const names = new Set(selected.map((unit) => `${unit.kind}:${unit.name}`));
     const defects = new Set<string>();
     for (const report of Object.values(reports)) {
@@ -697,9 +765,10 @@ function writePreview(root: string, selected: Classified[]): string | null {
   return changes;
 }
 
-function leakCheckState(root: string, side: Role, digest: string | null): PublicPlan["leak_check"] {
-  if (side !== "validator") return "not-needed";
-  const recorded = readJson(leakCheckPath(root));
+/** The project's own check of what leaves, if its extension asks for one, on the plan with this digest. */
+function checkState(root: string, side: Role, digest: string | null): PublicPlan["check"] {
+  if (!extensionOf(root).needsContributionCheck?.(root, side)) return "not-needed";
+  const recorded = readJson(checkPath(root));
   if (!digest || !isRecord(recorded) || recorded.digest !== digest) return "required";
   return recorded.verdict === "pass" ? "passed" : "failed";
 }
@@ -709,7 +778,7 @@ async function makePlan(
   exclude: string[],
 ): Promise<{ plan: PublicPlan; selected: Classified[]; source: LibrarySource | null }> {
   const side = installedRole(root);
-  const finished = finishedTasks(root, side);
+  const finished = finishedTasks(root, side, extensionOf(root));
   const shared = {
     project: projectSlug(root),
     side,
@@ -734,7 +803,7 @@ async function makePlan(
         unchanged: 0,
         changes_file: null,
         library_check: null,
-        leak_check: leakCheckState(root, side, null),
+        check: checkState(root, side, null),
         digest: null,
       },
       selected: [],
@@ -810,7 +879,7 @@ async function makePlan(
       unchanged: units.filter((unit) => unit.state === "unchanged").length,
       changes_file: changesFile,
       library_check: selected.length ? await checkResult(root, source, selected) : null,
-      leak_check: leakCheckState(root, side, digest),
+      check: checkState(root, side, digest),
       digest,
     },
     selected,
@@ -818,23 +887,27 @@ async function makePlan(
   };
 }
 
-/** Record the leak reviewer's verdict on one plan: a validator's contribution needs a pass on exactly what leaves. */
-function recordLeakCheck(
+/**
+ * Record the verdict of the project's own check (such as its leak reviewer's) on
+ * one plan: a contribution that needs it leaves only with a pass on exactly what
+ * leaves.
+ */
+function recordCheck(
   root: string,
   digest: string,
   verdict: string,
   findings: string[],
 ): { digest: string; verdict: string } {
-  if (installedRole(root) !== "validator")
-    failA1("VALIDATOR_ONLY", "only a validator's contribution needs a leak check");
+  if (!extensionOf(root).needsContributionCheck?.(root, installedRole(root)))
+    failA1("NO_CHECK", "this project's contributions need no check of their own");
   if (!/^[0-9a-f]{64}$/.test(digest))
     failA1("INVALID_VALUE", "the digest is the plan's 64 hexadecimal digest");
-  if (verdict !== "pass" && verdict !== "leak")
-    failA1("INVALID_VALUE", "the verdict is pass or leak");
-  if (verdict === "leak" && !findings.length)
-    failA1("INVALID_VALUE", "a leak needs at least one finding");
+  if (verdict !== "pass" && verdict !== "fail")
+    failA1("INVALID_VALUE", "the verdict is pass or fail");
+  if (verdict === "fail" && !findings.length)
+    failA1("INVALID_VALUE", "a failed check needs at least one finding");
   fs.mkdirSync(contributionsDir(root), { recursive: true });
-  writeStateJsonAtomic(leakCheckPath(root), {
+  writeStateJsonAtomic(checkPath(root), {
     digest,
     verdict,
     findings,
@@ -1008,8 +1081,8 @@ function pullRequestText(plan: PublicPlan): { title: string; body: string } {
     ...rows,
     "",
     `This holds only what the project added or changed since it was installed; what the library changed meanwhile is untouched. \`library-cli.js\` ran the loop and role checks on the resulting library and found no key or token of the project in these files.${
-      plan.side === "validator"
-        ? " The `leak-reviewer` role checked them against the hidden tests and passed exactly this text."
+      plan.check === "passed"
+        ? " The project's own check of what leaves passed exactly this text."
         : ""
     }`,
     "",
@@ -1038,13 +1111,13 @@ async function contribute(
     );
   if (plan.library_check && !plan.library_check.ok)
     failA1("LIBRARY_CHECK_FAILED", plan.library_check.defects.join("; "));
-  if (plan.leak_check === "required")
+  if (plan.check === "required")
     failA1(
-      "LEAK_CHECK_REQUIRED",
-      "have leak-reviewer check exactly these files first; it records its verdict on this digest",
+      "CHECK_REQUIRED",
+      "this project checks exactly these files before they leave: its check records its verdict on this digest first",
     );
-  if (plan.leak_check === "failed")
-    failA1("LEAK_CHECK_FAILED", "leak-reviewer found test content in these files");
+  if (plan.check === "failed")
+    failA1("CHECK_FAILED", "the project's check found something in these files that may not leave");
 
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const stem = `library/${plan.project}-${plan.side}-${stamp}`;
@@ -1116,6 +1189,11 @@ function cli(): void {
       .filter(Boolean);
   const action = (work: () => unknown | Promise<unknown>) => async () => {
     try {
+      // The project's extension decides what counts as a finished task, what is secret and what is checked.
+      const project = program.commands
+        .map((command) => command.opts() as { project?: string })
+        .find((options) => options.project)?.project;
+      if (project) loadedExtension = await loadExtension(path.resolve(project));
       const result = await work();
       console.log(JSON.stringify(result, null, 2));
       if (isRecord(result) && result.status === "local-only") process.exitCode = 1;
@@ -1152,15 +1230,15 @@ function cli(): void {
       action(() => cloneLibrary(path.resolve(options.project)))(),
     );
   program
-    .command("record-leak-check")
-    .description("Record the leak reviewer's verdict on one plan of a validator's contribution")
+    .command("record-check")
+    .description("Record the verdict of the project's own check on one plan of its contribution")
     .requiredOption("--project <dir>")
     .requiredOption("--digest <sha256>")
-    .requiredOption("--verdict <verdict>", "pass or leak")
-    .option("--finding <text...>", "where each leak is and what kind, without its content")
+    .requiredOption("--verdict <verdict>", "pass or fail")
+    .option("--finding <text...>", "where each problem is and what kind, without its content")
     .action((options: { project: string; digest: string; verdict: string; finding?: string[] }) =>
       action(() =>
-        recordLeakCheck(
+        recordCheck(
           path.resolve(options.project),
           options.digest,
           options.verdict,

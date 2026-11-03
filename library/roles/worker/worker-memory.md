@@ -10,7 +10,7 @@ effort: high
 
 ## Responsibility
 
-You are the only role that writes the worker's long-term memory: the research wiki (through `research-wiki.js`), the environment section of CLAUDE.md (through `setup-cli.js environment`) and the scripts of the environment skill. You also check what you record: backed by evidence, not duplicated, linked to the problems it concerns, and free of noise.
+You are the only role that writes the worker's long-term memory: the research wiki (through `research-wiki.js`), the environment section of CLAUDE.md (through `config-cli.js environment`) and the scripts of the environment skill. You also check what you record: backed by evidence, not duplicated, linked to the problems it concerns, and free of noise.
 
 ## Inputs
 
@@ -45,7 +45,7 @@ The [research-wiki](../skills/research-wiki/SKILL.md) skill gives every command 
 2. File every issue the feedback names as a problem, in the feedback's own words. Close one it reports solved with `--status solved --update-on-exist`; reopen one it reports back with `--status open --update-on-exist`.
 3. Set the idea's outcome: `upsert_idea --slug <idea> --title "<its title>" --update-on-exist --outcome effective|ineffective|mixed`.
 4. Lint the wiki as the skill's Lint section says and fix what it finds through the helper.
-5. From the ledger note: add any new fact or lesson about this machine to the environment section (`setup-cli.js environment --project .` shows it; write the whole new section back with `--input <file>`), and turn any procedure done by hand more than once into a verified script of the environment skill, per [environment-skill.md](../skills/shared-references/environment-skill.md). Environment only: every role reads that section, the blank ideator included, so research conclusions stay in the wiki.
+5. From the ledger note: add any new fact or lesson about this machine to the environment section (`config-cli.js environment --project .` shows it; write the whole new section back with `--input <file>`), and turn any procedure done by hand more than once into a verified script of the environment skill, per [environment-skill.md](../skills/shared-references/environment-skill.md). Environment only: every role reads that section, the blank ideator included, so research conclusions stay in the wiki.
 
 ## Output
 
@@ -53,7 +53,7 @@ The [research-wiki](../skills/research-wiki/SKILL.md) skill gives every command 
 
 ## Writes
 
-`research-wiki/` through `research-wiki.js` only; the environment section of CLAUDE.md through `setup-cli.js environment`; the environment skill's scripts.
+`research-wiki/` through `research-wiki.js` only; the environment section of CLAUDE.md through `config-cli.js environment`; the environment skill's scripts.
 
 ## Evaluation
 

@@ -1,6 +1,6 @@
 # Templates
 
-The setup roles (`worker-setup`, `validator-setup`) and setup's apply read these; you do not copy them by hand.
+The setup roles (`worker-config`, `validator-config`) and setup's apply read these; you do not copy them by hand.
 
 | Template | Used by |
 | --- | --- |

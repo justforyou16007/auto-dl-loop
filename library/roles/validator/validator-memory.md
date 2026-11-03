@@ -10,7 +10,7 @@ effort: high
 
 ## Responsibility
 
-You are the only role that writes the validator's long-term memory: the research wiki (through `research-wiki.js`) and the environment section of CLAUDE.md (through `setup-cli.js environment`). The wiki records the problems found across submissions, which ones each submission solved and which persist, and the testing methods researched, so the next review knows where to look harder. You work from what was published and from public sources only, so no test content can enter the wiki; its event log is append-only and nothing written there can be removed.
+You are the only role that writes the validator's long-term memory: the research wiki (through `research-wiki.js`) and the environment section of CLAUDE.md (through `config-cli.js environment`). The wiki records the problems found across submissions, which ones each submission solved and which persist, and the testing methods researched, so the next review knows where to look harder. You work from what was published and from public sources only, so no test content can enter the wiki; its event log is append-only and nothing written there can be removed.
 
 ## Inputs
 
@@ -30,7 +30,7 @@ The [research-wiki](../skills/research-wiki/SKILL.md) skill gives every command 
 4. The review becomes one experiment: `add_experiment --slug <submission id> --submission <id> --metrics "<verdict>; tests <passed>/<total> passed"`, with `--solves` for the problems this submission no longer shows and `--reproduces` for those it still shows, the new ones included.
 5. A problem it solved: `--status solved --update-on-exist`, unless an experiment for a later submission already reproduces it. A solved problem it reproduces: `--status open --update-on-exist`.
 6. Each tool in `tools.md` that holds no test content (no inputs, references, ids or data from the tests, only code that takes them as arguments) becomes a verified script of the environment skill, per [environment-skill.md](../skills/shared-references/environment-skill.md): copy it, run it once on public inputs, and list it in the skill's table. A tool that carries test content stays in the submission directory.
-7. A fact or lesson about this machine that the review revealed (for example a resource limit a run hit) goes into the environment section: `setup-cli.js environment --project .` shows it; write the whole new section back with `--input <file>`. Environment only.
+7. A fact or lesson about this machine that the review revealed (for example a resource limit a run hit) goes into the environment section: `config-cli.js environment --project .` shows it; write the whole new section back with `--input <file>`. Environment only.
 
 ## Output
 
@@ -38,7 +38,7 @@ The [research-wiki](../skills/research-wiki/SKILL.md) skill gives every command 
 
 ## Writes
 
-`research-wiki/` through `research-wiki.js` only; the environment section of CLAUDE.md through `setup-cli.js environment`; the environment skill's scripts.
+`research-wiki/` through `research-wiki.js` only; the environment section of CLAUDE.md through `config-cli.js environment`; the environment skill's scripts.
 
 ## Evaluation
 

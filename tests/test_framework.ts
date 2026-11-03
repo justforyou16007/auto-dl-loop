@@ -27,6 +27,8 @@ const role = (name: string, extra = "") =>
 function project(name: string): string {
   const root = path.join(sandbox, name);
   fs.cpSync(dist, path.join(root, ".contrejour", "dist"), { recursive: true });
+  // The package's manifest, as the installer lays it out: its profiles, extension and hook actions.
+  fs.copyFileSync(path.join(source, "project.json"), path.join(root, ".contrejour", "project.json"));
   // The installed runtime carries its one dependency next to dist/, as the installer lays it out.
   fs.cpSync(path.join(source, "node_modules", "commander"), path.join(root, ".contrejour", "node_modules", "commander"), { recursive: true });
   return root;
@@ -160,7 +162,7 @@ try {
   assert.match(nestReport("parent").defects.join("\n"), /nesting is one level only/);
   // A loop says what it is for; setup offers only task loops.
   loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: sometimes\n");
-  assert.match(nestReport("child").defects.join("\n"), /kind must be one of task, setup, on-request/);
+  assert.match(nestReport("child").defects.join("\n"), /kind must be one of task, on-request/);
   loopFiles("child", "await agent('{}', { agentType: 'gamma' })", "kind: on-request\n");
   assert.equal(nestReport("child").ok, true);
 

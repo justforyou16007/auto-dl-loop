@@ -110,7 +110,7 @@ export function validateTesterFacilityConfig(value: unknown): TesterFacilityConf
   if (!isRecord(value) || value.schema_version !== 1 || value.mode !== "tester_facility")
     failA1(
       "INVALID_TESTER_FACILITY",
-      "run the validator-setup role to create a tester facility configuration",
+      "run the validator-config role to create a tester facility configuration",
     );
   assertNoUnknownFields(
     value,
@@ -288,7 +288,10 @@ export async function execute(
 export function assertTesterSetupReady(configPath: string): TesterSetupReceipt {
   const config = readTesterFacilityConfig(configPath);
   if (!fs.existsSync(`${configPath}.setup.json`))
-    failA1("TESTER_SETUP_REQUIRED", "run the validator-setup role to initialize tester facilities");
+    failA1(
+      "TESTER_SETUP_REQUIRED",
+      "run the validator-config role to initialize tester facilities",
+    );
   const receipt = readStateFile<TesterSetupReceipt>(`${configPath}.setup.json`);
   if (
     receipt.schema_version !== 1 ||
@@ -297,7 +300,7 @@ export function assertTesterSetupReady(configPath: string): TesterSetupReceipt {
     !Array.isArray(receipt.evidence) ||
     receipt.evidence.length !== config.evidence_files.length
   )
-    failA1("TESTER_SETUP_REQUIRED", "run the validator-setup role before testing");
+    failA1("TESTER_SETUP_REQUIRED", "run the validator-config role before testing");
   verifyEvidence(receipt.evidence);
   return receipt;
 }

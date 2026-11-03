@@ -113,7 +113,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
   if (!isRecord(value) || value.schema_version !== 3)
     failA1(
       "INVALID_VALIDATION_CONFIG",
-      "run the validator-setup role on the validator machine to create it",
+      "run the validator-config role on the validator machine to create it",
     );
   assertNoUnknownFields(
     value,
@@ -202,7 +202,7 @@ export function validateValidationConfig(value: unknown): ValidationConfig {
 export function readValidationConfig(root: string): ValidationConfig {
   const file = validationConfigPath(root);
   if (!fs.existsSync(file))
-    failA1("VALIDATION_NOT_CONFIGURED", "run the validator-setup role on this validator machine");
+    failA1("VALIDATION_NOT_CONFIGURED", "run the validator-config role on this validator machine");
   return validateValidationConfig(readStateFile(file));
 }
 

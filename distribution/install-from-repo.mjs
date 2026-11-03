@@ -34,7 +34,7 @@ if (pkg.name !== "contrejour")
 for (const relative of [
   "node_modules/typescript/package.json",
   "node_modules/commander/package.json",
-  "dist/tools/setup-cli.js",
+  "dist/tools/config-cli.js",
   "dist/tools/validation-cli.js",
   "dist/tools/hook.js",
   "dist/tools/loop-check.js",
@@ -42,6 +42,7 @@ for (const relative of [
   "dist/tools/library-cli.js",
   "dist/tools/loop-view.js",
   "dist/tools/studio.js",
+  "dist/tools/project-cli.js",
   "dist/studio/index.html",
 ]) {
   if (!fs.existsSync(path.join(root, relative))) {

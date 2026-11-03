@@ -1,30 +1,22 @@
 /**
- * What the installer fixed for this project: which side of a Contrejour task it
- * is. Every project runs on Claude Code, so skills, roles, loop definitions and
- * loop scripts live in the project's `.claude/` directory.
+ * What the installer fixed for this project: the profile of its package it was
+ * installed as (`project.json` names them), and the library it came from. Every
+ * project runs on Claude Code, so skills, roles, loop definitions and loop
+ * scripts live in the project's `.claude/` directory.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { hasManifest, profileNamed } from "./project-manifest.js";
 import { failA1, isRecord } from "./validate.js";
 
-export type Role = "worker" | "validator";
+/** A profile of the project's package, such as a research task's worker or validator. */
+export type Role = string;
 
 /** Where Claude Code reads project skills and roles, and where loops live, relative to the project root. */
 export const SKILLS_DIR = ".claude/skills";
 export const ROLES_DIR = ".claude/agents";
 export const LOOPS_DIR = ".claude/loops";
 export const WORKFLOWS_DIR = ".claude/workflows";
-
-/** The entry role of each side: a session opened in the project runs as it. */
-export const TASK_MANAGER: Record<Role, string> = {
-  worker: "worker-task-manager",
-  validator: "validator-task-manager",
-};
-/** The role that configures each side with the owner. */
-export const SETUP_ROLE: Record<Role, string> = {
-  worker: "worker-setup",
-  validator: "validator-setup",
-};
 
 export const installationFile = (root: string): string =>
   path.join(path.resolve(root), ".contrejour", "install.json");
@@ -35,7 +27,11 @@ export const contributionsDir = (root: string): string =>
 function installation(root: string): Record<string, unknown> {
   const file = installationFile(root);
   if (!fs.existsSync(file))
-    failA1("INVALID_VALUE", "install Contrejour with --role worker|validator first", file);
+    failA1(
+      "INVALID_VALUE",
+      "install the project first (install-contrejour.sh --role <profile>)",
+      file,
+    );
   const installed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!isRecord(installed)) failA1("INVALID_VALUE", "reinstall Contrejour", file);
   // Earlier releases could run on Codex; Contrejour no longer does and does not migrate.
@@ -48,16 +44,25 @@ function installation(root: string): Record<string, unknown> {
   return installed;
 }
 
-/** The side chosen at installation (`install-contrejour.sh --role`); setup never changes it. */
+/** The profile chosen at installation (`install-contrejour.sh --role`); it never changes. */
 export function installedRole(root: string): Role {
   const role = installation(root).role;
-  if (role !== "worker" && role !== "validator")
+  if (typeof role !== "string" || !role || (hasManifest(root) && !profileNamed(root, role)))
     failA1(
       "INVALID_VALUE",
-      "reinstall Contrejour with --role worker|validator",
+      "reinstall the project with --role <one of its package's profiles>",
       installationFile(root),
     );
   return role;
+}
+
+/** The role this project's sessions enter as: its profile's, from the package's manifest. */
+export function entryRoleOf(root: string): string {
+  return profileNamed(root, installedRole(root)).entry_role;
+}
+/** The library sides this project's loops and roles come from, the framework's first. */
+export function sidesOf(root: string): string[] {
+  return ["framework", ...profileNamed(root, installedRole(root)).sides];
 }
 
 /** The local Contrejour checkout the project was installed from: the shared library of loops and roles. */

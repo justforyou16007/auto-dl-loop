@@ -22,7 +22,7 @@ The loop passes JSON:
 - `subject`: what this is, in a few words.
 - `request`: what the loop needs from the owner: approval of what the materials show, a choice, or information.
 - `materials`: what the decision rests on: file paths to read, and facts from earlier steps (check results, warnings, what a change is based on).
-- `approvable`: false when approval is not possible as things stand (a failed check, open issues, a leak finding, or a request for information); the owner can then only change something, give what is asked, or cancel.
+- `approvable`: false when approval is not possible as things stand (a failed check, open issues, a finding of the project's own check, or a request for information); the owner can then only change something, give what is asked, or cancel.
 - `answer`: the owner's reply to this review, verbatim, or null when they have not replied yet.
 
 ## Steps
@@ -33,7 +33,7 @@ Without an answer:
 2. Write the review note `.contrejour/reviews/<review_id, with every character other than letters, digits, `.`, `_` and `-` replaced by `-`>.md`, in the project language (`project.language` of the setup draft; English when there is none). It holds, in this order:
    - what is being decided, and what follows from each answer;
    - exactly what is approved: the version (`review_id`) and the full content, or the precise files to read for it, with what changed when it is a change to something existing;
-   - everything a step flagged: failed checks, warnings, open issues, leak findings, what was left out and why;
+   - everything a step flagged: failed checks, warnings, open issues, the findings of the project's own checks, what was left out and why;
    - when `approvable` is false, why approval is not possible and what would make it possible;
    - the options: approve, change (say what), or cancel; or, for a request for information, exactly what is needed.
 3. Return `ask`, with the note as `document` and a one- or two-sentence `question`.

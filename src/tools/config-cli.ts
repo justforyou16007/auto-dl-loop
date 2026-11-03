@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Helper of the worker-setup and validator-setup roles: review/refresh the
+ * Helper of the worker-config and validator-config roles: review/refresh the
  * sheet, fetch the worker's task, confirm one digest, apply it. The worker's
- * task manager fetches task.md with it each round, and the setup and memory
- * roles keep the environment section of CLAUDE.md with it.
+ * task manager fetches task.md with it each round, and the configuration and
+ * memory roles keep the environment section of CLAUDE.md with it.
  */
 import fs from "node:fs";
 
@@ -13,15 +13,14 @@ import {
   applySetup,
   confirmSetupReview,
   environmentNotes,
-  registerHooks,
   fetchTask,
   refreshSetupReview,
   SetupReviewIncompleteError,
 } from "./setup.js";
 
 const program = createCli(
-  "setup",
-  "Review, confirm and apply the Contrejour worker or validator setup",
+  "config",
+  "Review, confirm and apply this research machine's configuration (worker or validator)",
 );
 
 function reject(fallback: string, error: unknown): void {
@@ -50,7 +49,7 @@ program
         : undefined;
       console.log(JSON.stringify(refreshSetupReview(options.project, patch), null, 2));
     } catch (error) {
-      reject("setup_review_failed", error);
+      reject("config_review_failed", error);
     }
   });
 program
@@ -61,7 +60,7 @@ program
     try {
       console.log(JSON.stringify(await fetchTask(options.project), null, 2));
     } catch (error) {
-      reject("setup_fetch_task_failed", error);
+      reject("config_fetch_task_failed", error);
     }
   });
 program
@@ -73,7 +72,7 @@ program
     try {
       console.log(JSON.stringify(confirmSetupReview(options.project, options.digest), null, 2));
     } catch (error) {
-      reject("setup_confirm_failed", error);
+      reject("config_confirm_failed", error);
     }
   });
 program
@@ -84,7 +83,7 @@ program
     try {
       console.log(JSON.stringify(await applySetup(options.project), null, 2));
     } catch (error) {
-      reject("setup_apply_failed", error);
+      reject("config_apply_failed", error);
     }
   });
 
@@ -100,21 +99,7 @@ program
       const text = options.input ? fs.readFileSync(options.input, "utf8") : undefined;
       console.log(JSON.stringify(environmentNotes(options.project, text), null, 2));
     } catch (error) {
-      reject("setup_environment_failed", error);
-    }
-  });
-
-program
-  .command("hooks")
-  .description(
-    "Register Contrejour's hooks in .claude/settings.json, keeping every other setting; the installer runs it",
-  )
-  .requiredOption("--project <dir>")
-  .action((options: { project: string }) => {
-    try {
-      console.log(JSON.stringify({ settings: registerHooks(options.project) }, null, 2));
-    } catch (error) {
-      reject("setup_hooks_failed", error);
+      reject("config_environment_failed", error);
     }
   });
 

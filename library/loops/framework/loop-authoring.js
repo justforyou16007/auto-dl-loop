@@ -253,4 +253,4 @@ await agent(JSON.stringify({ action: "discard", draft: drafted.draft }), {
 });
 return { loop: drafted.loop, installed: false, reason };
 
-// contrejour-loop-definition-sha256: 6bdb052c5370f9ad90beed46a690fb554744eccf32488a7737b1726e9216f9ed
+// contrejour-loop-definition-sha256: b41a646216a836d67399fdb9d5790c04cfdb90aa9bb72e89bc7a15d0f08b2dcd

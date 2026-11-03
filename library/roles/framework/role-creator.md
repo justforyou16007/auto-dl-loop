@@ -19,7 +19,7 @@ JSON from the loop:
 - `{action: "draft", description, candidates, from_scratch, draft, name, base, notes}`: draft the role. In `role-authoring`, `candidates` and `from_scratch` come from your `find` step and `draft` is null the first time. In `loop-authoring`, `draft` is the loop's draft, `name` the role the loop needs, `description` what its step needs, and `base` a library role that fits or comes close (or empty). `notes` carries the owner's requested changes, verbatim, after a review.
 - `{action: "install", draft, digest}`; `{action: "discard", draft}`.
 
-You read the project's roles (`.claude/agents/`), the library's (`library/roles/<framework|worker|validator>/` in the checkout recorded as `library` in `.contrejour/install.json`), the loops that will call the role, and the role block of CLAUDE.md (rules every role already follows; do not repeat them).
+You read the project's roles (`.claude/agents/`), the library's (`library/roles/<side>/`, `framework` and this project's sides, in the checkout recorded as `library` in `.contrejour/install.json`), the loops that will call the role, and the role block of CLAUDE.md (rules every role already follows; do not repeat them).
 
 ## Steps
 
@@ -32,7 +32,7 @@ You read the project's roles (`.claude/agents/`), the library's (`library/roles/
 
 1. **Start from what exists.** Unless `from_scratch` is true, build on the closest role (the candidates, or `base`): copy its file and change what the description and the notes need (name, description, side, responsibility, inputs, steps, output, writes, evaluation), keeping its structure, its rules and the hard-won detail of its steps wherever they still apply. A library role that fits as it is is copied unchanged under its own name. Write a role from scratch only when the owner asked for that, or when no role is close, and say which in `based_on`.
 2. **Name.** Lowercase words joined by hyphens, unique in the project and the library (unless a library role is copied as it is). In `loop-authoring`, use the `name` the loop gives.
-3. **Write** `.contrejour/drafts/<draft>/agents/<name>.md`; in `role-authoring`, `<draft>` is the role's name. Frontmatter: `name`, `description` (one line), `side` (who receives the role when it reaches the shared library: `framework` when any project could use it, otherwise this project's side, `worker` or `validator`), `tools` (an allowlist when the role must not read or write beyond its inputs; a role that must not see project files gets no file tools), `effort`. Body sections, in order:
+3. **Write** `.contrejour/drafts/<draft>/agents/<name>.md`; in `role-authoring`, `<draft>` is the role's name. Frontmatter: `name`, `description` (one line), `side` (who receives the role when it reaches the shared library: `framework` when any project could use it, otherwise this project's side as `.contrejour/project.json` names it), `tools` (an allowlist when the role must not read or write beyond its inputs; a role that must not see project files gets no file tools), `effort`. Body sections, in order:
    - Responsibility: what it does in its loop and what it never does;
    - Inputs: the JSON the loop passes and what it may read;
    - Steps, when the work has an order;

@@ -30,8 +30,8 @@ You read the project's loops, scripts and roles; the library's (`library/loops/<
 
 1. **Start from what exists.** Unless `from_scratch` is true, build on the closest existing loop. Read the candidates, best first, and verify which keeps the most of what the description needs; when none is close, look through the project's and the library's other loops yourself. Keep the base's structure, roles, branches, bounds and waiting points wherever the description does not ask for something else, and change only what the description and the notes ask for. Write a loop from scratch only when the owner asked for that, or when no loop shares its structure, and say which in `based_on`.
 2. **A change or a new loop.** When the description asks to change an existing loop, the draft keeps its name and replaces it once installed. Otherwise give the loop a new name: lowercase words joined by hyphens, not taken in the project or the library.
-3. **Definition.** Write `.contrejour/drafts/<draft>/loops/<loop>.md`, where `<draft>` is the loop's name. Frontmatter: `name`, `description` (one line), `side` (`worker`, `validator` or `framework`; a `framework` loop may use only framework roles), `kind` (below), `triggers` (event actions, below), `check-args` (one line of JSON: a list of argument objects that together reach every branch; leave `params` out, the check adds the defaults). Body: Purpose, Inputs, Steps (for each step the role, what it receives, what it returns and the condition it branches on), Bounds, Parameters (a task loop's), Waiting, Triggers.
-4. **Parameters.** A task loop's Parameters section holds what the owner sets at setup, its hyperparameters: every bound and every choice the owner may want to tune, as a ```json list of `{name, type, default, description}` (`type` one of integer, number, boolean, string, enum; `min`/`max` for numbers, `choices` for an enum; snake_case names; a default that runs well). Setup shows them with their defaults and records the values in `.contrejour/loop.json`; the task manager or the validation service passes them as `args.params`.
+3. **Definition.** Write `.contrejour/drafts/<draft>/loops/<loop>.md`, where `<draft>` is the loop's name. Frontmatter: `name`, `description` (one line), `side` (`framework`, or a side of this project's package as `.contrejour/project.json` names them; a `framework` loop may use only framework roles), `kind` (below), `triggers` (event actions, below), `check-args` (one line of JSON: a list of argument objects that together reach every branch; leave `params` out, the check adds the defaults). Body: Purpose, Inputs, Steps (for each step the role, what it receives, what it returns and the condition it branches on), Bounds, Parameters (a task loop's), Waiting, Triggers.
+4. **Parameters.** A task loop's Parameters section holds what the owner sets in the Studio, its hyperparameters: every bound and every choice the owner may want to tune, as a ```json list of `{name, type, default, description}` (`type` one of integer, number, boolean, string, enum; `min`/`max` for numbers, `choices` for an enum; snake_case names; a default that runs well). The Studio shows them with their defaults and records the values the owner chooses in `.contrejour/loop.json`; whatever runs the loop passes them as `args.params`.
 5. **Script.** Generate `.contrejour/drafts/<draft>/workflows/<loop>.js` from the definition by the script rules below, reusing the base's script where its steps are kept and commenting each step with the definition step it implements. Then `node .contrejour/dist/tools/loop-check.js stamp --project . --draft <draft> <loop>`.
 6. **Roles.** Every step names a role whose file fits it: it passes what the role's Inputs say it receives and branches on what its Output says it returns. When neither the project, the draft nor the library has a fitting role, do not invent one and do not hand an existing role inputs its file does not name: list it in `missing_roles` with what the step needs (`needs`: what it receives, what it returns, what it may read and write) and the library role that comes closest, if any. A library role that fits as it is goes in `missing_roles` too, as `library_role`: `role-creator` brings it into the draft.
 
@@ -55,8 +55,7 @@ The owner already approved the definition; only its script is out of date. Regen
 
 ### Kinds
 
-- `task`: the work the project runs; setup chooses one. A worker task loop is run by `worker-task-manager` round after round, split where it waits for a result as `research-iteration` is (`{stage: "build", task, params}`, then `{stage: "record", submission_id, params}` once the result is published); it submits only through `worker-task-manager`'s `submit` step, the only role that talks to the validation service. A validator task loop is run by the validation service once per submission with `{submission_id, submission_dir, params}`, in a session running as `validator-task-manager`; it ends with that role's `finalize` step, or its `abandon` step when our side cannot complete the review, and nothing reaches the worker except what finalize publishes.
-- `setup`: sets a project of its side up (`project-setup`).
+- `task`: the work the project runs, run again and again; the owner chooses one in the Studio. How a task loop is run (by whom, with which arguments, how it ends) is the project's: follow the task-loop rules in `.claude/skills/shared-references/project-rules.md` when the project has that file.
 - `on-request`: run when the owner asks, such as `library-contribution` or this loop.
 
 ### Script rules
@@ -74,7 +73,7 @@ It may not:
 
 1. put "how to do it" in a prompt: a prompt carries this step's inputs; how the work is done lives only in the role file, where `trajectory-optimizer` can fix it;
 2. do work in code: parsing, scoring and deciding pass or fail belong to roles or the helpers they call;
-3. call `loop-editor` or `role-creator`, unless it is `loop-authoring` or `role-authoring`: a running loop never changes itself, and other loops get loops and roles only through those two, as `project-setup` does;
+3. call `loop-editor` or `role-creator`, unless it is `loop-authoring` or `role-authoring`: a running loop never changes itself, and other loops get loops and roles only through those two, as `machine-config` does;
 4. use the clock or randomness (`Date`, `Math.random`): they break resuming a run.
 
 Give every `agent()` call a `schema` matching the Output section of its role and a `phase` declared in `meta.phases`; `meta.name` is the loop's name. The check tries each branch by changing a few answers at a time, starting from every enum's first value and every boolean false, so list the outcome that lets the loop go on first. Read each parameter as `args.params.<name>`, or `params.<name>` after `const params = args.params`; the check reports a parameter the script uses that the definition does not declare, and one it declares that the script never uses.
@@ -84,9 +83,8 @@ Give every `agent()` call a `schema` matching the Output section of its role and
 A definition may declare these actions, which the Contrejour hook helper runs on the event named; hooks only record, notify or block, and anything that needs judgment is a role's step:
 
 - `record-trajectory` (a role finished): keep its trajectory for `trajectory-optimizer`;
-- `notify-stopped-review` (validator, a session stopped): tell the service a review session stopped with its submission unfinished;
-- `guard-protected-paths` (validator, before a file write): block writes to the benchmark, its frozen configuration, the hidden data and the helper's own records;
-- `guard-owner-answers` (before a loop runs): block a run whose `answers` are not, word for word, messages the owner typed in the session after the loop stopped at those reviews, and record the ones it verified for `owner-review`. Every loop with an `owner-review` step declares it.
+- `guard-owner-answers` (before a loop runs): block a run whose `answers` are not, word for word, messages the owner typed in the session after the loop stopped at those reviews, and record the ones it verified for `owner-review`. Every loop with an `owner-review` step declares it;
+- the actions the project adds, named with their events in `.contrejour/project.json` (`hook_actions`) and described in `project-rules.md`.
 
 ## Output
 

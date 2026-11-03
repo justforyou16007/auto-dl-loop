@@ -65,8 +65,8 @@ Library check:
 3. Record the verdict on exactly this list, then return it; nothing can be sent without a recorded pass on its digest:
 
    ```bash
-   node .contrejour/dist/tools/library-cli.js record-leak-check --project . --digest <digest> --verdict pass
-   node .contrejour/dist/tools/library-cli.js record-leak-check --project . --digest <digest> --verdict leak --finding "<file: where and what kind>" "<another>"
+   node .contrejour/dist/tools/library-cli.js record-check --project . --digest <digest> --verdict pass
+   node .contrejour/dist/tools/library-cli.js record-check --project . --digest <digest> --verdict fail --finding "<file: where and what kind>" "<another>"
    ```
 
 ### What is a leak
@@ -90,7 +90,7 @@ Describing how tests are constructed (methods, tools, kinds of variation) is not
 ## Writes
 
 - Loop step: only `result_file` (`<submission_dir>/leak-review/<n>/result.json`), once per review; never the snapshot or `feedback.md`. Nothing when `exhausted`.
-- Library check: the verdict, through `library-cli.js record-leak-check`; nothing else.
+- Library check: the verdict, through `library-cli.js record-check` (a leak is `fail`); nothing else.
 
 ## Evaluation
 

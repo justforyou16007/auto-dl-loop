@@ -130,7 +130,7 @@ function connection(root: string): { url: string; token: string } {
   )
     failA1(
       "WORKER_NOT_CONFIGURED",
-      "run the worker-setup role first: .mcp.json names no contrejour server",
+      "run the worker-config role first: .mcp.json names no contrejour server",
     );
   return { url: server.url, token: auth.slice("Bearer ".length) };
 }
