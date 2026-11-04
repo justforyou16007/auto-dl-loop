@@ -168,7 +168,7 @@ try {
       setup: ["setup", "project"],
       configure: ["on-request", "project"],
       "library-contribution": ["on-request", "project"],
-      "upstream-optimization": ["on-request", "project"],
+      "loop-trial": ["on-request", "project"],
       "contribution-check": ["on-request", "project"],
       "loop-authoring": ["on-request", "project"],
       "role-authoring": ["on-request", "library"],
@@ -195,9 +195,11 @@ try {
   const contribution = loopOf(view, "library-contribution");
   assert.ok(contribution.steps.some((step) => step.roles.includes("owner-review")));
   assert.ok(view.roles.find((role) => role.name === "owner-review")?.used_by.includes("library-contribution"));
-  // Setup runs the side's configure, and loop-authoring to build or regenerate a loop, each as one step.
-  assert.ok(loopOf(view, "setup").children.includes("configure"));
+  // Setup sets up the workflow, building or regenerating a loop through loop-authoring as one step; configuring the
+  // machine is the research task's own loop, apart from it.
   assert.ok(loopOf(view, "setup").children.includes("loop-authoring"));
+  assert.equal(loopOf(view, "setup").children.includes("configure"), false);
+  assert.equal(loopOf(view, "configure").side, "worker");
 
   // Runs, newest first: which roles finished in each (a role that ran twice, twice) and the submission.
   assert.deepEqual(

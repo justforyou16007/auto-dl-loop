@@ -98,4 +98,4 @@ error. It never falls back to another environment.
 ## Related skills
 
 - [`/vast-gpu`](../../skills/vast-gpu/SKILL.md) — direct rental control
-- the project's environment skill, `.claude/skills/<project>-environment/` — its scripts, written when the project is set up (by `worker-config`, in the environment step of its side's `configure` loop, setup's first step), sync code, launch runs and fetch results, on a rented instance too
+- the project's environment skill, `.claude/skills/<project>-environment/` — its scripts, written when the machine is configured (in the environment step of the side's `configure` loop, by `worker-config` on the worker), sync code, launch runs and fetch results, on a rented instance too

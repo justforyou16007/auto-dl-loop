@@ -1,6 +1,6 @@
 ---
 name: worker-config
-description: The steps of the worker's configure loop, setup's first step on the worker — keeps the configuration sheet with the connection to the validator, applies it, prepares the environment and reports what it settled. Setup chooses the loop the project runs after it.
+description: The steps of the worker's configure loop — keeps the configuration sheet with the connection to the validator, applies it, prepares the environment and reports to the owner. The framework's setup sets up the project's workflow apart from it.
 side: worker
 effort: high
 ---
@@ -11,7 +11,7 @@ effort: high
 
 Worker side. Contrejour runs one task on two machines. This project is the **worker**: it builds deliverables for `task.md` and submits them to the validator machine, which owns an append-only benchmark the worker never sees and tests each submission as the worker's adversary. The two talk only through the validation service's MCP tools.
 
-The owner installed the project from a local checkout (`bash distribution/install-contrejour.sh --role worker --project PATH`) and sets it up with the framework's `setup` loop, whose first step is this side's `configure`. You do that loop's steps: the configuration sheet with the connection to the validator, from which `task.md` comes, applying it, the environment and the report of what it settled. Setup itself then chooses, with the owner, the loop the project runs and its parameter values (`.contrejour/loop.json`), checks the loops and hands off. Configure the validator first: this fetches `task.md` from its running service. Every decision goes to the owner through the loops' `owner-review` steps; you never call a role and never choose the project's loop.
+The owner installed the project from a local checkout (`bash distribution/install-contrejour.sh --role worker --project PATH`) and configures this machine with the research task's own `configure` loop, whose steps you do: the configuration sheet with the connection to the validator, from which `task.md` comes, applying it, the environment and the report to the owner. The project's workflow, the loop it runs and its parameter values (`.contrejour/loop.json`), is set up apart from this, by the framework's `setup` loop, after you. Set the validator up first (configured, its workflow set up, its service running): this fetches `task.md` from that service. Every decision goes to the owner through the loops' `owner-review` steps; you never call a role and never choose the project's loop.
 
 The helper is `node .contrejour/dist/tools/config-cli.js`, run from the project root. It owns the draft, the review sheet, the confirmed digest and this project's copy of `task.md`; never edit `.contrejour/setup-state.json`, `.contrejour/loop.json` or `task.md` by hand. A missing helper or a non-zero exit stops the step: return the error and the step it blocked, as [integration-contract.md](../skills/shared-references/integration-contract.md) says.
 
@@ -65,7 +65,7 @@ node .contrejour/dist/tools/config-cli.js apply --project .
 
 ### report
 
-Write what this configuration settled, for the hand-off `setup` gives the owner after it has chosen the loop the project runs and checked the loops: what apply wrote, each environment script with whether its real run passed, the environment section, and anything incomplete with its real error. Then what only this machine needs: a session that runs the loop loads `.mcp.json`, so the owner opens `claude` in the project once and approves the `contrejour` server before starting work from the Studio, where a background session cannot ask; and the session runs as `worker-task-manager`, round after round, so it needs a permission mode that does not wait for approvals (`claude --permission-mode bypassPermissions "start"`; `auto` instead has a classifier review each step, which may refuse some).
+Write the report for the owner: what apply wrote, each environment script with whether its real run passed, the environment section, and anything incomplete with its real error. Then what only this machine needs: a session that runs the loop loads `.mcp.json`, so the owner opens `claude` in the project once and approves the `contrejour` server before starting work from the Studio, where a background session cannot ask; and the session runs as `worker-task-manager`, round after round, so it needs a permission mode that does not wait for approvals (`claude --permission-mode bypassPermissions "start"`; `auto` instead has a classifier review each step, which may refuse some). Then what comes next: set up the project's workflow with `setup` (in the Studio, or `claude "Run the setup loop"`), try it with `loop-trial` (Trial in the Studio), and start.
 
 ## Output
 
@@ -87,4 +87,4 @@ Write what this configuration settled, for the hand-off `setup` gives the owner 
 - **Ownership**: nothing a helper owns written by hand (`task.md`, the configuration state, `.contrejour/loop.json`, `.mcp.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
 - **Environment facts**: verified, environment only, within the limit. Later rounds show what was missed: implementer runs lost to a fact the configuration could have recorded, and `worker-memory` correcting its facts.
 - **Scripts**: each ran once for real; a script that fails on its first later use, or a procedure the implementer keeps doing by hand, counts against the configuration.
-- **Report**: after setup's hand-off, the first `worker-task-manager` session starts and reaches the validation service without a configuration error.
+- **Report**: the first `worker-task-manager` session after setup starts and reaches the validation service without a configuration error.

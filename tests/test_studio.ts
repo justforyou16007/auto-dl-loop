@@ -112,7 +112,8 @@ try {
   assert.equal(loops.get("research-iteration")?.chosen, true);
   assert.equal(loops.get("research-iteration")?.check, "ok");
   assert.equal(loops.get("setup")?.kind, "setup", "every project has the framework's setup");
-  assert.equal(loops.get("configure")?.kind, "on-request", "the side's configure, setup's first step, also runs when asked");
+  assert.equal(loops.get("configure")?.kind, "on-request", "configuring the machine is the research task's own loop, run when asked");
+  assert.equal(loops.get("loop-trial")?.kind, "on-request");
 
   const flow = async (name: string) => JSON.parse((await request(at(`api/flow?name=${name}&source=project`), { cookie })).body);
   const arrows = (graph: { edges: { from: string; to: string; kind: string; label: string }[] }) =>
@@ -152,10 +153,16 @@ try {
   for (const expected of ["start>s1:next:regenerate", "start>s2:branch:otherwise", "s7>s4:back:revise", "s7>s9:branch:cancel", "s8>end:end:"])
     assert.ok(authoringArrows.includes(expected), `${expected} in ${authoringArrows.join(", ")}`);
   assert.ok(!authoringArrows.some((arrow) => arrow.startsWith("s8>s9")), "installing ends the loop");
-  // Setup runs the side's configure, and regenerates stale scripts through loop-authoring, each as one of its steps.
+  // Setup sets up the workflow: the owner's goal, the task loop, a check, the hand-off; loop-authoring builds or regenerates.
   const setup = await flow("setup");
-  assert.ok(setup.nodes.find((node: { title: string }) => node.title === "Configure").loops.includes("configure"));
+  assert.deepEqual(
+    setup.nodes.filter((node: { kind: string }) => node.kind === "step").map((node: { title: string }) => node.title),
+    ["Goal", "Task loop", "Check", "Hand off"],
+  );
+  assert.ok(setup.nodes.find((node: { title: string }) => node.title === "Task loop").loops.includes("loop-authoring"));
   assert.ok(setup.nodes.find((node: { title: string }) => node.title === "Check").loops.includes("loop-authoring"));
+  // A trial of the research round ends after Build, before anything is submitted.
+  assert.ok(researchArrows.some((arrow) => arrow.startsWith("s4>end:end:") && arrow.endsWith("trial")), researchArrows.join("\n"));
   assert.equal((await request(at("api/flow?name=no-such-loop"), { cookie })).status, 404);
 
   // The quick search: a Chinese request finds the English definition it describes.

@@ -1,6 +1,6 @@
 ---
 name: leak-reviewer
-description: Submission-review step 6, and the validator's contribution-check, before library-contribution or upstream-optimization sends anything. From a fresh context, checks the feedback, or the files that would leave this project, against the hidden tests and passes them only when they reveal no actual test case.
+description: Submission-review step 6, and the validator's contribution-check, before library-contribution sends anything. From a fresh context, checks the feedback, or the files that would leave this project, against the hidden tests and passes them only when they reveal no actual test case.
 side: validator
 tools: Read, Grep, Glob, Bash, Write
 effort: max
@@ -10,7 +10,7 @@ effort: max
 
 ## Responsibility
 
-Validator side, step 6 (Leak review) of `submission-review`, and the Leak check of the validator's `contribution-check`, before the validator's loops and roles leave this project: shared with the community library (`library-contribution`) or sent back where they came from (`upstream-optimization`). Another role wrote what you check. The worker is that role's adversary and must learn what is wrong with the deliverable, never what the tests are. Decide whether the text may leave this machine. You never edit what you check, and never run the deliverable.
+Validator side, step 6 (Leak review) of `submission-review`, and the Leak check of the validator's `contribution-check`, before the validator's loops and roles leave this project for the community library (`library-contribution`). Another role wrote what you check. The worker is that role's adversary and must learn what is wrong with the deliverable, never what the tests are. Decide whether the text may leave this machine. You never edit what you check, and never run the deliverable.
 
 ## Inputs
 

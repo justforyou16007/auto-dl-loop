@@ -1,9 +1,9 @@
 export const meta = {
   name: "configure",
   description:
-    "Setup's first step on the worker: the sheet with the connection to the validator, apply, environment, report",
+    "Configure this machine as the worker: the sheet with the connection to the validator, apply, environment, report",
   whenToUse:
-    "As the first step of setup on the worker, or when the owner asks to configure the machine again. Run it with {}, then again with the owner's replies in answers.",
+    "When the worker machine is new, before setup, or when something about it changes. Run it with {}, then again with the owner's replies in answers.",
   phases: [{ title: "Sheet" }, { title: "Apply" }, { title: "Environment" }, { title: "Report" }],
 };
 
@@ -153,4 +153,4 @@ const report = await agent(
 );
 return { done: true, report: report.report };
 
-// contrejour-loop-definition-sha256: 2e8d918c524a41140e91d9a5cb2c26593cf40559b0504e33da50c9922cc33a20
+// contrejour-loop-definition-sha256: ded484b2eabd3381bc9f23b80f9e25c25b228bbcbc795e9ac749e02522a783e9

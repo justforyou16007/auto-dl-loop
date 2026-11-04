@@ -3,7 +3,7 @@ export const meta = {
   description:
     "The validator's check of exactly what would leave: a leak review against the hidden tests, from a fresh context",
   whenToUse:
-    "As a step of library-contribution and upstream-optimization, when the plan says the validator's own check is required. Run it with the plan's digest and files.",
+    "As a step of library-contribution, when the plan says the validator's own check is required. Run it with the plan's digest and files.",
   phases: [{ title: "Leak check" }],
 };
 
@@ -24,4 +24,4 @@ const leak = await agent(
 );
 return { verdict: leak.verdict === "pass" ? "pass" : "fail", findings: leak.findings };
 
-// contrejour-loop-definition-sha256: 80166e5cdaca6bd045dca58181bdec488a77c50f91cc90f825f6743e04dd5850
+// contrejour-loop-definition-sha256: 98ad9cd9bdb1258c5809cd900b954084976a69aac0fdcf12d8b100327561f7f7

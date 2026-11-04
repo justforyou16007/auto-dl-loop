@@ -1,10 +1,9 @@
 /**
- * What leaves a project, as the owner and the library-contributor role see it:
- * the loops and roles it made, shared with the community library, and its
- * improvements to those a library gave it, sent back to that library. Real
- * installed helpers, real git with local bare repositories standing in for GitHub
- * (this package, with the framework's and the community's libraries as
- * submodules), a stand-in `gh`. Run `npm run build` first.
+ * Contributing, as the owner and the library-contributor role see it: the
+ * project's new and changed loops and roles, of which the owner chooses what goes,
+ * all to the community library. Real installed helpers, real git with local bare
+ * repositories standing in for GitHub (this package, with the framework's and the
+ * community's libraries as submodules), a stand-in `gh`. Run `npm run build` first.
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -96,7 +95,7 @@ function publishRepository(slug: string, files: (work: string) => void): string 
   return work;
 }
 // The framework's library and the community's, each in its own repository, and this package with both as submodules.
-const frameworkMaintainer = publishRepository("acme/agent-loop-studio", (work) =>
+publishRepository("acme/agent-loop-studio", (work) =>
   copyLibrary(path.join(source, "agent-loop-studio", "library"), path.join(work, "library")),
 );
 const communityMaintainer = publishRepository("acme/agent-loop-community", (work) =>
@@ -167,11 +166,10 @@ try {
   finish(worker, "s009");
   assert.deepEqual([plan(worker).eligible, plan(worker).finished_tasks], [true, ["s009"]]);
 
-  // --- sharing: only what this project made, and whatever its side, to the community library ---
+  // --- what can be contributed: the project's new and changed loops and roles, all to the community library ---
   libraryMoves("library/roles/worker/idea-assessor.md", (text) => `${text}\nA maintainer's improvement.\n`);
   planned = plan(worker);
-  assert.equal(planned.purpose, "share");
-  assert.equal(unit(planned, "idea-assessor"), undefined, "a role this project left alone is not sent");
+  assert.equal(unit(planned, "idea-assessor"), undefined, "a role this project left alone is not offered");
   assert.ok(planned.unchanged > 10);
   assert.deepEqual(selected(planned), ["citation-checker"]);
   assert.equal(planned.selected[0].state, "new");
@@ -195,38 +193,41 @@ try {
   assert.equal(unit(plan(worker), "problem-selector"), undefined);
   fs.writeFileSync(crlf, original);
 
-  // --- an improvement to a role a library gave this project is not shared: it goes back to that library ---
+  // A role the project was given and improved can be contributed too: the community library gets the project's version.
   write(crlf, `${original}\nThis project's improvement.\n`);
-  assert.deepEqual([unit(plan(worker), "problem-selector").state, unit(plan(worker), "problem-selector").library], ["improvement", "contrejour"]);
-  let upstream = plan(worker, "--purpose", "upstream");
-  assert.equal(unit(upstream, "problem-selector").state, "changed");
-  assert.equal(unit(upstream, "citation-checker").state, "contribution", "what the project made is shared, not sent upstream");
+  assert.deepEqual([unit(plan(worker), "problem-selector").state, unit(plan(worker), "problem-selector").library], ["new", "agent-loop-community"]);
 
-  // Both changed one role in different places: they merge, and the library's change survives.
+  // Another project already contributed its version of a role this one improved too: the two merge, both changes kept.
+  const assessorBase = read(path.join(source, "library/roles/worker/idea-assessor.md"));
+  const communityMoves = (relative: string, text: string) => {
+    git(communityMaintainer, "pull", "--quiet", "origin", "main");
+    write(path.join(communityMaintainer, relative), text);
+    git(communityMaintainer, "add", "-A");
+    git(communityMaintainer, "commit", "--quiet", "-m", `another project's ${relative}`);
+    git(communityMaintainer, "push", "--quiet", "origin", "main");
+  };
+  communityMoves("library/roles/worker/idea-assessor.md", `${assessorBase}\nAnother project's improvement.\n`);
   const assessor = path.join(agents, "idea-assessor.md");
   write(assessor, read(assessor).replace("# Idea assessor", "# Idea assessor, this project's title"));
-  upstream = plan(worker, "--purpose", "upstream");
-  assert.deepEqual([unit(upstream, "idea-assessor").state, unit(upstream, "idea-assessor").library], ["merged", "contrejour"]);
-  const preview = read(unit(upstream, "idea-assessor").files[0].preview);
+  planned = plan(worker);
+  assert.equal(unit(planned, "idea-assessor").state, "merged");
+  const preview = read(unit(planned, "idea-assessor").files[0].preview);
   assert.match(preview, /this project's title/);
-  assert.match(preview, /A maintainer's improvement/);
-  assert.match(read(upstream.changes_file), /this project's title/);
+  assert.match(preview, /Another project's improvement/);
+  assert.match(read(planned.changes_file), /this project's title/);
 
   // Both changed the same part: it stays out, and says what to do.
-  libraryMoves("library/roles/worker/worker-memory.md", (text) => text.replace("# Worker memory", "# Worker memory, the library's title"));
+  const memoryBase = read(path.join(source, "library/roles/worker/worker-memory.md"));
+  communityMoves("library/roles/worker/worker-memory.md", memoryBase.replace("# Worker memory", "# Worker memory, another project's title"));
   const memory = path.join(agents, "worker-memory.md");
   write(memory, read(memory).replace("# Worker memory", "# Worker memory, this project's title"));
-  upstream = plan(worker, "--purpose", "upstream");
-  assert.equal(unit(upstream, "worker-memory").state, "conflict");
-  assert.match(unit(upstream, "worker-memory").reason, /by hand/);
-  assert.equal(selected(upstream).includes("worker-memory"), false);
+  planned = plan(worker);
+  assert.equal(unit(planned, "worker-memory").state, "conflict");
+  assert.match(unit(planned, "worker-memory").reason, /by hand/);
+  assert.equal(selected(planned).includes("worker-memory"), false);
 
-  // A role of the same name another project already shared is not overwritten.
-  git(communityMaintainer, "pull", "--quiet", "origin", "main");
-  write(path.join(communityMaintainer, "library/roles/worker/taken-name.md"), role("taken-name", "worker", "theirs\n"));
-  git(communityMaintainer, "add", "-A");
-  git(communityMaintainer, "commit", "--quiet", "-m", "another project's role");
-  git(communityMaintainer, "push", "--quiet", "origin", "main");
+  // A role of the same name another project already contributed is not overwritten.
+  communityMoves("library/roles/worker/taken-name.md", role("taken-name", "worker", "theirs\n"));
   write(path.join(agents, "taken-name.md"), role("taken-name", "worker", "ours\n"));
   assert.equal(unit(plan(worker), "taken-name").state, "conflict");
   fs.rmSync(path.join(agents, "taken-name.md"));
@@ -246,7 +247,7 @@ try {
   assert.match(unit(planned, "local-paths").warnings[0], /\/home\/someone\/data\/set/);
   for (const name of ["leaky", "shaped-key", "elsewhere", "local-paths"]) fs.rmSync(path.join(agents, `${name}.md`));
 
-  // --- what leaves is exactly the plan the owner approved ---
+  // --- the owner chooses what goes, and exactly the plan they approved leaves ---
   write(path.join(agents, "summary-writer.md"), role("summary-writer", "worker"));
   planned = plan(worker, "--exclude", "summary-writer");
   assert.equal(unit(planned, "summary-writer").state, "excluded");
@@ -258,11 +259,9 @@ try {
   const citations = path.join(agents, "citation-checker.md");
   write(citations, `${read(citations)}\nChanged after the review.\n`);
   assert.equal(reply(cli(worker, "contribute", "--digest", approved, "--exclude", "summary-writer")).reason, "PLAN_CHANGED");
-  // A digest binds its purpose: an approved contribution sends nothing upstream.
-  const shareDigest = plan(worker, "--exclude", "summary-writer").digest;
-  assert.equal(reply(cli(worker, "contribute", "--purpose", "upstream", "--digest", shareDigest)).reason, "PLAN_CHANGED");
 
   planned = plan(worker, "--exclude", "summary-writer");
+  assert.deepEqual(selected(planned), ["citation-checker", "idea-assessor", "problem-selector"]);
   const branchBefore = git(checkout, "branch", "--show-current");
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const firstBranch = `library/worker-worker-${stamp}`;
@@ -274,11 +273,19 @@ try {
   assert.equal(only(result).branch, firstBranch);
   assert.equal(only(result).pull_request, "https://github.com/acme/contrejour/pull/7");
   const communityRepo = path.join(github, "acme/agent-loop-community.git");
-  assert.deepEqual(changedFiles(communityRepo, "main", firstBranch), ["A\tlibrary/roles/worker/citation-checker.md"]);
+  // The new role, the merged one and the improved one, undoing nothing the community library changed.
+  assert.deepEqual(changedFiles(communityRepo, "main", firstBranch), [
+    "A\tlibrary/roles/worker/citation-checker.md",
+    "A\tlibrary/roles/worker/problem-selector.md",
+    "M\tlibrary/roles/worker/idea-assessor.md",
+  ]);
+  assert.match(git(communityRepo, "show", `${firstBranch}:library/roles/worker/idea-assessor.md`), /Another project's improvement/);
   const [pr] = prCalls();
   assert.deepEqual(pr!.args.slice(0, 8), ["pr", "create", "--repo", "acme/agent-loop-community", "--base", "main", "--head", firstBranch]);
   assert.match(pr!.body!, /citation-checker/);
   assert.match(pr!.body!, /after 1 finished task/);
+  // Nothing went to this package or the framework.
+  assert.equal(git(path.join(github, "acme/contrejour.git"), "branch", "--list", "library/*"), "");
   // The checkouts are as they were, with no working copy left behind.
   const communityCheckout = path.join(checkout, "agent-loop-community");
   assert.equal(git(checkout, "branch", "--show-current"), branchBefore);
@@ -289,27 +296,7 @@ try {
   assert.equal(fs.existsSync(path.join(worker, ".contrejour/contributions/preview")), false);
   assert.deepEqual(fs.readdirSync(path.join(worker, ".contrejour/contributions/worktrees")), []);
 
-  // --- sending upstream: the improvements go back to the library that gave them, merged with what it changed ---
-  upstream = plan(worker, "--purpose", "upstream");
-  assert.deepEqual(selected(upstream), ["idea-assessor", "problem-selector"]);
-  fs.rmSync(ghLog, { force: true });
-  run = cli(worker, "contribute", "--purpose", "upstream", "--digest", upstream.digest);
-  assert.equal(run.status, 0, run.stdout + run.stderr);
-  result = reply(run);
-  assert.equal(only(result).library, "contrejour");
-  const upstreamBranch = only(result).branch;
-  assert.equal(upstreamBranch, `upstream/worker-worker-${stamp}`);
-  const packageRepo = path.join(github, "acme/contrejour.git");
-  assert.deepEqual(changedFiles(packageRepo, "main", upstreamBranch), [
-    "M\tlibrary/roles/worker/idea-assessor.md",
-    "M\tlibrary/roles/worker/problem-selector.md",
-  ]);
-  assert.match(git(packageRepo, "show", `${upstreamBranch}:library/roles/worker/idea-assessor.md`), /A maintainer's improvement/);
-  assert.deepEqual(prCalls()[0]!.args.slice(0, 4), ["pr", "create", "--repo", "acme/contrejour"]);
-  assert.match(prCalls()[0]!.body!, /Improvements a worker project made/);
-  assert.equal(unit(plan(worker, "--purpose", "upstream"), "problem-selector").state, "already-contributed");
-
-  // What a pull request already carries is not shared twice; what changed further is, on a new branch.
+  // What a pull request already carries is not sent twice; what changed further is, on a new branch.
   planned = plan(worker, "--exclude", "summary-writer");
   assert.equal(unit(planned, "citation-checker").state, "already-contributed");
   assert.equal(planned.digest, null);
@@ -330,6 +317,8 @@ try {
   assert.equal(unit(plan(worker), "citation-checker").state, "changed");
   fs.rmSync(citations);
   fs.rmSync(path.join(agents, "summary-writer.md"));
+  for (const name of ["idea-assessor", "problem-selector", "worker-memory"])
+    fs.writeFileSync(path.join(agents, `${name}.md`), read(path.join(worker, ".contrejour/seeded/agents", `${name}.md`)));
 
   // --- a contribution that would break the library does not leave ---
   write(path.join(agents, "needed-role.md"), role("needed-role", "worker"));
@@ -402,7 +391,7 @@ try {
   assert.ok(only(pushedOnly).compare_url.startsWith("https://github.com/acme/agent-loop-community/compare/main..."));
   fs.rmSync(path.join(agents, "stays-local.md"));
 
-  // --- the validator's files leave only after its own check of exactly this list, either way ---
+  // --- the validator's files leave only after its own check of exactly this list ---
   const validator = install("validator", "validator");
   const hidden = path.join(validator, "bench/labels.json");
   write(hidden, "{}");
@@ -434,7 +423,11 @@ try {
   assert.match(unit(planned, "hidden-role").reason, /hidden path/);
   fs.rmSync(path.join(vAgents, "token-role.md"));
   fs.rmSync(path.join(vAgents, "hidden-role.md"));
+  // An improved validator role is checked like a new one: whatever leaves, the check covers.
+  const inspector = path.join(vAgents, "inspector.md");
+  write(inspector, `${read(inspector)}\nAn improvement learned from the reviews.\n`);
   planned = plan(validator);
+  assert.deepEqual(selected(planned), ["inspector", "probe-writer"]);
   assert.equal(planned.check, "required");
   const needsCheck = cli(validator, "contribute", "--digest", planned.digest);
   assert.equal(reply(needsCheck).reason, "CHECK_REQUIRED");
@@ -446,22 +439,15 @@ try {
   assert.equal(verdict(planned.digest, "fail", "--finding", "probe-writer.md: an example close to a test").status, 0);
   assert.equal(plan(validator).check, "failed");
   assert.equal(reply(cli(validator, "contribute", "--digest", planned.digest)).reason, "CHECK_FAILED");
-  // The contributor passes the purpose with every command; the digest already binds it.
-  assert.equal(verdict(planned.digest, "pass", "--purpose", "share").status, 0);
+  assert.equal(verdict(planned.digest, "pass").status, 0);
   assert.equal(plan(validator).check, "passed");
   fs.rmSync(ghLog, { force: true });
   run = cli(validator, "contribute", "--digest", planned.digest);
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.match(prCalls()[0]!.body!, /project's own check of what leaves passed/);
-  assert.equal(cli(worker, "record-check", "--digest", "a".repeat(64), "--verdict", "pass").status, 1, "a worker's plans need no check of their own");
-  // An improvement going back upstream needs the same check.
-  const inspector = path.join(vAgents, "inspector.md");
-  write(inspector, `${read(inspector)}\nAn improvement learned from the reviews.\n`);
-  const vUpstream = plan(validator, "--purpose", "upstream");
-  assert.deepEqual([selected(vUpstream), vUpstream.check], [["inspector"], "required"]);
-  assert.equal(reply(cli(validator, "contribute", "--purpose", "upstream", "--digest", vUpstream.digest)).reason, "CHECK_REQUIRED");
+  assert.equal(cli(worker, "record-check", "--digest", "a".repeat(64), "--verdict", "pass").status, 1, "a worker's contributions need no check of their own");
 
-  // --- a new role reaches every project only when it says so ---
+  // --- a role any project can use, and a project's version of a framework one, go to the community library ---
   // A project receives the framework's library, the community's and this package's, laid together.
   const shared = path.join(sandbox, "shared-role");
   for (const library of [path.join(source, "agent-loop-studio", "library"), path.join(source, "agent-loop-community", "library"), path.join(source, "library")])
@@ -481,98 +467,97 @@ try {
   write(path.join(everyProject, ".claude/agents/general-helper.md"), role("general-helper", "framework"));
   const baseRole = path.join(everyProject, ".claude/agents/owner-review.md");
   write(baseRole, `${read(baseRole)}\nA project's improvement to a base role.\n`);
-  // Shared, the new role goes to the community library, where every project can get it.
   planned = plan(everyProject);
   assert.deepEqual(
-    planned.selected.map((entry: Record<string, any>) => [entry.name, entry.library, entry.files[0].target]),
-    [["general-helper", "agent-loop-community", "library/roles/framework/general-helper.md"]],
+    planned.selected.map((entry: Record<string, any>) => [entry.name, entry.library, entry.files[0].target]).sort(),
+    [
+      ["general-helper", "agent-loop-community", "library/roles/framework/general-helper.md"],
+      ["owner-review", "agent-loop-community", "library/roles/framework/owner-review.md"],
+    ],
   );
-  assert.equal(unit(planned, "owner-review").state, "improvement");
   assert.equal(planned.library_check.ok, true, JSON.stringify(planned.library_check));
   fs.rmSync(ghLog, { force: true });
   run = cli(everyProject, "contribute", "--digest", planned.digest);
   assert.equal(run.status, 0, run.stdout + run.stderr);
   result = reply(run);
-  assert.deepEqual(changedFiles(communityRepo, "main", only(result).branch), ["A\tlibrary/roles/framework/general-helper.md"]);
-  // Sent upstream, the improved base role goes back to the framework.
-  upstream = plan(everyProject, "--purpose", "upstream");
-  assert.deepEqual(upstream.selected.map((entry: Record<string, any>) => [entry.name, entry.library]), [["owner-review", "agent-loop-studio"]]);
-  fs.rmSync(ghLog, { force: true });
-  run = cli(everyProject, "contribute", "--purpose", "upstream", "--digest", upstream.digest);
-  assert.equal(run.status, 0, run.stdout + run.stderr);
-  result = reply(run);
-  assert.deepEqual(prCalls().map((call) => call.args[3]), ["acme/agent-loop-studio"]);
-  assert.deepEqual(changedFiles(path.join(github, "acme/agent-loop-studio.git"), "main", only(result).branch), ["M\tlibrary/roles/framework/owner-review.md"]);
+  assert.deepEqual(prCalls().map((call) => call.args[3]), ["acme/agent-loop-community"]);
+  assert.deepEqual(changedFiles(communityRepo, "main", only(result).branch), [
+    "A\tlibrary/roles/framework/general-helper.md",
+    "A\tlibrary/roles/framework/owner-review.md",
+  ]);
+  assert.equal(git(path.join(github, "acme/agent-loop-studio.git"), "branch", "--list", "library/*"), "", "nothing goes to the framework");
   for (const library of ["agent-loop-studio", "agent-loop-community"]) {
     assert.equal(git(path.join(checkout, library), "status", "--short"), "");
     assert.equal(git(path.join(checkout, library), "worktree", "list").split("\n").length, 1);
   }
-  // The framework's maintainers merge it; then the framework has exactly this.
-  git(frameworkMaintainer, "fetch", "--quiet", "origin");
-  git(frameworkMaintainer, "merge", "--quiet", "--no-edit", `origin/${only(result).branch}`);
-  git(frameworkMaintainer, "push", "--quiet", "origin", "main");
-  assert.equal(unit(plan(everyProject, "--purpose", "upstream"), "owner-review").state, "in-library");
+  // The community's maintainers merge it; then the community library has exactly this.
+  git(communityMaintainer, "fetch", "--quiet", "origin");
+  git(communityMaintainer, "merge", "--quiet", "--no-edit", `origin/${only(result).branch}`);
+  git(communityMaintainer, "push", "--quiet", "origin", "main");
+  assert.equal(unit(plan(everyProject), "owner-review").state, "in-library");
 
-  // --- a project without a checkout fetches the one it needs ---
+  // --- a project without a checkout of the community library fetches one ---
   const fromArchive = install("from-archive", "worker", null);
   finish(fromArchive, "s001");
   write(path.join(fromArchive, ".claude/agents/archive-role.md"), role("archive-role", "worker"));
   planned = plan(fromArchive);
   assert.equal(planned.library.available, false);
   assert.equal(planned.library.upstream, "https://github.com/justforyou16007/agent-loop-community.git");
-  assert.match(planned.library.reason, /clone --purpose share/);
+  assert.match(planned.library.reason, /library-cli\.js clone/);
   assert.equal(reply(cli(fromArchive, "contribute", "--digest", "0".repeat(64))).reason, "LIBRARY_UNAVAILABLE");
-  const sharedClone = cli(fromArchive, "clone");
-  assert.equal(sharedClone.status, 0, sharedClone.stdout + sharedClone.stderr);
-  assert.equal(reply(sharedClone).cloned, true);
+  const cloned = cli(fromArchive, "clone");
+  assert.equal(cloned.status, 0, cloned.stdout + cloned.stderr);
+  assert.equal(reply(cloned).cloned, true);
   assert.equal(reply(cli(fromArchive, "clone")).cloned, false);
   planned = plan(fromArchive);
   assert.equal(planned.library.available, true);
   assert.deepEqual(selected(planned), ["archive-role"]);
-  upstream = plan(fromArchive, "--purpose", "upstream");
-  assert.equal(upstream.library.available, false);
-  assert.equal(upstream.library.upstream, "https://github.com/justforyou16007/auto-dl-loop");
-  const packaged = path.join(fromArchive, ".contrejour/package.json");
-  write(packaged, JSON.stringify({ ...JSON.parse(read(packaged)), repository: { url: "git+https://github.com/acme/contrejour.git" } }));
-  const upstreamClone = cli(fromArchive, "clone", "--purpose", "upstream");
-  assert.equal(upstreamClone.status, 0, upstreamClone.stdout + upstreamClone.stderr);
-  assert.equal(plan(fromArchive, "--purpose", "upstream").library.available, true);
+  // With no checkout of this package, what the project was given still stands under the check.
+  assert.equal(planned.library_check.ok, true, JSON.stringify(planned.library_check));
 
-  // --- a repository whose default branch has no library yet: what goes back targets the branch it has ---
-  const early = publishRepository("acme/early", (work) => write(path.join(work, "README.md"), "no library here\n"));
-  git(early, "checkout", "--quiet", "-b", "feat/framework");
-  fs.cpSync(path.join(source, "library"), path.join(early, "library"), { recursive: true });
-  git(early, "add", "-A");
-  git(early, "commit", "--quiet", "-m", "library");
-  git(early, "push", "--quiet", "origin", "feat/framework");
+  // --- a community library whose default branch has no library yet: the contribution targets the branch it has ---
+  const earlyCommunity = publishRepository("acme/early-community", (work) => write(path.join(work, "README.md"), "no library here\n"));
+  git(earlyCommunity, "checkout", "--quiet", "-b", "feat/library");
+  copyLibrary(path.join(source, "agent-loop-community", "library"), path.join(earlyCommunity, "library"));
+  git(earlyCommunity, "add", "-A");
+  git(earlyCommunity, "commit", "--quiet", "-m", "library");
+  git(earlyCommunity, "push", "--quiet", "origin", "feat/library");
   const earlyCheckout = path.join(sandbox, "early-checkout");
-  execFileSync("git", ["clone", "--quiet", "--branch", "feat/framework", "https://github.com/acme/early.git", earlyCheckout], { env, stdio: "ignore" });
+  fs.mkdirSync(earlyCheckout);
+  execFileSync("git", ["init", "--quiet", "--initial-branch=main", earlyCheckout], { env });
+  fs.cpSync(path.join(source, "library"), path.join(earlyCheckout, "library"), { recursive: true });
+  git(earlyCheckout, "add", "-A");
+  git(earlyCheckout, "commit", "--quiet", "-m", "library");
+  execFileSync("git", ["clone", "--quiet", "--branch", "feat/library", "https://github.com/acme/early-community.git", path.join(earlyCheckout, "agent-loop-community")], { env, stdio: "ignore" });
   const earlyProject = install("early-project", "worker", earlyCheckout);
   finish(earlyProject, "s001");
-  const earlyRole = path.join(earlyProject, ".claude/agents/problem-selector.md");
-  write(earlyRole, `${read(earlyRole)}\nAn early improvement.\n`);
-  upstream = plan(earlyProject, "--purpose", "upstream");
-  assert.equal(upstream.library.base_branch, "feat/framework");
-  assert.match(upstream.library.note, /default branch main has no library yet/);
+  write(path.join(earlyProject, ".claude/agents/early-role.md"), role("early-role", "worker"));
+  planned = plan(earlyProject);
+  assert.equal(planned.library.base_branch, "feat/library");
+  assert.match(planned.library.note, /default branch main has no library yet/);
   fs.rmSync(ghLog, { force: true });
-  run = cli(earlyProject, "contribute", "--purpose", "upstream", "--digest", upstream.digest);
+  run = cli(earlyProject, "contribute", "--digest", planned.digest);
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.deepEqual(prCalls()[0]!.args.slice(4, 6), ["--base", "feat/framework"]);
+  assert.deepEqual(prCalls()[0]!.args.slice(4, 6), ["--base", "feat/library"]);
 
-  // --- a checkout with no remote: the branch stays local ---
+  // --- a community checkout with no remote: the branch stays local ---
   const lone = path.join(sandbox, "lone-checkout");
   fs.mkdirSync(lone);
   execFileSync("git", ["init", "--quiet", "--initial-branch=main", lone], { env });
   fs.cpSync(path.join(source, "library"), path.join(lone, "library"), { recursive: true });
   git(lone, "add", "-A");
   git(lone, "commit", "--quiet", "-m", "library");
+  const loneCommunity = path.join(lone, "agent-loop-community");
+  execFileSync("git", ["init", "--quiet", "--initial-branch=main", loneCommunity], { env });
+  copyLibrary(path.join(source, "agent-loop-community", "library"), path.join(loneCommunity, "library"));
+  git(loneCommunity, "add", "-A");
+  git(loneCommunity, "commit", "--quiet", "-m", "library");
   const loneProject = install("lone-project", "worker", lone);
   finish(loneProject, "s001");
-  const loneRole = path.join(loneProject, ".claude/agents/problem-selector.md");
-  write(loneRole, `${read(loneRole)}\nA lone improvement.\n`);
-  upstream = plan(loneProject, "--purpose", "upstream");
-  assert.equal(upstream.library.remote, null);
-  run = cli(loneProject, "contribute", "--purpose", "upstream", "--digest", upstream.digest);
+  write(path.join(loneProject, ".claude/agents/lone-role.md"), role("lone-role", "worker"));
+  planned = plan(loneProject);
+  assert.equal(planned.library.remote, null);
+  run = cli(loneProject, "contribute", "--digest", planned.digest);
   assert.equal(run.status, 1);
   assert.equal(reply(run).status, "local-only");
   assert.match(reply(run).reason, /no remote/);
@@ -583,15 +568,19 @@ try {
   fs.rmSync(path.join(older, ".contrejour/seeded"), { recursive: true });
   const olderRole = path.join(older, ".claude/agents/problem-selector.md");
   write(olderRole, `${read(olderRole)}\nChanged before baselines.\n`);
-  // Its changed role cannot be told apart from what the library changed, so it stays out.
-  assert.equal(unit(plan(older, "--purpose", "upstream"), "problem-selector").state, "unknown-base");
+  // What it changed cannot be told, so no seeded role of it is offered, changed or not.
+  planned = plan(older);
+  assert.equal(unit(planned, "problem-selector").state, "unknown-base");
+  assert.equal(unit(planned, "implementer").state, "unknown-base");
+  assert.deepEqual(selected(planned), []);
   // Updating backfills only what is provably unedited.
   execFileSync(process.execPath, [installer, "--role", "worker", "--project", older], { stdio: "ignore" });
   assert.ok(fs.existsSync(path.join(older, ".contrejour/seeded/agents/implementer.md")));
   assert.equal(fs.existsSync(path.join(older, ".contrejour/seeded/agents/problem-selector.md")), false);
-  assert.equal(unit(plan(older, "--purpose", "upstream"), "problem-selector").state, "unknown-base");
+  assert.equal(unit(plan(older), "problem-selector").state, "unknown-base");
+  assert.equal(unit(plan(older), "implementer"), undefined, "a backfilled role it left alone is not offered");
 
-  console.log("contribution: sharing, sending upstream, baselines, merges, forks, own checks and fallbacks passed");
+  console.log("contribution: the owner's choice to the community library, baselines, merges, forks, own checks and fallbacks passed");
 } finally {
   fs.rmSync(sandbox, { recursive: true, force: true });
 }

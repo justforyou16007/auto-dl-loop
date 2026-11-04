@@ -8,9 +8,9 @@ This project is one side of a task run on two machines: the **worker** researche
 - A validator task loop is run by the validation service once per submission, with `{submission_id, submission_dir, params}`, in a session running as `validator-task-manager`. It ends with that role's `finalize` step, or its `abandon` step when the validator cannot complete the review; nothing reaches the worker except what finalize publishes.
 ## Setting up
 
-- Each machine is set up by the framework's `setup` loop. Its first step is this side's `configure`, which replaces the framework's: on the worker the connection to the validator and `task.md`, fetched from the validator's service, so the validator is set up first; on the validator `task.md`, the benchmark, the terms and the service. Both configure the machine's environment.
-- Setup then chooses the task loop: normally `research-iteration` on the worker and `submission-review` on the validator.
-- How to start, for setup's hand-off: on the worker, `claude --permission-mode bypassPermissions "start"` in the project, after opening `claude` once to approve the `contrejour` server when starting from the Studio; on the validator, the service command the configuration's report names, kept running, after which the service starts every review itself.
+- Each machine is configured first by this package's own `configure` loop: on the worker the connection to the validator and `task.md`, fetched from the validator's service, so the validator comes first: configured, its workflow set up and its service running; on the validator `task.md`, the benchmark, the terms and the service. Both prepare the machine's environment. It is the research task's, apart from the project's workflow.
+- The project's workflow is set up by the framework's `setup` loop, after `configure`: normally `research-iteration` on the worker and `submission-review` on the validator, with their parameter values. `loop-trial` tries `research-iteration` with its `trial` argument, which stops the round before it submits; `submission-review` needs a real submission, so it is not tried.
+- How to start, for setup's hand-off: on the worker, `claude --permission-mode bypassPermissions "start"` in the project, after opening `claude` once to approve the `contrejour` server when starting from the Studio; on the validator, the service command `configure`'s report names, kept running, after which the service starts every review itself.
 
 ## Hook actions
 
@@ -26,9 +26,9 @@ Added by this project's extension, and declared by the loops that need them:
 - On the worker, `trajectory-optimizer` fixes roles directly and commits each fix.
 - On the validator, the trajectories hold the hidden tests and text the worker wrote, the validator's adversary; neither may find its way into a role. `trajectory-optimizer` only proposes, and a proposal takes effect when the owner accepts it in `proposal-review`. A proposal may describe how tests are constructed, never contain one.
 
-## Contributing and sending upstream
+## Optimizing and contributing
 
-- A task has finished when a submission's review ended and its result was published; `invalid`, `expired` and `failed` submissions do not count.
-- The loops and roles a project made are shared with the community library (`library-contribution`); its improvements to those a library gave it go back there (`upstream-optimization`): this package's worker and validator loops and roles to this package, the framework's to agent-loop-studio, the community's to agent-loop-community. Both when the owner decides to.
-- On the validator, nothing leaves either way before this side's `contribution-check` has run: `leak-reviewer` checks exactly the files that would leave against the hidden tests and records its verdict on the plan's digest (`node .contrejour/dist/tools/library-cli.js record-check`).
+- What a project improves stays in it: on the worker `trajectory-optimizer` fixes roles in the project and commits each fix; on the validator it only proposes (above).
+- A task has finished when a submission's review ended and its result was published; `invalid`, `expired` and `failed` submissions do not count. After that, when the owner decides to, `library-contribution` sends the loops and roles the owner chooses, new or improved, to the community library.
+- On the validator, nothing leaves before this side's `contribution-check` has run: `leak-reviewer` checks exactly the files that would leave against the hidden tests and records its verdict on the plan's digest (`node .contrejour/dist/tools/library-cli.js record-check`).
 - The validation service's token and the hidden data never leave.

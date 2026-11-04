@@ -97,4 +97,4 @@ Contrejour + Vast.ai 的典型工作负载：
 ## 相关 skill
 
 - [`/vast-gpu`](../../skills/vast-gpu/SKILL.md) —— 直接租用控制
-- 项目的环境技能 `.claude/skills/<project>-environment/` —— 它的脚本在设置项目时写好（由 `worker-config` 在本端 `configure` 流程的环境一步写入，`configure` 是设置流程的第一步），负责同步代码、启动实验、取回结果，租来的实例也一样
+- 项目的环境技能 `.claude/skills/<project>-environment/` —— 它的脚本在配置本机时写好（在本端 `configure` 流程的环境一步写入，worker 端由 `worker-config` 写），负责同步代码、启动实验、取回结果，租来的实例也一样

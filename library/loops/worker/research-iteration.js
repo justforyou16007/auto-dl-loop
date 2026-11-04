@@ -262,6 +262,16 @@ if (!built.ready) {
   return { stage: "build", submitted: false, reason: built.summary };
 }
 
+// A trial run stops here: nothing reaches the validator, no submission is used.
+if (input.trial)
+  return {
+    stage: "build",
+    submitted: false,
+    trial: true,
+    commit: built.commit,
+    reason: built.summary,
+  };
+
 // Step 5: after this the round waits for the published result.
 phase("Submit");
 const submitted = await agent(
@@ -282,4 +292,4 @@ return {
   reason: submitted.reason,
 };
 
-// contrejour-loop-definition-sha256: 3d4889aae8ca078d753d39b73adc3b0fb6a6c0185ce74258ddcb42ac9953c6b9
+// contrejour-loop-definition-sha256: eab58307e3c1c149599a0cab54eaa893b5be666bc6ef2ee348e7e9ccdf4c20b5

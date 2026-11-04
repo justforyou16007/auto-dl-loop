@@ -8,7 +8,7 @@
       "entry_role": "worker-task-manager",
       "sides": ["worker"],
       "next": [
-        "Set up the validator machine first. Its setup's configure step on this machine connects to the validator and fetches task.md; then setup has you choose the loop this project runs (normally research-iteration) and its values."
+        "Set the validator machine up first: configured, its workflow set up and its service running. Then configure this one with its configure loop (in the Studio, pick configure in the list above the canvas and press Run; or claude \"Run the configure loop\"): it connects to the validator and fetches task.md. Then set up the workflow with setup (normally research-iteration), and try it with loop-trial before the real rounds."
       ]
     },
     "validator": {
@@ -16,7 +16,7 @@
       "entry_role": "validator-task-manager",
       "sides": ["validator"],
       "next": [
-        "Its setup's configure step on this machine settles task.md, the benchmark, the validation terms and the service; then setup has you choose the loop that reviews each submission (normally submission-review). Start the service the hand-off names afterwards."
+        "Configure this machine with its configure loop (in the Studio, pick configure in the list above the canvas and press Run; or claude \"Run the configure loop\"): task.md, the benchmark, the terms and the service. Then set up the workflow with setup (normally submission-review), and start the service the configuration's report names."
       ]
     }
   },

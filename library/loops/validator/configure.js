@@ -1,9 +1,9 @@
 export const meta = {
   name: "configure",
   description:
-    "Setup's first step on the validator: the requirement, task.md, the sheet with the validation terms, apply, environment, report",
+    "Configure this machine as the validator: the requirement, task.md, the sheet with the validation terms, apply, environment, report",
   whenToUse:
-    'As the first step of setup on the validator, or when the owner asks to configure the machine again. Run it with {"requirement": "<what to validate, or start>"}, then again with the owner\'s replies in answers.',
+    'When the validator machine is new, before setup, or when its terms change. Run it with {"requirement": "<what to validate, or start>"}, then again with the owner\'s replies in answers.',
   phases: [
     { title: "Requirement" },
     { title: "Task" },
@@ -241,4 +241,4 @@ const report = await agent(
 );
 return { done: true, requirement, report: report.report };
 
-// contrejour-loop-definition-sha256: a67170bbd94b22e6cc572fbf39fd55a93519fcc1972ebed50e7f87bbb5f76b56
+// contrejour-loop-definition-sha256: 9c10749e0daa40eedd0387365c3dc0b8606c7072e5947e89e11b6f6ad4e3c88c

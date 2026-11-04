@@ -1,6 +1,6 @@
 # Templates
 
-Configuring a machine reads these: the roles of each side's `configure` loop, setup's first step (`worker-config`, `validator-config`), and its apply step (`config-cli.js apply`). The installer copies them to `.contrejour/templates/`; you do not copy them by hand.
+Configuring a machine reads these: the roles of each side's `configure` loop (`worker-config`, `validator-config`), and its apply step (`config-cli.js apply`). The installer copies them to `.contrejour/templates/`; you do not copy them by hand.
 
 | Template | Used by |
 | --- | --- |

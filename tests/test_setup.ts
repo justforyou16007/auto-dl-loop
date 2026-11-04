@@ -456,9 +456,10 @@ await project("distribution", async (sandbox) => {
     const loops = [...new Set([...libraryFiles("loops/framework"), ...libraryFiles(`loops/${role}`)])].sort();
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/loops")).sort(), loops.filter((file) => file.endsWith(".md")));
     assert.deepEqual(fs.readdirSync(path.join(root, ".claude/workflows")).sort(), loops.filter((file) => file.endsWith(".js")));
-    // Owner decisions are a loop step; the framework's setup sets the machine up, its configure step this side's own.
-    assert.ok(loops.includes("loop-authoring.js") && loops.includes("setup.js") && loops.includes("configure.js"));
-    assert.match(fs.readFileSync(path.join(root, ".claude/loops/configure.md"), "utf8"), new RegExp(`side: ${role}`), "the side's configure takes the framework's place");
+    // Owner decisions are a loop step. The machine is configured by this side's own configure loop; the framework's
+    // setup sets up the project's workflow apart from it, and loop-trial tries a loop.
+    assert.ok(["loop-authoring.js", "setup.js", "loop-trial.js", "configure.js"].every((loop) => loops.includes(loop)));
+    assert.match(fs.readFileSync(path.join(root, ".claude/loops/configure.md"), "utf8"), new RegExp(`side: ${role}`), "configure is the side's own");
     assert.ok(fs.existsSync(path.join(root, ".contrejour/project.json")), "the package's manifest is installed");
     assert.ok(fs.existsSync(path.join(root, ".claude/agents/owner-review.md")));
     assert.ok(fs.existsSync(path.join(root, ".claude/skills/shared-references/running-loops.md")));

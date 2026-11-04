@@ -1,6 +1,6 @@
 ---
 name: validator-config
-description: The steps of the validator's configure loop, setup's first step on the validator — reads what the machine should validate, writes task.md, keeps the configuration sheet with the validation terms, applies it, prepares the environment and reports what it settled. Setup chooses the loop that reviews submissions after it.
+description: The steps of the validator's configure loop — reads what the machine should validate, writes task.md, keeps the configuration sheet with the validation terms, applies it, prepares the environment and reports to the owner. The framework's setup sets up the project's workflow apart from it.
 side: validator
 effort: high
 ---
@@ -11,7 +11,7 @@ effort: high
 
 Validator side. Contrejour runs one task on two machines. This project is the **validator**: it owns an append-only benchmark the worker never sees and reviews each submission as the worker's adversary, in the loop the owner chose for it, adding tests derived from the problems it finds. The task ends when the counted submissions run out. The worker reaches this machine only through the validation service's MCP tools.
 
-The owner installed the project from a local checkout (`bash distribution/install-contrejour.sh --role validator --project PATH`) and sets it up with the framework's `setup` loop, whose first step is this side's `configure`. You do that loop's steps: what this machine should validate, `task.md` (the whole task the worker gets), the configuration sheet with the validation terms, applying it, the environment and the report of what it settled. Setup itself then chooses, with the owner, the loop that reviews each submission and its parameter values (`.contrejour/loop.json`), checks the loops and hands off. Every decision goes to the owner through the loops' `owner-review` steps; you never call a role and never choose the project's loop.
+The owner installed the project from a local checkout (`bash distribution/install-contrejour.sh --role validator --project PATH`) and configures this machine with the research task's own `configure` loop, whose steps you do: what this machine should validate, `task.md` (the whole task the worker gets), the configuration sheet with the validation terms, applying it, the environment and the report to the owner. The project's workflow, the loop that reviews each submission and its parameter values (`.contrejour/loop.json`), is set up apart from this, by the framework's `setup` loop, after you. Every decision goes to the owner through the loops' `owner-review` steps; you never call a role and never choose the project's loop.
 
 The helper is `node .contrejour/dist/tools/config-cli.js`, run from the project root. It owns the draft, the review sheet and the confirmed digest; never edit `.contrejour/setup-state.json` or `.contrejour/loop.json` by hand. A missing helper or a non-zero exit stops the step: return the error and the step it blocked, as [integration-contract.md](../skills/shared-references/integration-contract.md) says.
 
@@ -80,10 +80,10 @@ node .contrejour/dist/tools/config-cli.js apply --project .
 
 ### report
 
-Write what this configuration settled, for the hand-off `setup` gives the owner after it has chosen the loop that reviews submissions and checked the loops: the requirement as confirmed (`requirement`), what apply wrote, each environment script with whether its real run passed, the environment section, and anything incomplete with its real error. Then what only this machine needs:
+Write the report for the owner: the requirement as confirmed (`requirement`), what apply wrote, each environment script with whether its real run passed, the environment section, and anything incomplete with its real error. Then what only this machine needs:
 
 1. `worker_connection`, the `url` and `token` the worker's machine configuration needs; the token goes to the worker machine over a private channel.
-2. The owner starts the service with apply's `service_command`, from the project root, once setup has chosen the review loop (the service refuses to start without one), and keeps it running for the whole task: in a terminal multiplexer (tmux, screen) or as an OS service (systemd, a Windows service or scheduled task). If it was already running, it must be restarted to serve the applied address and token; the loop and its parameters are read at each new review. `node .contrejour/dist/tools/validation-cli.js status --project .` checks it.
+2. The owner sets up the project's workflow with `setup` (in the Studio, or `claude "Run the setup loop"`), which chooses the loop that reviews each submission (it needs a real submission, so it is not tried with `loop-trial`). Then the owner starts the service with apply's `service_command`, from the project root (it refuses to start before a review loop is chosen), and keeps it running for the whole task: in a terminal multiplexer (tmux, screen) or as an OS service (systemd, a Windows service or scheduled task). If it was already running, it must be restarted to serve the applied address and token; the loop and its parameters are read at each new review. `node .contrejour/dist/tools/validation-cli.js status --project .` checks it.
 3. The owner starts no review: the service starts one session per submission, running as `validator-task-manager`.
 
 ## Output
@@ -112,4 +112,4 @@ Write what this configuration settled, for the hand-off `setup` gives the owner 
 - **Ownership**: nothing a helper owns written by hand (the configuration state, `.contrejour/loop.json`, `.contrejour/validation/`, `.contrejour/tester-config.json`, `.claude/settings.json`, the `CLAUDE.md` blocks); helper failures returned with their cause, not worked around.
 - **First reviews**: the first submissions reviewed without a configuration error: the service starts sessions (`claude_command`, a trusted folder), the worker connects (`host`, `port`, firewall, `public_url`), the benchmark's runner and smoke work, the adapter contract matches the runner, and `hidden_paths` covers every hidden file the leak reviewer needs.
 - **Environment**: facts verified, environment only, within the limit; later reviews show what was missed, as runs lost to a fact the configuration could have recorded or `validator-memory` correcting the configuration's facts. Every script ran once for real.
-- **Report**: through setup's hand-off, the owner received the service command and the connection, the token kept private.
+- **Report**: the owner received the service command, the connection and what comes next, the token kept private.

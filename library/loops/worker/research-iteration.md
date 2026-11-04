@@ -4,7 +4,8 @@ description: One worker research round — choose problems, five ideators with d
 side: worker
 kind: task
 triggers: record-trajectory
-check-args: [{"stage": "build", "task": "stub task"}, {"stage": "record", "submission_id": "s001"}]
+check-args: [{"stage": "build", "task": "stub task"}, {"stage": "build", "task": "stub task", "trial": true}, {"stage": "record", "submission_id": "s001"}]
+trial-args: {"stage": "build", "trial": true}
 ---
 
 # Research iteration
@@ -18,6 +19,7 @@ The worker's loop: one round turns the open problems into one submitted delivera
 - `stage`: `build` for the part up to the submission, `record` once that submission's result is published.
 - `task`: with `build`, the full text of `task.md`, which the task manager has just fetched.
 - `submission_id`: with `record`, the submission whose result was published.
+- `trial`: with `build`, true for a trial run (`loop-trial`): the round stops after Build, before it submits, so nothing reaches the validator and no submission is used.
 - `params`: the parameter values the owner chose, as `.contrejour/loop.json` records them.
 
 ## Steps
@@ -33,7 +35,7 @@ The round is split where it waits for the result: the task manager runs `build`,
    - `ideator-blank` (`blank_ideators`): the task and the problems, nothing else, and no file tools.
    Each idea is tagged with its slot.
 3. **Rank** — `idea-assessor` drops ideas that repeat an ineffective one, scores the rest (potential and feasibility, 0–1, with `variant_of` and `based_on`, keeping each idea's rationale and risks), and rescores pending ideas from earlier rounds that new evidence changes. `worker-memory` records the new ideas and the rescores, files any new target problem with its statement, and ranks all pending ideas with `rank_ideas` at exploration weight `ucb_c`; it returns the top one. With no pending idea left, the round ends.
-4. **Build** — `implementer` implements the top idea and runs its experiments, then commits and builds the zip and `USAGE.md` to the submission requirements. If it cannot get a deliverable ready, `worker-memory` records why against the idea, so it is not picked again unchanged, and the round ends with that reason.
+4. **Build** — `implementer` implements the top idea and runs its experiments, then commits and builds the zip and `USAGE.md` to the submission requirements. If it cannot get a deliverable ready, `worker-memory` records why against the idea, so it is not picked again unchanged, and the round ends with that reason. With `trial`, the round ends here, before it submits, with what was built.
 5. **Submit** — `worker-task-manager` submits and uploads the zip and records the submission in the ledger, with the implementer's summary as its note.
 
 `record`:

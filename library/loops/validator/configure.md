@@ -1,6 +1,6 @@
 ---
 name: configure
-description: Setup's first step on the validator — what the machine should validate, task.md, the configuration sheet with the validation terms, applying it, and the machine's environment. It takes the framework's configure's place in validator projects.
+description: Configure this machine as the validator — what it should validate, task.md, the configuration sheet with the validation terms, applying it, the machine's environment and the report for the owner. The project's workflow is set up by the framework's setup, apart from this.
 side: validator
 kind: on-request
 triggers: record-trajectory, guard-owner-answers
@@ -11,11 +11,11 @@ check-args: [{"requirement": "start"}, {"requirement": "Validate question-answer
 
 ## Purpose
 
-What is particular to a validator machine, as the first step of the framework's `setup`: the task the worker gets (`task.md`), the benchmark and the terms each submission is judged by, the service the worker reaches, and the machine's environment. `setup` then goes on as it does for every project: the loop that reviews each submission and its parameter values, the checks and the hand-off. The owner also runs this loop alone when the machine's terms change, from the Studio's chat or with `claude "Run the configure loop"`.
+What only a validator machine has: the task the worker gets (`task.md`), the benchmark and the terms each submission is judged by, the service the worker reaches, and the machine's environment. This is the research task's own configuration, apart from the project's workflow, which the framework's `setup` sets up (the loop that reviews each submission and its parameter values). The owner runs this loop when the machine is new, before `setup`, and again when the machine's terms change, from the Studio (pick it in the list above the canvas and press Run) or with `claude "Run the configure loop"`.
 
 ## Inputs
 
-- `requirement`: the owner's first message, verbatim, which `setup` passes on.
+- `requirement`: the owner's first message, verbatim.
 - `answers`: the owner's replies so far, by review id; the session adds each one as it comes (see `running-loops.md`).
 
 ## Steps
@@ -25,7 +25,7 @@ What is particular to a validator machine, as the first step of the framework's 
 3. **Sheet** — `validator-config` turns the owner's words into changes to the configuration sheet and refreshes it (`{action: "sheet", notes, reason}`). `owner-review` shows the whole sheet (`review_id` `sheet:<round>:<digest>`); approval is possible only when it has no open issue. `revise` sends the owner's words back to this step; `cancel` ends the loop.
 4. **Apply** — `validator-config` confirms the approved digest and applies it (`{action: "apply", digest}`): the benchmark is installed and frozen, the token created. When the apply fails, the sheet goes back to step 3 with the reason.
 5. **Environment** — `validator-config` creates the wiki, writes and runs the environment skill's scripts and writes the environment section (`{action: "environment", notes}`). When it needs facts only the owner has, `owner-review` asks (`review_id` `environment:<round>`).
-6. **Report** — `validator-config` writes what this configuration settled, for setup's hand-off, with the command that runs the service and the connection the worker needs (`{action: "report", requirement, applied, environment, incomplete}`), and the loop ends with `{done: true, requirement, report}`.
+6. **Report** — `validator-config` writes the report for the owner: what this configuration settled, the connection the worker needs and what comes next (`{action: "report", requirement, applied, environment, incomplete}`), and the loop ends with `{done: true, requirement, report}`.
 
 ## Bounds
 
