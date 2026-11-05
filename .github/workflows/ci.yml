@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [arl]
-  pull_request:
-    branches: [arl]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -43,3 +41,35 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run test -- tests/${{ matrix.file }}
+  # A commit on main that passes every check publishes the package built above as a release.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [quality, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: contrejour
+          path: artifacts
+      - name: Publish the package as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          short="${GITHUB_SHA::7}"
+          tag="build-$short"
+          archive="$(basename artifacts/contrejour-*.tar.gz)"
+          version="${archive#contrejour-}"
+          version="${version%.tar.gz}"
+          printf 'Built by CI from %s on main: %s\n\nCheck the download with `sha256sum -c %s.sha256`; SETUP_GUIDE.md inside the archive explains installation.\n' \
+            "$GITHUB_SHA" "${MESSAGE%%$'\n'*}" "$archive" > notes.md
+          # A rerun of this job uploads the package again instead of failing on the existing tag.
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" artifacts/contrejour-* --clobber
+          else
+            gh release create "$tag" artifacts/contrejour-* --target "$GITHUB_SHA" \
+              --title "Contrejour $version ($short)" --notes-file notes.md
+          fi

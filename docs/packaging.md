@@ -12,7 +12,7 @@ The build writes `artifacts/contrejour-0.1.0.tar.gz` and its `.sha256`. The arch
 
 `tools/pack-contrejour.mjs` traces local JavaScript imports from the setup, validation, wiki, capture-filter and browser entrypoints. Add new runtime entrypoints and shipped skills there rather than shipping unrelated tools.
 
-The release archive remains available for manual offline distribution and CI; local repository installation does not read or download it. After changing shipped code, skills or documentation, run `npm run pack:contrejour` and copy the archive and checksum into `distribution/releases/` before committing.
+The release archive remains available for manual offline distribution and CI; local repository installation does not read or download it. CI checks every commit pushed to any branch, and each commit on `main` that passes every check publishes the archive and checksum it built as a GitHub release tagged `build-<short commit>`. After changing shipped code, skills or documentation, run `npm run pack:contrejour` and copy the archive and checksum into `distribution/releases/` before committing.
 
 ## Ownership
 
